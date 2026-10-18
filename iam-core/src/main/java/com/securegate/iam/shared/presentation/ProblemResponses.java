@@ -23,9 +23,11 @@ public class ProblemResponses {
     String detail =
         switch (status.value()) {
           case 400 -> "The request is invalid.";
+          case 401 -> "Administrative authentication is required.";
           case 403 -> "Access to this resource is denied.";
           case 404 -> "The requested resource was not found.";
           case 405 -> "The request method is not supported.";
+          case 409 -> "The request conflicts with the current resource state.";
           default ->
               status.is5xxServerError()
                   ? "An internal error occurred. Use the correlation ID when contacting support."
@@ -41,10 +43,21 @@ public class ProblemResponses {
     return problem;
   }
 
+  public void unauthorized(HttpServletRequest request, HttpServletResponse response)
+      throws IOException {
+    response.setHeader("WWW-Authenticate", "Bearer");
+    write(HttpStatus.UNAUTHORIZED, request, response);
+  }
+
   public void forbidden(HttpServletRequest request, HttpServletResponse response)
       throws IOException {
-    response.setStatus(HttpStatus.FORBIDDEN.value());
+    write(HttpStatus.FORBIDDEN, request, response);
+  }
+
+  private void write(HttpStatus status, HttpServletRequest request, HttpServletResponse response)
+      throws IOException {
+    response.setStatus(status.value());
     response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-    objectMapper.writeValue(response.getOutputStream(), create(HttpStatus.FORBIDDEN, request));
+    objectMapper.writeValue(response.getOutputStream(), create(status, request));
   }
 }

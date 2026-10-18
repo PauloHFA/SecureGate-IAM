@@ -74,7 +74,7 @@ class IamCoreIT {
   @Test
   void startsWithPostgresAndAppliesTheVersionedMigrationOnlyOnce() {
     assertEquals(1, jdbc.queryForObject("SELECT 1", Integer.class));
-    assertEquals("1", flyway.info().current().getVersion().getVersion());
+    assertEquals("2", flyway.info().current().getVersion().getVersion());
     var schemas =
         jdbc.queryForList(
             "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'iam_%'",
@@ -128,7 +128,13 @@ class IamCoreIT {
 
   @Test
   void deniesBusinessAndUnexposedManagementRoutesWithProblemDetails() throws Exception {
-    for (String path : List.of("/api/users", "/actuator/env", "/actuator", "/actuator/health/db")) {
+    for (String path :
+        List.of(
+            "/api/users",
+            "/api/admin/users",
+            "/actuator/env",
+            "/actuator",
+            "/actuator/health/db")) {
       var response = get(path, "denied-123");
       JsonNode problem = assertProblem(response, 403, "denied-123");
       assertEquals("Forbidden", problem.path("title").asText());

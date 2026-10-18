@@ -20,7 +20,7 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d --wait --wait-t
 
 O script usa `.env` para definir `IAM_DATABASE_URL`, `IAM_DATABASE_USERNAME`, `IAM_DATABASE_PASSWORD`, `IAM_PORT` e `IAM_BIND_ADDRESS` somente no processo. Ele executa Java em primeiro plano e restaura os valores anteriores ao terminar. Para outra porta, usar `Start-IamCore.ps1 -Port 18080`.
 
-A primeira inicialização aplica `V1__create_context_schemas.sql`, criando `iam_identity`, `iam_access`, `iam_policy`, `iam_authorization`, `iam_audit` e `iam_session`. A tabela de histórico Flyway fica no schema padrão `public`. Não há tabelas de usuário, clientes ou tokens nesta etapa.
+O Flyway aplica V1 para criar os seis schemas e V2 para usuários, credenciais, catálogos/atribuições de acesso e auditoria básica. O histórico fica em `public.flyway_schema_history`. Tabelas OAuth/OIDC serão adicionadas na etapa 4.
 
 Migrações aplicadas não devem ser alteradas; criar um próximo arquivo `V2__...sql` para evoluções. `validate-on-migrate` está ativo e `clean` do Flyway está desabilitado. O usuário atual é o bootstrap local do PostgreSQL; separar papéis de migração/aplicação é trabalho posterior.
 
@@ -33,6 +33,7 @@ Sem o script, passar as variáveis explicitamente por um mecanismo local de conf
 | `GET /actuator/health` | Estado agregado e nomes dos grupos; sem componentes/detalhes |
 | `GET /actuator/health/liveness` | Indica se a aplicação está viva |
 | `GET /actuator/health/readiness` | Combina aceitação de tráfego e disponibilidade do banco |
+| `/api/admin/**` | Bloqueadas por padrão; token bootstrap obrigatório quando ativadas |
 | Outras rotas | HTTP 403 com Problem Details |
 
 ```powershell
@@ -42,7 +43,7 @@ Invoke-RestMethod http://127.0.0.1:8080/actuator/health/readiness
 
 Readiness recusa tráfego com HTTP 503 quando a aplicação está fora de serviço. Isso não deve derrubar liveness. Detalhes do banco não são publicados nas respostas.
 
-A configuração inicial não cria usuário/senha automáticos, formulário de login, Basic Auth ou sessão HTTP. A autorização permite somente GET nos três endpoints de saúde; CSRF continua habilitado. OAuth/OIDC e os fluxos de sessão da etapa 4 terão uma configuração própria, revisada e testada.
+A configuração não cria usuário/senha automáticos, formulário de login, Basic Auth ou sessão HTTP. Saúde permanece pública. Para administrar, usar `Start-IamCore.ps1 -EnableBootstrap`, conforme o [guia específico](provisionamento-local.md). CSRF permanece habilitado fora do namespace administrativo; as rotas administrativas autenticam exclusivamente por Bearer explícito e dispensam CSRF. OAuth/OIDC e os fluxos de sessão da etapa 4 terão configuração própria.
 
 ## Erros e correlação
 
@@ -66,7 +67,7 @@ Camadas de negócio ainda vazias são permitidas enquanto o scaffold é desenvol
 
 O workflow `.github/workflows/ci.yml` executa em PRs, push para `main` e acionamento manual. Usa JDK 21, o mesmo `verify`, Docker do runner e publica relatórios de testes, inclusive em falha. Actions são fixadas por SHA, o token tem apenas `contents: read` e credenciais do checkout não são persistidas.
 
-A sintaxe foi validada com actionlint 1.7.12 e o workflow também [passou no GitHub](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39137410438), com 40 testes aprovados. Para cada novo commit, conferir os checks correspondentes à versão atual do PR.
+A sintaxe foi validada com actionlint 1.7.12 e a versão da etapa 2 também [passou no GitHub](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39137410438), com 40 testes aprovados. A etapa 3 acrescenta testes e cobertura JaCoCo; sua execução remota fica pendente até publicar a branch. Para cada novo commit, conferir os checks correspondentes à versão atual do PR.
 
 Se o processo não inicia, verificar JDK, porta e conectividade PostgreSQL. Se o build falha antes de iniciar o contexto de integração, verificar Docker/Testcontainers. Consultar `target/surefire-reports/` e `target/failsafe-reports/`, sem compartilhar dados sensíveis dos logs.
 

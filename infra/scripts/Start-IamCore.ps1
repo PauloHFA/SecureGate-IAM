@@ -1,10 +1,13 @@
 [CmdletBinding()]
-param([ValidateRange(1024, 65535)][int]$Port = 8080)
+param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LocalEnvironment.ps1')
 $projectPath = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $settings = Read-LocalEnvironment (Join-Path $projectPath '.env')
+if ($EnableBootstrap -and (-not $settings.ContainsKey('IAM_BOOTSTRAP_TOKEN') -or $settings.IAM_BOOTSTRAP_TOKEN.Length -lt 32)) {
+  throw 'Token bootstrap ausente ou invalido. Execute Initialize-Local.ps1 antes de ativar a administracao.'
+}
 $jarPath = Join-Path $projectPath 'iam-core/target/iam-core-0.1.0-SNAPSHOT.jar'
 if (-not (Test-Path -LiteralPath $jarPath)) {
   throw 'JAR ausente. Execute .\mvnw.cmd verify na raiz antes de iniciar.'
@@ -15,6 +18,8 @@ $applicationEnvironment = @{
   IAM_DATABASE_PASSWORD = $settings.POSTGRES_PASSWORD
   IAM_PORT = [string]$Port
   IAM_BIND_ADDRESS = '127.0.0.1'
+  IAM_BOOTSTRAP_ENABLED = $(if ($EnableBootstrap) { 'true' } else { 'false' })
+  IAM_BOOTSTRAP_TOKEN = $(if ($EnableBootstrap) { $settings.IAM_BOOTSTRAP_TOKEN } else { '' })
 }
 $previousValues = @{}
 try {

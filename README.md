@@ -4,7 +4,7 @@ Plataforma de identidade e acesso baseada em Zero Trust, com provisionamento, OA
 
 ## Estado atual
 
-Fundação Maven, infraestrutura local e bootstrap do `iam-core` implementados. O core inicia com Spring Boot, migra o PostgreSQL via Flyway e expõe probes de saúde. Os testes incluem arquitetura e integração com PostgreSQL temporário. A CI foi executada com sucesso no GitHub, com 40 testes aprovados; consulte as [evidências da etapa 2](docs/evidencias/etapa-02.md).
+Fundação, infraestrutura e API administrativa de Identity/Access implementadas. O core gerencia usuários, credenciais Argon2id, grupos, papéis, permissões e auditoria transacional. Administração fica desabilitada por padrão e exige ativação explícita com token bootstrap temporário. A etapa 3 foi validada localmente com 106 testes; sua publicação ainda está pendente. Consulte as [evidências](docs/evidencias/etapa-03.md).
 
 ## Decisões aprovadas
 
@@ -22,12 +22,14 @@ Fundação Maven, infraestrutura local e bootstrap do `iam-core` implementados. 
 - [ADR-003 — Baseline da infraestrutura](docs/adr/003-infraestrutura-local.md)
 - [Execução e diagnóstico do iam-core](docs/runbooks/iam-core-local.md)
 - [Evidências da etapa 2](docs/evidencias/etapa-02.md)
+- [Provisionamento administrativo local](docs/runbooks/provisionamento-local.md)
+- [ADR-004 — Identity, Access e bootstrap administrativo](docs/adr/004-identity-access-bootstrap.md)
 
 O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Implementação**, versão 0.1, outubro de 2026, disponível em PDF na pasta local do projeto.
 
 ## Próximo passo
 
-Iniciar a etapa 3: Identity e Access. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas iniciais e está disponível para revisão. As evidências das etapas [0](docs/evidencias/etapa-00.md), [1](docs/evidencias/etapa-01.md) e [2](docs/evidencias/etapa-02.md) registram as validações executadas.
+Publicar e revisar as alterações da etapa 3, depois iniciar OAuth/OIDC e assinatura JWT via Vault Transit na etapa 4. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2; o código da etapa 3 está na branch local `feat/identity-access`.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
@@ -51,6 +53,8 @@ Linux/macOS:
 
 O build valida JDK/Maven, verifica formatação, executa testes unitários e de integração e gera os JARs. `iam-core/target/iam-core-0.1.0-SNAPSHOT.jar` é executável Spring Boot; `policy-enforcer` ainda não possui bootstrap. Os testes de integração falham se Docker não estiver disponível, sem serem ignorados silenciosamente.
 
+JaCoCo exige pelo menos 80% de cobertura de linhas por pacote de domínio/aplicação de Identity e Access. O relatório HTML fica em `iam-core/target/site/jacoco/index.html`, e a CI inclui os relatórios de cobertura no artefato de testes.
+
 Para executar apenas testes unitários/arquitetura sem iniciar containers, use `./mvnw test` ou `.\mvnw.cmd test`. Isso não substitui o aceite completo de `verify`. Relatórios ficam em `target/surefire-reports/` e `target/failsafe-reports/` dos módulos.
 
 Para corrigir formatação Java, execute `.\mvnw.cmd spotless:apply` no Windows ou `./mvnw spotless:apply` no Linux/macOS. O `verify` apenas verifica a formatação, sem alterar o código.
@@ -58,7 +62,7 @@ Para corrigir formatação Java, execute `.\mvnw.cmd spotless:apply` no Windows 
 | Módulo | Responsabilidade atual |
 | --- | --- |
 | `libs/security-events` | Biblioteca Java sem Spring, com validação inicial dos tipos de evento |
-| `iam-core` | Aplicação Spring Boot com Actuator, segurança inicial, Flyway e testes |
+| `iam-core` | Identity/Access, API administrativa protegida, auditoria básica, Actuator e Flyway |
 | `policy-enforcer` | Módulo reservado para o consumidor; implementação na etapa 7 |
 
 O contrato inicial `SecurityEventType` aceita segmentos minúsculos separados por ponto, até 128 caracteres, e rejeita curingas de binding (`*` e `#`). O envelope versionado e a mensageria serão implementados na etapa 6. Relatórios de teste ficam em `libs/security-events/target/surefire-reports/`.
@@ -87,7 +91,13 @@ Após o build e a subida da infraestrutura:
 
 O script lê o `.env` local e transmite a senha por variável de ambiente ao processo Java, sem gravá-la no código ou passá-la na linha de comando. A aplicação escuta em `127.0.0.1:8080`; `-Port 18080` permite trocar a porta. As migrações serão aplicadas ao banco local na primeira inicialização.
 
-Endpoints públicos: `GET /actuator/health`, `/actuator/health/liveness` e `/actuator/health/readiness`. Demais rotas são bloqueadas com HTTP 403 até a implementação da autenticação/API. Não há login, emissão de tokens ou provisionamento ainda.
+Endpoints públicos: `GET /actuator/health`, `/actuator/health/liveness` e `/actuator/health/readiness`. Por padrão, as rotas administrativas permanecem bloqueadas. Para provisionar no ambiente local, iniciar explicitamente com:
+
+```powershell
+.\infra\scripts\Start-IamCore.ps1 -EnableBootstrap
+```
+
+As rotas `/api/admin/**` exigem o token gerado em `.env`. Consulte o [guia de provisionamento](docs/runbooks/provisionamento-local.md) para exemplos, controle de versão e atribuições. Login de usuário, OAuth/OIDC e emissão de tokens serão implementados na etapa 4.
 
 ## Arquivos locais
 

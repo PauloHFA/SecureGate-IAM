@@ -16,6 +16,11 @@ spring:
     problemdetails:
       enabled: true
 
+iam:
+  bootstrap:
+    enabled: ${IAM_BOOTSTRAP_ENABLED:false}
+    token: ${IAM_BOOTSTRAP_TOKEN:}
+
 server:
   address: ${IAM_BIND_ADDRESS:127.0.0.1}
   port: ${IAM_PORT:8080}
@@ -49,6 +54,7 @@ logging:
     org.springframework.boot: INFO
     org.springframework.web: INFO
     org.springframework.security: INFO
+    org.springframework.jdbc: INFO
     com.zaxxer.hikari: INFO
   pattern:
     level: '%5p [correlationId=%X{correlationId:-}]'

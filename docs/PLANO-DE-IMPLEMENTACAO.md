@@ -64,7 +64,7 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 0 | Fundação e build Maven | Decisões aprovadas | Concluída; ver evidências |
 | 1 | Infraestrutura local | 0 | Concluída localmente; ver evidências |
 | 2 | Esqueleto e CI | 0–1 | Concluída; validação local e CI GitHub aprovadas |
-| 3 | Identity e Access | 2 | Pendente |
+| 3 | Identity e Access | 2 | Implementada e validada localmente; publicação pendente |
 | 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | Pendente |
 | 5 | Políticas, risco e MFA | 3–4 | Pendente |
 | 6 | Eventos e Outbox | 2–5 | Pendente |
@@ -131,16 +131,18 @@ Subdivisão executada: **2A**, bootstrap/segurança/probes; **2B**, PostgreSQL/F
 
 ## Etapa 3 — Identity e Access
 
-- [ ] Modelar usuários, ciclo de vida, credenciais separadas, papéis, permissões e grupos.
-- [ ] Implementar hash Argon2id, validações e proteção contra exposição de senha.
-- [ ] Criar migrações, repositórios e casos de uso de provisionamento/atribuição.
-- [ ] Expor API administrativa protegida por bootstrap temporário documentado, substituível por OAuth.
-- [ ] Impedir administração anônima desde a primeira entrega.
-- [ ] Registrar auditoria básica, preparando migração para etapa 8.
-- [ ] Testar autorização, conflitos, entradas inválidas, concorrência relevante e ausência de enumeração.
-- [ ] Configurar JaCoCo com cobertura mínima de 80% para domínio/aplicação destes contextos.
+- [x] Modelar usuários, ciclo de vida, credenciais separadas, papéis, permissões e grupos.
+- [x] Implementar hash Argon2id, validações e proteção contra exposição de senha.
+- [x] Criar migrações, repositórios e casos de uso de provisionamento/atribuição.
+- [x] Expor API administrativa protegida por bootstrap temporário documentado, substituível por OAuth.
+- [x] Impedir administração anônima desde a primeira entrega.
+- [x] Registrar auditoria básica, preparando migração para etapa 8.
+- [x] Testar autorização, conflitos, entradas inválidas, concorrência relevante e ausência de enumeração pela API administrativa.
+- [x] Configurar JaCoCo com cobertura mínima de 80% por pacote de domínio/aplicação destes contextos.
 
 **Aceite:** provisionar usuário, associar grupo/papel e verificar permissões em testes; administração anônima é rejeitada; cobertura mínima satisfeita.
+
+Subdivisão executada: **3A**, usuários/credenciais/ciclo de vida; **3B**, catálogos e atribuições RBAC; **3C**, bootstrap administrativo/auditoria; **3D**, testes e cobertura. As alterações estão na branch local `feat/identity-access`, baseada na etapa 2. Consultar [evidências](evidencias/etapa-03.md), [decisões](adr/004-identity-access-bootstrap.md) e [guia de provisionamento](runbooks/provisionamento-local.md). Publicação e execução remota da CI desta branch ainda não foram realizadas.
 
 ## Etapa 4 — Authorization Server e Transit
 
@@ -302,4 +304,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Executar a etapa 3: Identity e Access, com provisionamento protegido, credenciais e atribuição de papéis/permissões. A etapa 2 tem aceite local e remoto registrado; o PR das etapas iniciais segue aberto para revisão.
+Publicar e revisar a etapa 3 e executar a CI do código novo. Em seguida, iniciar a etapa 4: Authorization Server, fluxos OAuth/OIDC, persistência de clientes/autorizações e assinatura JWT via Vault Transit.

@@ -13,6 +13,10 @@
   <name>SecureGate IAM Core</name>
   <dependencies>
     <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcprov-jdk18on</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
@@ -72,6 +76,31 @@
   </dependencies>
   <build>
     <plugins>
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.version}</version>
+        <configuration>
+          <includes>
+            <include>com/securegate/iam/identity/domain/**</include>
+            <include>com/securegate/iam/identity/application/**</include>
+            <include>com/securegate/iam/access/domain/**</include>
+            <include>com/securegate/iam/access/application/**</include>
+          </includes>
+        </configuration>
+        <executions>
+          <execution><id>coverage-agent</id><goals><goal>prepare-agent</goal></goals></execution>
+          <execution><id>coverage-report</id><phase>verify</phase><goals><goal>report</goal></goals></execution>
+          <execution>
+            <id>coverage-minimum</id><phase>verify</phase><goals><goal>check</goal></goals>
+            <configuration>
+              <rules><rule><element>PACKAGE</element><limits><limit>
+                <counter>LINE</counter><value>COVEREDRATIO</value><minimum>0.80</minimum>
+              </limit></limits></rule></rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
