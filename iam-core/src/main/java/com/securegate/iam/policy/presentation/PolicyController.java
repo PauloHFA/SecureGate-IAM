@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.securegate.iam.policy.application.DecisionView;
 import com.securegate.iam.policy.application.PolicyService;
 import com.securegate.iam.policy.application.PolicyView;
+import com.securegate.iam.policy.application.SimulationSignals;
 import com.securegate.iam.shared.application.port.PageRequest;
 import com.securegate.iam.shared.presentation.OperationContexts;
 import jakarta.servlet.http.HttpServletRequest;
@@ -96,6 +97,17 @@ public class PolicyController {
     }
   }
 
+  @PostMapping("/simulate")
+  ResponseEntity<DecisionView> simulate(@Valid @RequestBody Simulation body) {
+    return noStore(
+        policies.simulate(
+            body.userId(),
+            body.resource(),
+            body.action(),
+            body.requestedScopes(),
+            body.scenario()));
+  }
+
   private static <T> ResponseEntity<T> noStore(T body) {
     return ResponseEntity.ok().header("Cache-Control", "no-store").body(body);
   }
@@ -121,4 +133,11 @@ public class PolicyController {
 
   public record PolicyResponse(
       UUID id, String name, int priority, boolean enabled, long version, JsonNode document) {}
+
+  public record Simulation(
+      @NotNull UUID userId,
+      @NotBlank @Size(max = 128) String resource,
+      @NotBlank @Size(max = 128) String action,
+      @NotEmpty @Size(max = 10) Set<@NotBlank @Size(max = 64) String> requestedScopes,
+      @NotNull SimulationSignals scenario) {}
 }

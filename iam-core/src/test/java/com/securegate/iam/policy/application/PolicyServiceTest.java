@@ -47,7 +47,10 @@ class PolicyServiceTest {
             public <T> T execute(Supplier<T> operation) {
               return operation.get();
             }
-          });
+          },
+          (userId, resource) ->
+              com.securegate.iam.policy.domain.RiskSignals.unknown(java.time.Instant.EPOCH),
+          java.time.Clock.fixed(java.time.Instant.EPOCH, java.time.ZoneOffset.UTC));
 
   @Test
   void createsUpdatesReadsAndListsWithMetadataOnlyAudit() {
@@ -119,5 +122,44 @@ class PolicyServiceTest {
     assertThrows(
         IllegalArgumentException.class,
         () -> service.evaluate(null, "invoices", "read", Set.of("api:read")));
+  }
+
+  @Test
+  void marksSyntheticContextAndNeverTreatsItAsRealEvidence() {
+    UUID user = UUID.randomUUID();
+    when(identities.isActive(user)).thenReturn(true);
+    when(roles.forUser(user)).thenReturn(List.of("READER"));
+    when(policies.candidates("invoices", "read", 1001)).thenReturn(List.of(existing));
+    var actual = service.evaluate(user, "invoices", "read", Set.of("api:read"));
+    assertEquals(100, actual.risk().score());
+    assertFalse(actual.simulation());
+    var simulated =
+        service.simulate(
+            user,
+            "invoices",
+            "read",
+            Set.of("api:read"),
+            new SimulationSignals("TRUSTED", "TRUSTED", 0, "PUBLIC"));
+    assertEquals(0, simulated.risk().score());
+    assertTrue(simulated.simulation());
+    assertEquals(
+        100, service.evaluate(user, "invoices", "read", Set.of("api:read")).risk().score());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> service.simulate(user, "invoices", "read", Set.of("api:read"), null));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new SimulationSignals("untrusted", null, null, null).at(java.time.Instant.EPOCH));
+    assertEquals(
+        100,
+        service
+            .simulate(
+                user,
+                "invoices",
+                "read",
+                Set.of("api:read"),
+                new SimulationSignals(null, null, null, null))
+            .risk()
+            .score());
   }
 }

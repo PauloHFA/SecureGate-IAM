@@ -64,9 +64,9 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 0 | Fundação e build Maven | Decisões aprovadas | Concluída; ver evidências |
 | 1 | Infraestrutura local | 0 | Concluída localmente; ver evidências |
 | 2 | Esqueleto e CI | 0–1 | Concluída; validação local e CI GitHub aprovadas |
-| 3 | Identity e Access | 2 | Implementada e validada localmente; publicação pendente |
-| 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | 4A–4D2 implementadas e validadas localmente; publicação/revisão pendentes |
-| 5 | Políticas, risco e MFA | 3–4 | Em andamento; 5A implementada localmente, 5B–5D pendentes |
+| 3 | Identity e Access | 2 | Incluída na base publicada 5A, com CI aprovada; revisão/merge pendentes |
+| 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | 4A–4D2 publicadas na base 5A, com CI aprovada; revisão/merge pendentes |
+| 5 | Políticas, risco e MFA | 3–4 | Em andamento; 5A publicada, 5B1 validada localmente, 5B2/5C/5D pendentes |
 | 6 | Eventos e Outbox | 2–5 | Pendente |
 | 7 | Enforcer e revogação | 4–6 | Pendente |
 | 8 | Auditoria e desempenho | 6–7 | Pendente |
@@ -167,7 +167,7 @@ Subdivisão da etapa:
 - **4D1 — Ciclo dos tokens:** refresh opcional com rotação, prazo absoluto de 30 minutos, histórico de hashes, detecção de reuso transacional, introspecção e revogação pelo cliente proprietário. Implementada e validada localmente com 190 testes. Ver [ADR-008](adr/008-refresh-rotacao-e-revogacao.md), [runbook](runbooks/oauth-refresh-local.md) e [evidências](evidencias/etapa-04d1.md).
 - **4D2 — OIDC:** discovery OAuth/OIDC, ID token Transit com audiência do cliente, nonce obrigatório, auth_time/sid e userinfo condicionado a escopos/estado atual da identidade. Cadastro web opta por `oidc: true`, adicionando `openid` automaticamente; `offline_access` continua indisponível. Ver [ADR-009](adr/009-oidc-discovery-e-userinfo.md), [runbook](runbooks/oidc-local.md) e [evidências](evidencias/etapa-04d2.md).
 
-As entregas 4A–4D2 cobrem o escopo funcional local da etapa 4; publicação, revisão e CI remota continuam pendentes. Client Credentials e Authorization Code com PKCE emitem tokens RS256; clientes web podem optar por refresh rotativo e OIDC. Consentimento interativo está implementado. Access tokens de usuário recebem papéis recalculados na renovação e sid; ID tokens têm audiência do cliente e não recebem papéis de API. Client Credentials não recebe claims de usuário. Nome/e-mail exigem escopos aprovados, sem afirmar email_verified. Remoção de versões antigas exige política de retenção considerando o maior TTL de todos os fluxos futuros, além dos cinco minutos atuais. Sessão de navegador ainda é local à instância. Introspecção e userinfo já refletem revogação no servidor; propagação para recursos com verificação offline permanece na etapa 7. A implementação não declara certificação OpenID nem suporte a clientes públicos, registro dinâmico ou logout OIDC.
+As entregas 4A–4D2 cobrem o escopo funcional da etapa 4 e estão incluídas na base publicada até a 5A, com CI aprovada; revisão e merge continuam pendentes. Client Credentials e Authorization Code com PKCE emitem tokens RS256; clientes web podem optar por refresh rotativo e OIDC. Consentimento interativo está implementado. Access tokens de usuário recebem papéis recalculados na renovação e sid; ID tokens têm audiência do cliente e não recebem papéis de API. Client Credentials não recebe claims de usuário. Nome/e-mail exigem escopos aprovados, sem afirmar email_verified. Remoção de versões antigas exige política de retenção considerando o maior TTL de todos os fluxos futuros, além dos cinco minutos atuais. Sessão de navegador ainda é local à instância. Introspecção e userinfo já refletem revogação no servidor; propagação para recursos com verificação offline permanece na etapa 7. A implementação não declara certificação OpenID nem suporte a clientes públicos, registro dinâmico ou logout OIDC.
 
 ## Etapa 5 — Políticas, risco e MFA
 
@@ -175,9 +175,9 @@ As entregas 4A–4D2 cobrem o escopo funcional local da etapa 4; publicação, r
 - [x] Implementar default deny e precedência de DENY explícito no motor de avaliação.
 - [x] Definir combinação dos demais efeitos em tabela de decisão.
 - [x] Retornar ALLOW, ALLOW_WITH_MFA, ALLOW_LIMITED ou DENY com motivos e IDs/versões das políticas aplicadas na avaliação administrativa.
-- [ ] Implementar RBAC e DSL JSON restrita para ABAC, sem execução arbitrária de código.
+- [x] Implementar RBAC e DSL JSON restrita para ABAC, sem execução arbitrária de código, no motor administrativo.
 - [ ] Coletar sinais confiáveis de identidade, dispositivo, rede, comportamento e recurso.
-- [ ] Calcular risco determinístico de 0 a 100 e tratar sinais ausentes/inválidos.
+- [x] Calcular risco determinístico de 0 a 100 e tratar sinais ausentes/inválidos; coleta real ainda pendente.
 - [ ] Implementar TOTP, códigos de recuperação com hash e step-up.
 - [ ] Aplicar decisões no login, emissão de token e autorização de recursos.
 
@@ -186,11 +186,12 @@ As entregas 4A–4D2 cobrem o escopo funcional local da etapa 4; publicação, r
 Subdivisão da etapa:
 
 - **5A — Fundação de políticas:** JSONB com gramática fechada v1, target exato/`*`, condição por papéis atuais, prioridade, estado, versão otimista, auditoria transacional, tabela de decisão e simulação administrativa. DENY prevalece; limites são intersectados, com menor TTL; MFA permanece um requisito pendente. Ver [ADR-010](adr/010-politicas-e-tabela-de-decisao.md), [runbook](runbooks/politicas-local.md) e [evidências](evidencias/etapa-05a.md).
-- **5B — ABAC e risco:** evoluir a gramática de forma versionada, definir sinais confiáveis e comportamento para sinais ausentes/inválidos, com score determinístico. Pendente.
+- **5B1 — Motor ABAC/risco e cenários:** gramática v2 com condições tipadas ALL, score determinístico de 0–100, tratamento conservador de ausência/expiração e endpoint de cenários administrativos identificado como simulação. V1 preservada e V6 amplia a restrição JSONB sem reescrever dados. Implementada e validada localmente com 311 testes. Ver [ADR-011](adr/011-abac-e-risco-deterministico.md), [runbook](runbooks/abac-risco-local.md) e [evidências](evidencias/etapa-05b1.md).
+- **5B2 — Coleta confiável:** implementar fontes de dispositivo/rede/comportamento/recurso com origem autorizada, vínculo ao sujeito/recurso, janela temporal e resistência a replay. A porta atual retorna explicitamente sinais ausentes, sem fabricar fatos seguros. Pendente.
 - **5C — MFA e step-up:** TOTP, recuperação com hash e comprovação do fator associada à sessão/operação. Pendente.
 - **5D — Aplicação das decisões:** integrar políticas/risco/MFA ao login, emissão e recursos, respeitando escopos consentidos e limites de TTL. Pendente.
 
-A 5A não encerra a etapa 5: sua avaliação é uma recomendação administrativa e não altera OAuth. Papéis vêm do banco, incluindo grupos, sem entrada confiável de papéis/MFA/risco fornecida pelo solicitante. O resultado ALLOW_WITH_MFA indica exigência não satisfeita; nunca comprova fator. RBAC inicial está disponível, mas a tarefa conjunta de RBAC/DSL ABAC permanece aberta até a 5B. O aceite de MFA incompleto e aplicação efetiva de limites será completado nas entregas 5C/5D. Publicação, revisão e CI remota continuam pendentes.
+A 5B1 não encerra a etapa 5: avaliações são recomendações administrativas e não alteram OAuth. Papéis vêm do banco; cenários sintéticos ficam separados da coleta real e nunca comprovam contexto ou MFA. O resultado ALLOW_WITH_MFA indica exigência não satisfeita. A coleta permanece aberta na 5B2; o aceite de MFA incompleto e aplicação efetiva de limites será completado nas entregas 5C/5D. A base até a 5A foi publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831), com 243 testes; a 5B1 ainda aguarda publicação/CI remota. Revisão/merge continuam pendentes.
 
 ## Etapa 6 — Eventos e Outbox
 
@@ -323,4 +324,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a 5B: condições ABAC e risco determinístico, evoluindo a gramática com sinais confiáveis. A 4D2 está no commit `9f924f3`; a 5A está na branch `feat/policy-foundation`, com commit consultável no histórico. Publicação, revisão e CI remota do código posterior à etapa 2 continuam pendentes.
+Seguir para a 5B2: coleta confiável de sinais, com vínculo e expiração. A 5A (`8f5666d`) foi publicada em `feat/policy-foundation` e passou na CI. A 5B1 está na branch `feat/abac-risk-engine`, com commit consultável no histórico; push e CI remota pendentes. Revisão e merge continuam pendentes.

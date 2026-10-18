@@ -27,11 +27,33 @@ public final class JsonPolicyDocuments implements PolicyDocuments {
       throw new IllegalArgumentException("Invalid policy document size");
     }
     try {
-      var rule = json.readValue(document, PolicyRule.class);
-      if (rule == null) {
+      var tree = json.readTree(document);
+      if (tree == null || !tree.isObject() || !tree.path("schemaVersion").isInt()) {
         throw new IllegalArgumentException("Policy document is required");
       }
-      return rule;
+      int version = tree.path("schemaVersion").intValue();
+      if (version == 1) {
+        if (tree.has("conditions")) {
+          throw new IllegalArgumentException("ABAC conditions require schema v2");
+        }
+        ((com.fasterxml.jackson.databind.node.ObjectNode) tree).putArray("conditions");
+      }
+      if (version == 2) {
+        if (!tree.path("conditions").isArray()) {
+          throw new IllegalArgumentException("Conditions are required in schema v2");
+        }
+        for (var condition : tree.path("conditions")) {
+          if (!condition.path("values").isArray()) {
+            throw new IllegalArgumentException("Condition values must be an array");
+          }
+          for (var value : condition.path("values")) {
+            if (!value.isTextual()) {
+              throw new IllegalArgumentException("Condition literals must be strings");
+            }
+          }
+        }
+      }
+      return json.treeToValue(tree, PolicyRule.class);
     } catch (JsonProcessingException failure) {
       throw new IllegalArgumentException("Invalid policy document");
     }
@@ -40,7 +62,11 @@ public final class JsonPolicyDocuments implements PolicyDocuments {
   @Override
   public String encode(PolicyRule rule) {
     try {
-      return json.writeValueAsString(rule);
+      var tree = json.valueToTree(rule);
+      if (rule.schemaVersion() == 1) {
+        ((com.fasterxml.jackson.databind.node.ObjectNode) tree).remove("conditions");
+      }
+      return json.writeValueAsString(tree);
     } catch (JsonProcessingException failure) {
       throw new IllegalStateException("Policy serialization failed");
     }

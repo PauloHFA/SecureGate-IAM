@@ -7,15 +7,18 @@ import com.securegate.iam.audit.application.port.AuditTrail;
 import com.securegate.iam.identity.application.port.IdentityLookup;
 import com.securegate.iam.policy.application.port.PolicyDocuments;
 import com.securegate.iam.policy.application.port.PolicyRepository;
+import com.securegate.iam.policy.application.port.RiskSignalsProvider;
 import com.securegate.iam.policy.domain.EvaluationContext;
 import com.securegate.iam.policy.domain.Policy;
 import com.securegate.iam.policy.domain.PolicyDecision;
 import com.securegate.iam.policy.domain.PolicyEvaluator;
+import com.securegate.iam.policy.domain.RiskCalculator;
 import com.securegate.iam.shared.application.ConcurrentUpdateException;
 import com.securegate.iam.shared.application.ResourceNotFoundException;
 import com.securegate.iam.shared.application.port.OperationContext;
 import com.securegate.iam.shared.application.port.PageRequest;
 import com.securegate.iam.shared.application.port.UnitOfWork;
+import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -30,6 +33,9 @@ public final class PolicyService {
   private final AuditTrail audit;
   private final UnitOfWork transactions;
   private final PolicyEvaluator evaluator = new PolicyEvaluator();
+  private final RiskCalculator riskCalculator = new RiskCalculator();
+  private final RiskSignalsProvider signals;
+  private final Clock clock;
 
   public PolicyService(
       PolicyRepository policies,
@@ -37,13 +43,17 @@ public final class PolicyService {
       IdentityLookup identities,
       EffectiveRoles roles,
       AuditTrail audit,
-      UnitOfWork transactions) {
+      UnitOfWork transactions,
+      RiskSignalsProvider signals,
+      Clock clock) {
     this.policies = policies;
     this.documents = documents;
     this.identities = identities;
     this.roles = roles;
     this.audit = audit;
     this.transactions = transactions;
+    this.signals = signals;
+    this.clock = clock;
   }
 
   public PolicyView create(
@@ -91,24 +101,53 @@ public final class PolicyService {
   /** Administrative preview: caller cannot supply roles, MFA proof or a trusted risk score. */
   public DecisionView evaluate(
       UUID userId, String resource, String action, Set<String> requestedScopes) {
+    return evaluateInternal(userId, resource, action, requestedScopes, null);
+  }
+
+  public DecisionView simulate(
+      UUID userId,
+      String resource,
+      String action,
+      Set<String> requestedScopes,
+      SimulationSignals scenario) {
+    if (scenario == null) {
+      throw new IllegalArgumentException("Simulation scenario is required");
+    }
+    return evaluateInternal(userId, resource, action, requestedScopes, scenario);
+  }
+
+  private DecisionView evaluateInternal(
+      UUID userId,
+      String resource,
+      String action,
+      Set<String> requestedScopes,
+      SimulationSignals scenario) {
     if (userId == null) {
       throw new IllegalArgumentException("User ID is required");
     }
     var input = new EvaluationContext(resource, action, Set.of(), requestedScopes);
+    var now = clock.instant();
+    boolean simulation = scenario != null;
+    var assessment =
+        riskCalculator.assess(
+            simulation ? scenario.at(now) : signals.collect(userId, resource), now);
     if (!identities.isActive(userId)) {
-      return DecisionView.from(PolicyDecision.deny("IDENTITY_INACTIVE", List.of()));
+      return DecisionView.from(
+          PolicyDecision.deny("IDENTITY_INACTIVE", List.of()), assessment, simulation);
     }
     var candidates = policies.candidates(resource, action, MAX_CANDIDATES + 1);
     if (candidates.size() > MAX_CANDIDATES) {
-      return DecisionView.from(PolicyDecision.deny("POLICY_LIMIT_EXCEEDED", List.of()));
+      return DecisionView.from(
+          PolicyDecision.deny("POLICY_LIMIT_EXCEEDED", List.of()), assessment, simulation);
     }
     var context =
         new EvaluationContext(
             input.resource(),
             input.action(),
             Set.copyOf(roles.forUser(userId)),
-            input.requestedScopes());
-    return DecisionView.from(evaluator.evaluate(candidates, context));
+            input.requestedScopes(),
+            assessment);
+    return DecisionView.from(evaluator.evaluate(candidates, context), assessment, simulation);
   }
 
   private Policy required(UUID id) {

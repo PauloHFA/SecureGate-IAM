@@ -10,7 +10,7 @@ public final class PolicyEvaluator {
     var matched =
         policies.stream()
             .filter(Policy::enabled)
-            .filter(policy -> policy.document().matches(context))
+            .filter(policy -> policy.document().match(context) != AttributeCondition.Match.NO_MATCH)
             .sorted(Comparator.comparingInt(Policy::priority).reversed().thenComparing(Policy::id))
             .toList();
     var applied =
@@ -20,8 +20,17 @@ public final class PolicyEvaluator {
     if (matched.isEmpty()) {
       return PolicyDecision.deny("NO_MATCH", applied);
     }
-    if (matched.stream().anyMatch(policy -> policy.document().effect() == PolicyEffect.DENY)) {
+    if (matched.stream()
+        .anyMatch(
+            policy ->
+                policy.document().effect() == PolicyEffect.DENY
+                    && policy.document().match(context) == AttributeCondition.Match.MATCH)) {
       return PolicyDecision.deny("EXPLICIT_DENY", applied);
+    }
+    if (matched.stream()
+        .anyMatch(
+            policy -> policy.document().match(context) == AttributeCondition.Match.INDETERMINATE)) {
+      return PolicyDecision.deny("INDETERMINATE_ATTRIBUTES", applied);
     }
     var scopes = new HashSet<>(context.requestedScopes());
     int ttl = 300;

@@ -270,6 +270,286 @@ class PolicyAdministrationIT {
     assertEquals(204, response.statusCode(), response.body());
   }
 
+  private Map<String, Object> condition(String attribute, String operator, String... values) {
+    return Map.of("attribute", attribute, "operator", operator, "values", List.of(values));
+  }
+
+  private JsonNode abac(String resource, String effect, List<Map<String, Object>> conditions)
+      throws Exception {
+    var body =
+        body(
+            resource,
+            effect,
+            10,
+            true,
+            Set.of(),
+            effect.equals("ALLOW_LIMITED") ? Set.of("api:read") : Set.of(),
+            effect.equals("ALLOW_LIMITED") ? 90 : null);
+    @SuppressWarnings("unchecked")
+    var document = (Map<String, Object>) body.get("document");
+    document.put("schemaVersion", 2);
+    document.put("conditions", conditions);
+    return success(call("POST", "/policies", body), 201);
+  }
+
+  private JsonNode simulate(UUID user, String resource, Map<String, Object> scenario)
+      throws Exception {
+    return success(
+        call(
+            "POST",
+            "/policies/simulate",
+            Map.of(
+                "userId",
+                user,
+                "resource",
+                resource,
+                "action",
+                "read",
+                "requestedScopes",
+                Set.of("api:read", "api:write"),
+                "scenario",
+                scenario)),
+        200);
+  }
+
+  private Map<String, Object> safeScenario() {
+    return Map.of(
+        "deviceTrust",
+        "TRUSTED",
+        "networkTrust",
+        "TRUSTED",
+        "failedLoginAttempts",
+        0,
+        "resourceSensitivity",
+        "PUBLIC");
+  }
+
+  @Test
+  void simulatesRiskBasedAllowMfaAndDenyWithoutAcceptingSelfAttestedFacts() throws Exception {
+    UUID user = user();
+    String resource = target();
+    abac(
+        resource,
+        "ALLOW",
+        List.of(condition("DEVICE_TRUST", "EQ", "TRUSTED"), condition("RISK_SCORE", "LTE", "29")));
+    abac(
+        resource,
+        "ALLOW_WITH_MFA",
+        List.of(condition("RISK_SCORE", "GTE", "30"), condition("RISK_SCORE", "LTE", "79")));
+    abac(resource, "DENY", List.of(condition("RISK_SCORE", "GTE", "80")));
+    var low = simulate(user, resource, safeScenario());
+    assertTrue(low.path("simulation").asBoolean());
+    assertEquals(0, low.path("risk").path("score").asInt());
+    assertEquals("ALLOW", low.path("effect").asText());
+    var medium =
+        simulate(
+            user,
+            resource,
+            Map.of(
+                "deviceTrust",
+                "UNTRUSTED",
+                "networkTrust",
+                "UNTRUSTED",
+                "failedLoginAttempts",
+                1,
+                "resourceSensitivity",
+                "PUBLIC"));
+    assertEquals(55, medium.path("risk").path("score").asInt());
+    assertEquals("MEDIUM", medium.path("risk").path("level").asText());
+    assertEquals("ALLOW_WITH_MFA", medium.path("effect").asText());
+    assertTrue(medium.path("mfaRequired").asBoolean());
+    var high =
+        simulate(
+            user,
+            resource,
+            Map.of(
+                "deviceTrust",
+                "UNTRUSTED",
+                "networkTrust",
+                "UNTRUSTED",
+                "failedLoginAttempts",
+                5,
+                "resourceSensitivity",
+                "RESTRICTED"));
+    assertEquals(100, high.path("risk").path("score").asInt());
+    assertEquals("DENY", high.path("effect").asText());
+    var actual =
+        success(
+            call(
+                "POST",
+                "/policies/evaluate",
+                Map.of(
+                    "userId",
+                    user,
+                    "resource",
+                    resource,
+                    "action",
+                    "read",
+                    "requestedScopes",
+                    Set.of("api:read"),
+                    "scenario",
+                    safeScenario(),
+                    "riskScore",
+                    0,
+                    "deviceTrust",
+                    "TRUSTED")),
+            200);
+    assertFalse(actual.path("simulation").asBoolean());
+    assertEquals(100, actual.path("risk").path("score").asInt());
+    assertEquals(4, actual.path("risk").path("missingSignals").size());
+    assertEquals("DENY", actual.path("effect").asText());
+    assertEquals(100, evaluate(user, resource).path("risk").path("score").asInt());
+  }
+
+  @Test
+  void missingDenyAttributeCannotBeIgnoredAndDisablingItRestoresLegacyBehavior() throws Exception {
+    UUID user = user();
+    String resource = target();
+    create(resource, "ALLOW", 1000, true, Set.of(), Set.of(), null);
+    var conditional = abac(resource, "DENY", List.of(condition("DEVICE_TRUST", "EQ", "UNTRUSTED")));
+    var actual = evaluate(user, resource);
+    assertEquals("DENY", actual.path("effect").asText());
+    assertEquals("INDETERMINATE_ATTRIBUTES", actual.path("reasons").get(0).asText());
+    assertEquals(2, actual.path("appliedPolicies").size());
+    assertEquals("ALLOW", simulate(user, resource, safeScenario()).path("effect").asText());
+    assertEquals("DENY", simulate(user, resource, Map.of()).path("effect").asText());
+    var replacement = updateBody(conditional);
+    replacement.put("enabled", false);
+    success(call("PUT", "/policies/" + conditional.path("id").asText(), replacement), 200);
+    var legacy = evaluate(user, resource);
+    assertEquals("ALLOW", legacy.path("effect").asText());
+    assertEquals(100, legacy.path("risk").path("score").asInt());
+    assertFalse(legacy.path("simulation").asBoolean());
+  }
+
+  @Test
+  void combinesAbacLimitsWithMfaAndUpdatesLegacyDocumentsWithoutImplicitMigration()
+      throws Exception {
+    UUID user = user();
+    String resource = target();
+    var legacy = create(resource, "ALLOW", 100, true, Set.of(), Set.of(), null);
+    assertFalse(legacy.path("document").has("conditions"));
+    var limited =
+        abac(
+            resource,
+            "ALLOW_LIMITED",
+            List.of(condition("RESOURCE_SENSITIVITY", "IN", "CONFIDENTIAL", "RESTRICTED")));
+    abac(resource, "ALLOW_WITH_MFA", List.of(condition("RISK_SCORE", "GTE", "30")));
+    var result =
+        simulate(
+            user,
+            resource,
+            Map.of(
+                "deviceTrust",
+                "UNTRUSTED",
+                "networkTrust",
+                "TRUSTED",
+                "failedLoginAttempts",
+                0,
+                "resourceSensitivity",
+                "CONFIDENTIAL"));
+    assertEquals("ALLOW_WITH_MFA", result.path("effect").asText());
+    assertEquals(40, result.path("risk").path("score").asInt());
+    assertEquals(90, result.path("maxAccessTokenTtlSeconds").asInt());
+    assertEquals(List.of("api:read"), json.convertValue(result.path("allowedScopes"), List.class));
+    assertEquals(2, limited.path("document").path("schemaVersion").asInt());
+    assertEquals(
+        limited, success(call("GET", "/policies/" + limited.path("id").asText(), null), 200));
+    var replacement = updateBody(legacy);
+    replacement.put("document", limited.path("document"));
+    var updated = success(call("PUT", "/policies/" + legacy.path("id").asText(), replacement), 200);
+    assertEquals(1, updated.path("version").asLong());
+    assertEquals(2, updated.path("document").path("schemaVersion").asInt());
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"attribute", "operator", "script", "v1", "number", "missing"})
+  void rejectsMalformedAbacRulesAtHttpBoundary(String invalid) throws Exception {
+    var body = body(target(), "ALLOW", 1, true, Set.of(), Set.of(), null);
+    @SuppressWarnings("unchecked")
+    var document = (Map<String, Object>) body.get("document");
+    var condition = new HashMap<>(condition("RISK_SCORE", "LTE", "29"));
+    document.put("schemaVersion", 2);
+    document.put("conditions", List.of(condition));
+    switch (invalid) {
+      case "attribute" -> condition.put("attribute", "request.headers.authorization");
+      case "operator" -> condition.put("operator", "SCRIPT");
+      case "script" -> condition.put("expression", "T(java.lang.Runtime).getRuntime()");
+      case "v1" -> document.put("schemaVersion", 1);
+      case "number" -> condition.put("values", List.of(29));
+      default -> document.remove("conditions");
+    }
+    var response = call("POST", "/policies", body);
+    assertEquals(400, response.statusCode(), response.body());
+    assertFalse(response.body().contains("java.lang.Runtime"));
+  }
+
+  @Test
+  void validatesSimulationAndKeepsItBehindBootstrap() throws Exception {
+    var request =
+        new HashMap<String, Object>(
+            Map.of(
+                "userId",
+                user(),
+                "resource",
+                target(),
+                "action",
+                "read",
+                "requestedScopes",
+                Set.of("api:read"),
+                "scenario",
+                safeScenario()));
+    assertEquals(
+        401, call("POST", "/policies/simulate", request, null, "anonymous-risk").statusCode());
+    request.put("scenario", Map.of("failedLoginAttempts", -1));
+    assertEquals(400, call("POST", "/policies/simulate", request).statusCode());
+    request.put("scenario", Map.of("deviceTrust", "trusted"));
+    assertEquals(400, call("POST", "/policies/simulate", request).statusCode());
+    request.remove("scenario");
+    assertEquals(400, call("POST", "/policies/simulate", request).statusCode());
+  }
+
+  @Test
+  void upgradesV5DatabaseWithExistingV1PolicyBeforeAcceptingV2() throws Exception {
+    String database = "upgrade_" + UUID.randomUUID().toString().replace("-", "");
+    jdbc.execute("CREATE DATABASE " + database);
+    String url = DATABASE.getJdbcUrl().replace("/policy_test", "/" + database);
+    var flywayV5 =
+        org.flywaydb.core.Flyway.configure()
+            .dataSource(url, DATABASE.getUsername(), DATABASE.getPassword())
+            .target("5")
+            .load();
+    flywayV5.migrate();
+    try (var connection =
+            java.sql.DriverManager.getConnection(
+                url, DATABASE.getUsername(), DATABASE.getPassword());
+        var insert =
+            connection.prepareStatement(
+                "INSERT INTO iam_policy.policies(id,name,priority,enabled,version,document) VALUES (?,'legacy-policy',10,true,0,?::jsonb)")) {
+      insert.setObject(1, UUID.randomUUID());
+      insert.setString(
+          2, json.writeValueAsString(document("invoices", "ALLOW", Set.of(), Set.of(), null)));
+      insert.executeUpdate();
+    }
+    var upgraded =
+        org.flywaydb.core.Flyway.configure()
+            .dataSource(url, DATABASE.getUsername(), DATABASE.getPassword())
+            .load();
+    assertEquals(1, upgraded.migrate().migrationsExecuted);
+    upgraded.validate();
+    try (var connection =
+            java.sql.DriverManager.getConnection(
+                url, DATABASE.getUsername(), DATABASE.getPassword());
+        var query = connection.createStatement();
+        var row =
+            query.executeQuery(
+                "SELECT document->>'schemaVersion',version FROM iam_policy.policies WHERE name='legacy-policy'")) {
+      assertTrue(row.next());
+      assertEquals("1", row.getString(1));
+      assertEquals(0, row.getLong(2));
+    }
+  }
+
   @Test
   void combinesMfaAndLimitsAndExplicitDenyWithoutGrantingAccess() throws Exception {
     UUID user = user();
