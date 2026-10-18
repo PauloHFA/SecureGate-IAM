@@ -14,7 +14,7 @@ A 5B1 adiciona condições ABAC tipadas na gramática v2, risco determinístico 
 
 A 5B2 coleta contexto de navegador autenticado, rede da conexão, falhas reais de login e sensibilidade administrada de recursos. Aprovação de navegador tem prazo e versão; contextos de outro usuário, antigos ou fechados não fornecem confiança. Há cinco minutos de aquecimento do contador após iniciar o processo. Consulte o [guia de coleta](docs/runbooks/coleta-risco-local.md) e as [evidências 5B2](docs/evidencias/etapa-05b2.md).
 
-A 5C1 inicia MFA com TOTP e proteção da semente por uma chave AES-256-GCM separada no Vault Transit, vinculada ao usuário e à inscrição. Cadastro, recuperação e comprovação de step-up ficam na 5C2. Consulte o [guia da base MFA](docs/runbooks/mfa-base-local.md) e as [evidências 5C1](docs/evidencias/etapa-05c1.md).
+A 5C1 inicia MFA com TOTP e proteção da semente por uma chave AES-256-GCM separada no Vault Transit, vinculada ao usuário e à inscrição. A 5C2 acrescenta cadastro/ativação em `/mfa`, recuperação de uso único, limite de tentativas por conta e prova de step-up de cinco minutos vinculada à sessão. Cadastro é opcional; a aplicação das provas ao login/tokens continua na 5D. Consulte o [guia MFA](docs/runbooks/mfa-local.md), as [evidências 5C2](docs/evidencias/etapa-05c2.md) e a [base criptográfica](docs/runbooks/mfa-base-local.md).
 
 ## Decisões aprovadas
 
@@ -43,12 +43,13 @@ A 5C1 inicia MFA com TOTP e proteção da semente por uma chave AES-256-GCM sepa
 - [ADR-011 — ABAC e risco determinístico](docs/adr/011-abac-e-risco-deterministico.md)
 - [ADR-012 — Coleta confiável de sinais de risco](docs/adr/012-coleta-confiavel-de-risco.md)
 - [ADR-013 — Base TOTP e cifra de segredos pelo Transit](docs/adr/013-base-totp-e-cifra-transit.md)
+- [ADR-014 — Cadastro MFA, recuperação e prova de step-up](docs/adr/014-cadastro-mfa-recuperacao-e-step-up.md)
 
 O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Implementação**, versão 0.1, outubro de 2026, disponível em PDF na pasta local do projeto.
 
 ## Próximo passo
 
-Seguir para a 5C2: cadastro/ativação MFA, recuperação e prova de step-up, usando a base TOTP/Transit da 5C1. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A base até a 5A (`8f5666d`) foi publicada em `feat/policy-foundation`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831). A 5B1 está no commit local `738c660`; a 5B2 está no commit local `3e6b136`; a 5C1 está na branch `feat/mfa-totp-foundation`. Essas entregas aguardam publicação/CI remota. Revisão e merge continuam pendentes.
+Seguir para a 5D: aplicação das decisões de políticas, risco e MFA ao login, emissão e recursos. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A base até a 5A (`8f5666d`) foi publicada em `feat/policy-foundation`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831). A 5B1 está no commit local `738c660`; a 5B2, em `3e6b136`; a 5C1, em `90282bb`; a 5C2 está na branch `feat/mfa-enrollment-step-up`. Essas entregas aguardam publicação/CI remota. Revisão e merge continuam pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

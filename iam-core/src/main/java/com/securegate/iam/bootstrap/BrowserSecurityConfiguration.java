@@ -7,6 +7,7 @@ import com.securegate.iam.authorization.infrastructure.OidcIdentityClaims;
 import com.securegate.iam.authorization.infrastructure.StrictAuthorizationRequest;
 import com.securegate.iam.identity.application.port.IdentityLookup;
 import com.securegate.iam.identity.application.port.LoginRiskHistory;
+import com.securegate.iam.identity.application.port.MfaProofs;
 import com.securegate.iam.identity.infrastructure.JdbcLoginUsers;
 import com.securegate.iam.policy.application.port.RiskContextSink;
 import com.securegate.iam.shared.presentation.ProblemResponses;
@@ -51,7 +52,8 @@ public class BrowserSecurityConfiguration {
       ProblemResponses problems,
       ConsentRequests consents,
       RiskContextSink riskContexts,
-      LoginRiskHistory failures)
+      LoginRiskHistory failures,
+      MfaProofs mfaProofs)
       throws Exception {
     var provider = new DaoAuthenticationProvider(new JdbcLoginUsers(jdbc));
     var observer = new BrowserRiskObserver(riskContexts);
@@ -78,7 +80,8 @@ public class BrowserSecurityConfiguration {
                 && "/oauth2/authorize".equals(request.getServletPath()));
     consentCsrf.setAccessDeniedHandler(
         (request, response, exception) -> problems.forbidden(request, response));
-    return http.securityMatcher("/login", "/logout", "/oauth2/authorize", "/oauth2/consent")
+    return http.securityMatcher(
+            "/login", "/logout", "/mfa", "/mfa/**", "/oauth2/authorize", "/oauth2/consent")
         .with(
             OAuth2AuthorizationServerConfigurer.authorizationServer(),
             server ->
@@ -121,6 +124,7 @@ public class BrowserSecurityConfiguration {
                         })
                     .successHandler(
                         (request, response, authentication) -> {
+                          revokeMfa(request, mfaProofs);
                           observer.closePrevious(request);
                           if (authentication
                               instanceof
@@ -155,8 +159,10 @@ public class BrowserSecurityConfiguration {
             logout ->
                 logout
                     .addLogoutHandler(
-                        (request, response, authentication) ->
-                            observer.close(request, authentication))
+                        (request, response, authentication) -> {
+                          revokeMfa(request, mfaProofs);
+                          observer.close(request, authentication);
+                        })
                     .logoutSuccessUrl("/login?logout"))
         .headers(
             headers ->
@@ -172,5 +178,12 @@ public class BrowserSecurityConfiguration {
                     .accessDeniedHandler(
                         (request, response, exception) -> problems.forbidden(request, response)))
         .build();
+  }
+
+  private static void revokeMfa(jakarta.servlet.http.HttpServletRequest request, MfaProofs proofs) {
+    var session = request.getSession(false);
+    if (session != null && session.getAttribute(ConsentRequests.SESSION_ID) instanceof String sid) {
+      proofs.revokeSession(UUID.fromString(sid));
+    }
   }
 }

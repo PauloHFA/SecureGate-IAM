@@ -38,6 +38,9 @@ public class LoginController {
             : "<p>Sessão autenticada.</p><form method=\"post\" action=\"/logout\">"
                 + hidden
                 + "<button type=\"submit\">Sair</button></form>";
+    if (principal != null) {
+      form += "<p><a href=\"/mfa\">Configurar MFA e verificar fator</a></p>";
+    }
     return ResponseEntity.ok()
         .header("Cache-Control", "no-store")
         .header(
