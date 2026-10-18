@@ -56,6 +56,11 @@ public final class JdbcConsentRequests implements ConsentRequests {
             state,
             clientId,
             client.getClientName(),
-            request.getScopes().stream().sorted().toList()));
+            request.getScopes().stream().sorted().toList(),
+            client
+                .getAuthorizationGrantTypes()
+                .contains(
+                    org.springframework.security.oauth2.core.AuthorizationGrantType
+                        .REFRESH_TOKEN)));
   }
 }

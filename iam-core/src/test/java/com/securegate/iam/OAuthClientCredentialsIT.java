@@ -222,8 +222,6 @@ class OAuthClientCredentialsIT {
         token(null, null, "grant_type=client_credentials&scope=api:read"), 401, "invalid_client");
     for (String path :
         List.of(
-            "/oauth2/introspect",
-            "/oauth2/revoke",
             "/.well-known/openid-configuration",
             "/.well-known/oauth-authorization-server",
             "/userinfo")) {
@@ -350,6 +348,77 @@ class OAuthClientCredentialsIT {
         before,
         jdbc.queryForObject(
             "SELECT count(*) FROM iam_authorization.oauth2_authorization", Integer.class));
+  }
+
+  @Test
+  @Order(5)
+  void introspectsAndRevokesOnlyTheOwningMachineClientsTokens() throws Exception {
+    var owner = JSON.readTree(register(id()).body());
+    String id = owner.path("client").path("clientId").asText();
+    String secret = owner.path("clientSecret").asText();
+    String access =
+        JSON.readTree(token(id, secret, "grant_type=client_credentials&scope=api:read").body())
+            .path("access_token")
+            .asText();
+    assertTrue(
+        JSON.readTree(lifecycle("/oauth2/introspect", id, secret, access).body())
+            .path("active")
+            .asBoolean());
+    var foreign = JSON.readTree(register(id()).body());
+    String other = foreign.path("client").path("clientId").asText();
+    String otherSecret = foreign.path("clientSecret").asText();
+    var hidden = lifecycle("/oauth2/introspect", other, otherSecret, access);
+    assertEquals(200, hidden.statusCode());
+    assertFalse(JSON.readTree(hidden.body()).path("active").asBoolean());
+    assertEquals(1, JSON.readTree(hidden.body()).size());
+    assertEquals(200, lifecycle("/oauth2/revoke", other, otherSecret, access).statusCode());
+    assertTrue(
+        JSON.readTree(lifecycle("/oauth2/introspect", id, secret, access).body())
+            .path("active")
+            .asBoolean());
+    assertEquals(200, lifecycle("/oauth2/revoke", id, secret, access).statusCode());
+    assertEquals(200, lifecycle("/oauth2/revoke", id, secret, access).statusCode());
+    assertFalse(
+        JSON.readTree(lifecycle("/oauth2/introspect", id, secret, access).body())
+            .path("active")
+            .asBoolean());
+    String authorizationId =
+        jdbc.queryForObject(
+            "SELECT id FROM iam_authorization.oauth2_authorization WHERE access_token_value=?",
+            String.class,
+            access);
+    assertEquals(
+        1,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.security_events WHERE resource=? AND event_type='oauth.authorization.revoked'",
+            Integer.class,
+            authorizationId));
+    String expired =
+        JSON.readTree(token(id, secret, "grant_type=client_credentials&scope=api:read").body())
+            .path("access_token")
+            .asText();
+    jdbc.update(
+        "UPDATE iam_authorization.oauth2_authorization SET access_token_issued_at=current_timestamp-interval '10 minutes',access_token_expires_at=current_timestamp-interval '5 minutes' WHERE access_token_value=?",
+        expired);
+    assertFalse(
+        JSON.readTree(lifecycle("/oauth2/introspect", id, secret, expired).body())
+            .path("active")
+            .asBoolean());
+  }
+
+  private HttpResponse<String> lifecycle(String path, String id, String secret, String token)
+      throws Exception {
+    String basic =
+        Base64.getEncoder().encodeToString((id + ":" + secret).getBytes(StandardCharsets.UTF_8));
+    return HTTP.send(
+        HttpRequest.newBuilder(uri(path))
+            .header("Authorization", "Basic " + basic)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "token=" + URLEncoder.encode(token, StandardCharsets.UTF_8)))
+            .build(),
+        HttpResponse.BodyHandlers.ofString());
   }
 
   private static String id() {

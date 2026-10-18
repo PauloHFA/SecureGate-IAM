@@ -425,6 +425,288 @@ class BrowserAuthorizationIT {
   }
 
   private Flow flow() throws Exception {
+    return flow(false);
+  }
+
+  @Test
+  void rotatesRefreshTokensAndPreservesIdentityAndTheAbsoluteFamilyDeadline() throws Exception {
+    Flow flow = flow(true);
+    Pair first = initialTokens(flow);
+    assertActive(flow, first.access(), true);
+    assertActive(flow, first.refresh(), true);
+    String authorizationId = authorizationId(first.access());
+    var deadline =
+        jdbc.queryForObject(
+            "SELECT expires_at FROM iam_authorization.refresh_families WHERE authorization_id=?",
+            java.sql.Timestamp.class,
+            authorizationId);
+    UUID role = UUID.randomUUID();
+    jdbc.update(
+        "INSERT INTO iam_access.roles(id,name) VALUES (?,?)", role, "REFRESH_" + flow.suffix());
+    jdbc.update(
+        "INSERT INTO iam_access.user_roles(user_id,role_id) VALUES (?,?)", flow.userId(), role);
+    Pair second = pair(refresh(flow, first.refresh(), null));
+    assertNotEquals(first.access(), second.access());
+    assertNotEquals(first.refresh(), second.refresh());
+    assertActive(flow, first.refresh(), false);
+    assertActive(flow, second.refresh(), true);
+    var decoder = NimbusJwtDecoder.withJwkSetUri(uri("/oauth2/jwks").toString()).build();
+    decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(ISSUER));
+    var oldJwt = decoder.decode(first.access());
+    var newJwt = decoder.decode(second.access());
+    assertEquals(oldJwt.getSubject(), newJwt.getSubject());
+    assertEquals(oldJwt.getClaimAsString("sid"), newJwt.getClaimAsString("sid"));
+    assertEquals(List.of("REFRESH_" + flow.suffix()), newJwt.getClaimAsStringList("roles"));
+    assertEquals(List.of("api:read"), newJwt.getClaimAsStringList("scope"));
+    assertEquals(
+        deadline,
+        jdbc.queryForObject(
+            "SELECT refresh_token_expires_at FROM iam_authorization.oauth2_authorization WHERE id=?",
+            java.sql.Timestamp.class,
+            authorizationId));
+    String fingerprint =
+        java.util.HexFormat.of()
+            .formatHex(
+                MessageDigest.getInstance("SHA-256")
+                    .digest(first.refresh().getBytes(StandardCharsets.UTF_8)));
+    assertEquals(
+        1,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_authorization.refresh_history WHERE token_hash=? AND consumed_at IS NOT NULL",
+            Integer.class,
+            fingerprint));
+    for (String history :
+        jdbc.queryForList(
+            "SELECT to_jsonb(h)::text FROM iam_authorization.refresh_history h WHERE authorization_id=?",
+            String.class,
+            authorizationId)) {
+      assertFalse(history.contains(first.refresh()));
+      assertFalse(history.contains(second.refresh()));
+    }
+    assertEquals(
+        second.refresh(),
+        jdbc.queryForObject(
+            "SELECT refresh_token_value FROM iam_authorization.oauth2_authorization WHERE id=?",
+            String.class,
+            authorizationId));
+  }
+
+  @Test
+  void replayOfAnOldRefreshRevokesTheCurrentFamilyAndAuditsWithoutSecrets() throws Exception {
+    Flow flow = flow(true);
+    Pair first = initialTokens(flow);
+    Pair second = pair(refresh(flow, first.refresh(), null));
+    String id = authorizationId(second.access());
+    assertError(refresh(flow, first.refresh(), null), "invalid_grant");
+    assertActive(flow, second.access(), false);
+    assertActive(flow, second.refresh(), false);
+    assertError(refresh(flow, second.refresh(), null), "invalid_grant");
+    assertError(refresh(flow, first.refresh(), null), "invalid_grant");
+    assertEquals(
+        1,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.security_events WHERE event_type='oauth.refresh.reused' AND resource=?",
+            Integer.class,
+            id));
+    String audit =
+        jdbc.queryForObject(
+            "SELECT details::text FROM iam_audit.security_events WHERE event_type='oauth.refresh.reused' AND resource=?",
+            String.class,
+            id);
+    assertFalse(audit.contains(first.refresh()));
+    assertFalse(audit.contains(second.refresh()));
+    assertFalse(audit.contains(second.access()));
+  }
+
+  @Test
+  void concurrentRefreshDetectsReplayAndRevokesTheWinningRotation() throws Exception {
+    Flow flow = flow(true);
+    Pair first = initialTokens(flow);
+    try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+      var left = executor.submit(() -> refresh(flow, first.refresh(), null));
+      var right = executor.submit(() -> refresh(flow, first.refresh(), null));
+      var firstResponse = left.get();
+      var secondResponse = right.get();
+      assertEquals(
+          java.util.Set.of(200, 400),
+          java.util.Set.of(firstResponse.statusCode(), secondResponse.statusCode()));
+      Pair winner = pair(firstResponse.statusCode() == 200 ? firstResponse : secondResponse);
+      assertActive(flow, winner.access(), false);
+      assertError(refresh(flow, winner.refresh(), null), "invalid_grant");
+    }
+  }
+
+  @Test
+  void badScopeOrForeignClientCannotConsumeOrRevokeTheOwnersRefresh() throws Exception {
+    Flow owner = flow(true);
+    Pair original = initialTokens(owner);
+    Flow foreign = flow(false);
+    assertError(refresh(owner, original.refresh(), "api:write"), "invalid_scope");
+    assertError(refresh(foreign, original.refresh(), null), "invalid_grant");
+    assertActive(foreign, original.access(), false);
+    assertActive(foreign, original.refresh(), false);
+    assertEquals(
+        200,
+        oauthPost("/oauth2/revoke", foreign, Map.of("token", original.refresh())).statusCode());
+    assertActive(owner, original.refresh(), true);
+    assertNotNull(pair(refresh(owner, original.refresh(), null)));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"refresh", "access", "historical"})
+  void revocationIsIdempotentAndDisablesTheWholeRefreshFamily(String kind) throws Exception {
+    Flow flow = flow(true);
+    Pair first = initialTokens(flow);
+    Pair current = pair(refresh(flow, first.refresh(), null));
+    String selected =
+        kind.equals("access")
+            ? current.access()
+            : kind.equals("historical") ? first.refresh() : current.refresh();
+    assertEquals(200, oauthPost("/oauth2/revoke", flow, Map.of("token", selected)).statusCode());
+    assertEquals(200, oauthPost("/oauth2/revoke", flow, Map.of("token", selected)).statusCode());
+    assertEquals(
+        200,
+        oauthPost("/oauth2/revoke", flow, Map.of("token", "unknown-synthetic-token")).statusCode());
+    assertActive(flow, current.access(), false);
+    assertActive(flow, current.refresh(), false);
+    assertError(refresh(flow, current.refresh(), null), "invalid_grant");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"LOCKED", "PASSWORD", "expired"})
+  void rejectsRefreshWhenIdentityOrTheAbsoluteFamilyDeadlineChanges(String mode) throws Exception {
+    Flow flow = flow(true);
+    Pair first = initialTokens(flow);
+    if (mode.equals("expired")) {
+      jdbc.update(
+          "UPDATE iam_authorization.refresh_families SET expires_at=current_timestamp-interval '1 second' WHERE authorization_id=?",
+          authorizationId(first.access()));
+    } else if (mode.equals("PASSWORD")) {
+      assertEquals(
+          204,
+          admin(
+                  "PUT",
+                  "/api/admin/users/" + flow.userId() + "/password",
+                  Map.of("password", "Changed-synthetic-password-123!", "version", 0))
+              .statusCode());
+    } else {
+      jdbc.update(
+          "UPDATE iam_identity.users SET status='LOCKED',version=version+1 WHERE id=?",
+          flow.userId());
+    }
+    assertError(refresh(flow, first.refresh(), null), "invalid_grant");
+    if (!mode.equals("expired")) {
+      assertActive(flow, first.access(), false);
+      assertActive(flow, first.refresh(), false);
+    }
+  }
+
+  @Test
+  void unavailableSigningDoesNotConsumeTheRefreshAndAllowsRetryAfterRecovery() throws Exception {
+    Flow flow = flow(true);
+    Pair first = initialTokens(flow);
+    try {
+      vault(
+          "sys/policies/acl/securegate-iam-core",
+          Map.of("policy", "path \"transit/keys/securegate-jwt\" { capabilities = [\"read\"] }"));
+      var failed = refresh(flow, first.refresh(), null);
+      assertEquals(503, failed.statusCode());
+      assertEquals("temporarily_unavailable", JSON.readTree(failed.body()).path("error").asText());
+      assertFalse(failed.body().contains(first.refresh()));
+    } finally {
+      vault(
+          "sys/policies/acl/securegate-iam-core",
+          Map.of("policy", Files.readString(Path.of("../infra/vault/iam-core.hcl"))));
+    }
+    assertActive(flow, first.refresh(), true);
+    assertNotNull(pair(refresh(flow, first.refresh(), null)));
+  }
+
+  @Test
+  void introspectionAndRevocationRequireClientAuthenticationAndHideUnknownValues()
+      throws Exception {
+    for (String path : List.of("/oauth2/introspect", "/oauth2/revoke")) {
+      var response = oauthPost(path, null, Map.of("token", "unknown"));
+      assertEquals(401, response.statusCode());
+      assertEquals("invalid_client", JSON.readTree(response.body()).path("error").asText());
+    }
+    Flow flow = flow(false);
+    assertActive(flow, "unknown-synthetic-token", false);
+    var withoutToken = oauthPost("/oauth2/introspect", flow, Map.of());
+    assertEquals(400, withoutToken.statusCode());
+    assertEquals("invalid_request", JSON.readTree(withoutToken.body()).path("error").asText());
+  }
+
+  private record Pair(String access, String refresh) {
+    @Override
+    public String toString() {
+      return "Pair[REDACTED]";
+    }
+  }
+
+  private Pair initialTokens(Flow flow) throws Exception {
+    var browser = browser();
+    String code = approve(browser, flow, pending(browser, flow));
+    return pair(exchange(flow, code, flow.verifier(), CALLBACK));
+  }
+
+  private Pair pair(HttpResponse<String> response) throws Exception {
+    assertEquals(200, response.statusCode());
+    var body = JSON.readTree(response.body());
+    assertTrue(body.has("refresh_token"));
+    assertTrue(response.headers().firstValue("Cache-Control").orElseThrow().contains("no-store"));
+    return new Pair(body.path("access_token").asText(), body.path("refresh_token").asText());
+  }
+
+  private HttpResponse<String> refresh(Flow flow, String refresh, String scope) throws Exception {
+    var values = new HashMap<String, String>();
+    values.put("grant_type", "refresh_token");
+    values.put("refresh_token", refresh);
+    if (scope != null) {
+      values.put("scope", scope);
+    }
+    return oauthPost("/oauth2/token", flow, values);
+  }
+
+  private HttpResponse<String> oauthPost(String path, Flow client, Map<String, String> values)
+      throws Exception {
+    var request =
+        HttpRequest.newBuilder(uri(path))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("X-Correlation-ID", "lifecycle-test");
+    if (client != null) {
+      request.header(
+          "Authorization",
+          "Basic "
+              + Base64.getEncoder()
+                  .encodeToString(
+                      (client.clientId() + ":" + client.secret())
+                          .getBytes(StandardCharsets.UTF_8)));
+    }
+    return HTTP.send(
+        request.POST(HttpRequest.BodyPublishers.ofString(form(values))).build(),
+        HttpResponse.BodyHandlers.ofString());
+  }
+
+  private void assertActive(Flow flow, String token, boolean expected) throws Exception {
+    var response = oauthPost("/oauth2/introspect", flow, Map.of("token", token));
+    assertEquals(200, response.statusCode());
+    var body = JSON.readTree(response.body());
+    assertEquals(expected, body.path("active").asBoolean());
+    if (!expected) {
+      assertEquals(1, body.size());
+    }
+    assertEquals("lifecycle-test", response.headers().firstValue("X-Correlation-ID").orElseThrow());
+  }
+
+  private String authorizationId(String access) {
+    return jdbc.queryForObject(
+        "SELECT id FROM iam_authorization.oauth2_authorization WHERE access_token_value=?",
+        String.class,
+        access);
+  }
+
+  private Flow flow(boolean refreshTokens) throws Exception {
     String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
     String clientId = "web-" + suffix;
     var registered =
@@ -441,7 +723,9 @@ class BrowserAuthorizationIT {
                 "scopes",
                 List.of("api:read", "api:write"),
                 "redirectUris",
-                List.of(CALLBACK)));
+                List.of(CALLBACK),
+                "refreshTokens",
+                refreshTokens));
     assertEquals(201, registered.statusCode());
     String email = "user-" + suffix + "@example.test";
     var user =

@@ -47,7 +47,7 @@ A configuração padrão não cria usuário/senha ou sessão automática. Saúde
 
 ## Erros e correlação
 
-`Start-IamCore.ps1 -EnableTransit` habilita o JWKS em `GET /oauth2/jwks`. O adaptador utiliza AppRole, sem token root no Java. `-EnableAuthorization` habilita Client Credentials e o fluxo de navegador com login/PKCE da 4C; consulte [Client Credentials](oauth-client-credentials-local.md) e [login/PKCE](oauth-pkce-local.md). OIDC/refresh permanecem pendentes. As cadeias de saúde, administração e token endpoint continuam sem sessão; só o navegador usa sessão HTTP local.
+`Start-IamCore.ps1 -EnableTransit` habilita o JWKS em `GET /oauth2/jwks`. O adaptador utiliza AppRole, sem token root no Java. `-EnableAuthorization` habilita Client Credentials e o fluxo de navegador com login/PKCE, além de refresh opcional, `POST /oauth2/introspect` e `POST /oauth2/revoke`. Consulte [Client Credentials](oauth-client-credentials-local.md), [login/PKCE](oauth-pkce-local.md) e [refresh/revogação](oauth-refresh-local.md). OIDC permanece pendente na 4D2. As cadeias de saúde, administração e endpoints OAuth de token/introspecção/revogação continuam sem sessão; só o navegador usa sessão HTTP local.
 
 Cada requisição recebe `X-Correlation-ID`. Um ID recebido é aceito apenas se contiver de 1 a 64 caracteres alfanuméricos, ponto, hífen ou sublinhado, começando com alfanumérico; entradas inválidas são substituídas por UUID. O ID é incluído no MDC durante a requisição e o contexto anterior é restaurado mesmo em falha.
 

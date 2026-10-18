@@ -44,6 +44,10 @@ public class ConsentController {
             .append(hidden("client_id", view.clientId()))
             .append(hidden("state", view.state()))
             .append(hidden(csrf.getParameterName(), csrf.getToken()));
+    if (view.refreshTokens()) {
+      html.append(
+          "<p>Ao autorizar, esta aplicação poderá renovar o acesso por até 30 minutos.</p>");
+    }
     for (String scope : view.scopes()) {
       html.append("<label><input type=\"checkbox\" name=\"scope\" value=\"")
           .append(escape(scope))

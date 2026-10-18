@@ -9,7 +9,8 @@ public interface ConsentRequests {
 
   Optional<ConsentView> find(String state, String clientId, String userId, String sid);
 
-  record ConsentView(String state, String clientId, String name, List<String> scopes) {
+  record ConsentView(
+      String state, String clientId, String name, List<String> scopes, boolean refreshTokens) {
     public ConsentView {
       scopes = List.copyOf(scopes);
     }

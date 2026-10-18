@@ -3,7 +3,12 @@ package com.securegate.iam.authorization.domain;
 import java.net.URI;
 import java.util.Set;
 
-public record BrowserClient(MachineClient definition, Set<String> redirectUris) {
+public record BrowserClient(
+    MachineClient definition, Set<String> redirectUris, boolean refreshTokens) {
+  public BrowserClient(MachineClient definition, Set<String> redirectUris) {
+    this(definition, redirectUris, false);
+  }
+
   public BrowserClient {
     if (definition == null
         || redirectUris == null

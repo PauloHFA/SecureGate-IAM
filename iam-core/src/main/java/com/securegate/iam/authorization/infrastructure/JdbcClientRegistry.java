@@ -50,6 +50,12 @@ public final class JdbcClientRegistry implements ClientRegistry {
             .clientSecret("{argon2}" + secretHash)
             .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
             .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+            .authorizationGrantTypes(
+                grants -> {
+                  if (definition.refreshTokens()) {
+                    grants.add(AuthorizationGrantType.REFRESH_TOKEN);
+                  }
+                })
             .redirectUris(uris -> uris.addAll(definition.redirectUris()))
             .scopes(scopes -> scopes.addAll(definition.definition().scopes()))
             .clientSettings(
@@ -62,6 +68,8 @@ public final class JdbcClientRegistry implements ClientRegistry {
                 TokenSettings.builder()
                     .accessTokenTimeToLive(Duration.ofMinutes(5))
                     .authorizationCodeTimeToLive(Duration.ofMinutes(2))
+                    .reuseRefreshTokens(false)
+                    .refreshTokenTimeToLive(Duration.ofMinutes(30))
                     .build())
             .build();
     return save(client);
@@ -91,6 +99,7 @@ public final class JdbcClientRegistry implements ClientRegistry {
         client.getClientName(),
         client.getClientSettings().getSetting(AUDIENCE),
         client.getScopes(),
-        client.getTokenSettings().getAccessTokenTimeToLive().toSeconds());
+        client.getTokenSettings().getAccessTokenTimeToLive().toSeconds(),
+        client.getAuthorizationGrantTypes().contains(AuthorizationGrantType.REFRESH_TOKEN));
   }
 }

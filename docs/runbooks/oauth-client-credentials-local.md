@@ -1,6 +1,6 @@
 # Client Credentials local — entrega 4B
 
-Este guia descreve aplicações confidenciais máquina a máquina. Login de usuário e Authorization Code com PKCE estão no [guia da 4C](oauth-pkce-local.md); refresh e OIDC continuam pendentes.
+Este guia descreve aplicações confidenciais máquina a máquina. Login de usuário e Authorization Code com PKCE estão no [guia da 4C](oauth-pkce-local.md); refresh opcional para clientes web, introspecção e revogação estão no [guia da 4D1](oauth-refresh-local.md). OIDC continua pendente.
 
 ## Preparar e iniciar
 
@@ -70,6 +70,6 @@ O token tem audiência `securegate-api`, sujeito/client_id `local-machine-client
 
 Erros OAuth contêm somente `error` e preservam o header `X-Correlation-ID`. Cadastros administrativos usam Problem Details. O token endpoint é stateless e exige formulário URL encoded; a sessão/formulário da 4C pertence à cadeia de navegador, sem autenticar o cliente no token endpoint.
 
-O serviço JDBC padrão persiste tokens e metadados recuperáveis, além de clientes e consentimentos. Banco e backups são sensíveis; a API não expõe esses registros. Rotação de segredo, desativação de clientes, retenção/limpeza e revogação ponta a ponta ainda não estão disponíveis. Tokens emitidos duram cinco minutos; a integração de revogação distribuída está prevista no roteiro.
+O serviço JDBC padrão persiste tokens e metadados recuperáveis, além de clientes e consentimentos. Banco e backups são sensíveis; a API não expõe esses registros. Rotação de segredo, desativação de clientes, retenção/limpeza e revogação ponta a ponta ainda não estão disponíveis. Introspecção e revogação pelo cliente proprietário estão disponíveis na 4D1. Tokens emitidos duram cinco minutos; a integração de revogação distribuída está prevista no roteiro.
 
 Os testes usam bancos e Vault efêmeros e não alteram o Compose local. Consulte [ADR-006](../adr/006-authorization-server-client-credentials.md), [evidências 4B](../evidencias/etapa-04b.md) e [roteiro](../PLANO-DE-IMPLEMENTACAO.md).
