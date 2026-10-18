@@ -1,0 +1,115 @@
+# Infraestrutura local — etapa 1
+
+Docker Compose para PostgreSQL, Redis, RabbitMQ e Vault, com inicialização das filas, KV, Transit e AppRoles. Os serviços da aplicação ainda não fazem parte deste Compose.
+
+## Preparação e execução
+
+Requisitos: Docker Engine com containers Linux, Compose com suporte a `--wait` e PowerShell 5.1+ ou PowerShell 7. Os comandos partem da raiz do repositório. A preparação e o smoke test são scripts PowerShell; não é preciso executar Maven para subir a infraestrutura.
+
+```powershell
+.\infra\scripts\Initialize-Local.ps1
+docker compose --env-file .env -f infra/docker-compose.yml config --quiet
+docker compose --env-file .env -f infra/docker-compose.yml up -d --wait --wait-timeout 180
+.\infra\scripts\Test-Local.ps1
+```
+
+Em Linux/macOS com PowerShell 7, use `pwsh -File ./infra/scripts/Initialize-Local.ps1` e `pwsh -File ./infra/scripts/Test-Local.ps1`. A execução desses scripts foi validada no Windows; outras plataformas ainda precisam de validação.
+
+O primeiro script cria `.env` com credenciais aleatórias, preserva um `.env` existente e gera `infra/.local/rabbitmq-definitions.json` com hash de senha. O arquivo versionado `rabbitmq/definitions.json` contém apenas a topologia. Não copie os placeholders de `.env.example` como senhas.
+
+Usar `--env-file .env` explicitamente evita depender do diretório que o Compose escolheria para procurar suas variáveis. O `.env` usa linhas simples `CHAVE=valor`, sem aspas, expansão ou comentários ao final dos valores; esse é o formato aceito pelos scripts. As senhas geradas são hexadecimais.
+
+Se uma porta estiver ocupada, ajuste a variável correspondente em `.env` antes de subir. Não altere as senhas depois de criar os volumes esperando que os bancos persistidos sejam atualizados: rotação precisa ser aplicada nos serviços e no Vault de forma coordenada.
+
+## Serviços e portas
+
+| Serviço | Imagem fixada | Endpoint no host |
+| --- | --- | --- |
+| PostgreSQL | `postgres:16.15-alpine` | `127.0.0.1:15432` |
+| Redis | `redis:7.4.11-alpine` | `127.0.0.1:6379` |
+| RabbitMQ | `rabbitmq:4.3.6-management-alpine` | AMQP `127.0.0.1:5672`, painel `http://127.0.0.1:15672` |
+| Vault dev | `hashicorp/vault:1.21.4` | `http://127.0.0.1:8200` |
+| vault-init | mesma imagem do Vault | tarefa que termina com código 0 |
+
+Todas as portas publicadas ficam em loopback. Entre containers, usar os nomes DNS `postgres`, `redis`, `rabbitmq` e `vault`, com suas portas internas. Não usar `127.0.0.1` para comunicação entre containers.
+
+As credenciais do painel RabbitMQ ficam em `.env` (`RABBITMQ_USER` e `RABBITMQ_PASSWORD`). O acesso administrativo local ao Vault usa `VAULT_DEV_ROOT_TOKEN_ID`. Esses valores nunca são impressos pelos scripts. Use um editor local para consultá-los quando necessário e não compartilhe o arquivo ou a saída completa de `docker compose config`.
+
+## Persistência
+
+PostgreSQL, Redis com AOF e RabbitMQ usam volumes nomeados. `docker compose down` preserva esses dados.
+
+**Vault dev mantém seu estado em memória. Reiniciar o container apaga chaves, segredos e AppRoles.** Após reiniciar, execute novamente a tarefa de inicialização. Isso cria uma nova chave quando o estado anterior foi perdido; portanto, tokens assinados antes da perda não podem ser verificados com a nova chave.
+
+```powershell
+docker compose --env-file .env -f infra/docker-compose.yml run --rm vault-init
+```
+
+O bootstrap não recria nem rotaciona uma chave existente. Reutiliza SecretIDs válidos; se expirarem (24 horas) ou se o Vault perder seu estado, atualiza os arquivos locais de AppRole. Não se trata de rotação automática de assinatura, que será implementada na etapa 4.
+
+## RabbitMQ: topologia
+
+Vhost padrão: `securegate`. Os recursos são duráveis. O usuário administrativo local é incluído nas definições geradas, porque importar definições em um nó vazio impede a criação automática do usuário/vhost padrão.
+
+| Fila de trabalho | Bindings em `security.events` |
+| --- | --- |
+| `enforcer.block-policy` | `auth.login.suspicious`, `user.locked`, `policy.changed` |
+| `enforcer.revocation` | `token.revoked`, `session.terminated` |
+| `audit.persist` | `#` |
+
+Cada fila tem uma `.dlq` e uma `.retry`:
+
+- Rejeição sem requeue envia para `security.events.dlx`, com routing key igual ao nome da fila original, e então para sua `.dlq`.
+- Para erro recuperável, o consumidor futuro publica em `security.events.retry`, usando o nome da fila original como routing key.
+- A fila `.retry` aguarda 5 segundos e envia via `security.events.redelivery` diretamente à fila original. Isso evita replicar cada tentativa para a auditoria ou para outros consumidores.
+- O broker não decide quantas tentativas fazer. Na etapa 6/7, o consumidor deverá limitar tentativas, confirmar a publicação de retry antes de confirmar a mensagem original e encaminhar falhas definitivas à DLQ.
+
+As filas locais são classic em um único nó; isso não demonstra alta disponibilidade nem garante entrega sem perdas em todas as falhas de dead-lettering. A validação de resiliência da aplicação permanece nas etapas 6/7.
+
+## Vault: recursos e permissões
+
+| Recurso | Configuração |
+| --- | --- |
+| KV v2 | `secret/securegate/iam-core` e `secret/securegate/policy-enforcer` |
+| Transit | `transit/keys/securegate-jwt`, RSA 3072, não exportável, sem backup em texto puro |
+| AppRole `iam-core` | Lê seu KV, lê a chave pública e assina com a chave definida |
+| AppRole `policy-enforcer` | Lê apenas seu KV; não pode assinar |
+| Política `securegate-key-operator` | Permite ler e rotacionar a chave; não é atribuída às aplicações |
+
+Os tokens de aplicação têm TTL de 1 hora e máximo de 4 horas. Os SecretIDs têm TTL de 24 horas e são reutilizáveis no ambiente local. RoleID e SecretID ficam em `infra/.local/<serviço>-role-id` e `<serviço>-secret-id`, ignorados pelo Git. O script aplica `umask 077`; no Windows, a proteção efetiva também depende das permissões NTFS da pasta.
+
+As credenciais persistidas no KV são a base local para integração futura, não uma integração já implementada nos serviços Java. As contas de banco/broker ainda são contas de bootstrap local; separação completa de migração, aplicação e operação será feita nas etapas de persistência e hardening.
+
+Produção exige Vault persistente, TLS, unseal, recuperação e entrega protegida das credenciais iniciais. O modo dev pode registrar o token administrativo no log de inicialização; não compartilhe esses logs. A tarefa `vault-init` não imprime segredos.
+
+## Validação e diagnóstico
+
+O smoke test verifica consulta PostgreSQL por TCP com senha, operações Redis autenticadas, exchanges/filas/bindings efetivos, roteamento, DLQ, retry com TTL, login AppRole, KV e assinatura Transit. Testa também negações de rotação, exportação e acesso a segredo alheio. Ele revoga os tokens de teste ao terminar.
+
+Os testes RabbitMQ de mensagens ocorrem em um vhost temporário com a mesma topologia e são removidos ao final, sem consumir filas de desenvolvimento. Se o processo for encerrado abruptamente, um vhost `securegate-smoke-*` pode restar; confira o nome antes de removê-lo no painel.
+
+```powershell
+docker compose --env-file .env -f infra/docker-compose.yml ps -a
+docker compose --env-file .env -f infra/docker-compose.yml logs --tail 80 postgres redis rabbitmq vault-init
+docker compose --env-file .env -f infra/docker-compose.yml run --rm vault-init
+.\infra\scripts\Test-Local.ps1
+```
+
+`vault-init` deve terminar com código 0; ele não é um serviço continuamente saudável. Se o Compose falhar com caminho de bind mount, rode `Initialize-Local.ps1` antes da subida. Se `.env` e os dados persistidos divergirem, restaure as credenciais anteriores ou faça uma rotação explícita, sem apagar volumes para tentar corrigir.
+
+## Parada
+
+```powershell
+docker compose --env-file .env -f infra/docker-compose.yml stop
+docker compose --env-file .env -f infra/docker-compose.yml down
+```
+
+O primeiro para containers existentes; o segundo remove containers/rede e mantém volumes. Não usar `down -v` na rotina: ele remove os dados persistidos.
+
+## Referências
+
+- [Definições RabbitMQ e importação no boot](https://www.rabbitmq.com/docs/definitions).
+- [Dead-letter exchanges](https://www.rabbitmq.com/docs/dlx).
+- [Vault Transit API](https://developer.hashicorp.com/vault/api-docs/secret/transit).
+- [Vault AppRole API](https://developer.hashicorp.com/vault/api-docs/auth/approle).
+- [ADR-003: baseline da infraestrutura](../docs/adr/003-infraestrutura-local.md).

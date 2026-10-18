@@ -1,2 +1,27 @@
 # Cache local de pesquisa
 .firecrawl/
+
+# Maven
+**/target/
+
+# IDEs e arquivos locais
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Segredos locais (exemplos podem ser versionados)
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.jks
+
+# Configuração gerada da infraestrutura local
+**/.local/

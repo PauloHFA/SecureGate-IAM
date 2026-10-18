@@ -1,0 +1,253 @@
+{
+  "vhosts": [
+    {
+      "name": "securegate"
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "security.events",
+      "vhost": "securegate",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "security.events.dlx",
+      "vhost": "securegate",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "security.events.retry",
+      "vhost": "securegate",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "security.events.redelivery",
+      "vhost": "securegate",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "enforcer.block-policy",
+      "vhost": "securegate",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "security.events.dlx",
+        "x-dead-letter-routing-key": "enforcer.block-policy"
+      }
+    },
+    {
+      "name": "enforcer.block-policy.dlq",
+      "vhost": "securegate",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "enforcer.block-policy.retry",
+      "vhost": "securegate",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "security.events.redelivery",
+        "x-dead-letter-routing-key": "enforcer.block-policy"
+      }
+    },
+    {
+      "name": "enforcer.revocation",
+      "vhost": "securegate",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "security.events.dlx",
+        "x-dead-letter-routing-key": "enforcer.revocation"
+      }
+    },
+    {
+      "name": "enforcer.revocation.dlq",
+      "vhost": "securegate",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "enforcer.revocation.retry",
+      "vhost": "securegate",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "security.events.redelivery",
+        "x-dead-letter-routing-key": "enforcer.revocation"
+      }
+    },
+    {
+      "name": "audit.persist",
+      "vhost": "securegate",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "security.events.dlx",
+        "x-dead-letter-routing-key": "audit.persist"
+      }
+    },
+    {
+      "name": "audit.persist.dlq",
+      "vhost": "securegate",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "audit.persist.retry",
+      "vhost": "securegate",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "security.events.redelivery",
+        "x-dead-letter-routing-key": "audit.persist"
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "source": "security.events",
+      "vhost": "securegate",
+      "destination": "enforcer.block-policy",
+      "destination_type": "queue",
+      "routing_key": "auth.login.suspicious",
+      "arguments": {}
+    },
+    {
+      "source": "security.events",
+      "vhost": "securegate",
+      "destination": "enforcer.block-policy",
+      "destination_type": "queue",
+      "routing_key": "user.locked",
+      "arguments": {}
+    },
+    {
+      "source": "security.events",
+      "vhost": "securegate",
+      "destination": "enforcer.block-policy",
+      "destination_type": "queue",
+      "routing_key": "policy.changed",
+      "arguments": {}
+    },
+    {
+      "source": "security.events.dlx",
+      "vhost": "securegate",
+      "destination": "enforcer.block-policy.dlq",
+      "destination_type": "queue",
+      "routing_key": "enforcer.block-policy",
+      "arguments": {}
+    },
+    {
+      "source": "security.events.retry",
+      "vhost": "securegate",
+      "destination": "enforcer.block-policy.retry",
+      "destination_type": "queue",
+      "routing_key": "enforcer.block-policy",
+      "arguments": {}
+    },
+    {
+      "source": "security.events.redelivery",
+      "vhost": "securegate",
+      "destination": "enforcer.block-policy",
+      "destination_type": "queue",
+      "routing_key": "enforcer.block-policy",
+      "arguments": {}
+    },
+    {
+      "source": "security.events",
+      "vhost": "securegate",
+      "destination": "enforcer.revocation",
+      "destination_type": "queue",
+      "routing_key": "token.revoked",
+      "arguments": {}
+    },
+    {
+      "source": "security.events",
+      "vhost": "securegate",
+      "destination": "enforcer.revocation",
+      "destination_type": "queue",
+      "routing_key": "session.terminated",
+      "arguments": {}
+    },
+    {
+      "source": "security.events.dlx",
+      "vhost": "securegate",
+      "destination": "enforcer.revocation.dlq",
+      "destination_type": "queue",
+      "routing_key": "enforcer.revocation",
+      "arguments": {}
+    },
+    {
+      "source": "security.events.retry",
+      "vhost": "securegate",
+      "destination": "enforcer.revocation.retry",
+      "destination_type": "queue",
+      "routing_key": "enforcer.revocation",
+      "arguments": {}
+    },
+    {
+      "source": "security.events.redelivery",
+      "vhost": "securegate",
+      "destination": "enforcer.revocation",
+      "destination_type": "queue",
+      "routing_key": "enforcer.revocation",
+      "arguments": {}
+    },
+    {
+      "source": "security.events",
+      "vhost": "securegate",
+      "destination": "audit.persist",
+      "destination_type": "queue",
+      "routing_key": "#",
+      "arguments": {}
+    },
+    {
+      "source": "security.events.dlx",
+      "vhost": "securegate",
+      "destination": "audit.persist.dlq",
+      "destination_type": "queue",
+      "routing_key": "audit.persist",
+      "arguments": {}
+    },
+    {
+      "source": "security.events.retry",
+      "vhost": "securegate",
+      "destination": "audit.persist.retry",
+      "destination_type": "queue",
+      "routing_key": "audit.persist",
+      "arguments": {}
+    },
+    {
+      "source": "security.events.redelivery",
+      "vhost": "securegate",
+      "destination": "audit.persist",
+      "destination_type": "queue",
+      "routing_key": "audit.persist",
+      "arguments": {}
+    }
+  ]
+}
