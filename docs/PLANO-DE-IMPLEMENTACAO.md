@@ -63,7 +63,7 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | --- | --- | --- | --- |
 | 0 | Fundação e build Maven | Decisões aprovadas | Concluída; ver evidências |
 | 1 | Infraestrutura local | 0 | Concluída localmente; ver evidências |
-| 2 | Esqueleto e CI | 0–1 | Implementada e validada localmente; execução CI remota pendente |
+| 2 | Esqueleto e CI | 0–1 | Concluída; validação local e CI GitHub aprovadas |
 | 3 | Identity e Access | 2 | Pendente |
 | 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | Pendente |
 | 5 | Políticas, risco e MFA | 3–4 | Pendente |
@@ -123,11 +123,11 @@ Subdivisão executada: **1A**, Compose/credenciais; **1B**, topologia RabbitMQ; 
 - [x] Adicionar Testcontainers com PostgreSQL real e execução das migrações.
 - [x] Configurar Maven para executar testes unitários e integração em `verify`.
 - [x] Criar CI com JDK 21, build, formatação, testes e relatórios.
-- [ ] Publicar a branch em PR e confirmar a execução verde da CI no GitHub.
+- [x] Publicar a branch em PR e confirmar a execução verde da CI no GitHub.
 
 **Aceite:** CI verde; contexto sobe com banco real; regras detectam uma violação arquitetural conhecida. Registrar relatórios e comandos.
 
-Subdivisão executada: **2A**, bootstrap/segurança/probes; **2B**, PostgreSQL/Flyway; **2C**, arquitetura e testes HTTP; **2D**, workflow CI. As verificações locais passaram, incluindo 40 testes. O aceite remoto da etapa permanece pendente até executar o workflow no GitHub; não declarar a etapa integralmente concluída antes disso. Consultar [evidências](evidencias/etapa-02.md) e [runbook](runbooks/iam-core-local.md).
+Subdivisão executada: **2A**, bootstrap/segurança/probes; **2B**, PostgreSQL/Flyway; **2C**, arquitetura e testes HTTP; **2D**, workflow CI. As verificações locais e a [CI no GitHub](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39137410438) passaram com 40 testes. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) fica disponível para revisão; concluir o aceite da etapa não implica merge automático. Consultar [evidências](evidencias/etapa-02.md) e [runbook](runbooks/iam-core-local.md).
 
 ## Etapa 3 — Identity e Access
 
@@ -302,4 +302,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Publicar o trabalho em PR e verificar a CI para fechar o aceite remoto da etapa 2. Em seguida, executar a etapa 3: Identity e Access, com provisionamento protegido, credenciais e atribuição de papéis/permissões.
+Executar a etapa 3: Identity e Access, com provisionamento protegido, credenciais e atribuição de papéis/permissões. A etapa 2 tem aceite local e remoto registrado; o PR das etapas iniciais segue aberto para revisão.

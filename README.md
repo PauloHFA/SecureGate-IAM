@@ -4,7 +4,7 @@ Plataforma de identidade e acesso baseada em Zero Trust, com provisionamento, OA
 
 ## Estado atual
 
-Fundação Maven, infraestrutura local e bootstrap do `iam-core` implementados. O core inicia com Spring Boot, migra o PostgreSQL via Flyway e expõe probes de saúde. Os testes incluem arquitetura e integração com PostgreSQL temporário. O workflow CI está configurado e validado estaticamente; a execução no GitHub depende de publicar a branch e abrir um PR.
+Fundação Maven, infraestrutura local e bootstrap do `iam-core` implementados. O core inicia com Spring Boot, migra o PostgreSQL via Flyway e expõe probes de saúde. Os testes incluem arquitetura e integração com PostgreSQL temporário. A CI foi executada com sucesso no GitHub, com 40 testes aprovados; consulte as [evidências da etapa 2](docs/evidencias/etapa-02.md).
 
 ## Decisões aprovadas
 
@@ -27,7 +27,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Publicar as alterações em um PR para confirmar a CI no GitHub. Depois, iniciar a etapa 3: Identity e Access. As evidências locais das etapas [0](docs/evidencias/etapa-00.md), [1](docs/evidencias/etapa-01.md) e [2](docs/evidencias/etapa-02.md) registram as validações já executadas.
+Iniciar a etapa 3: Identity e Access. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas iniciais e está disponível para revisão. As evidências das etapas [0](docs/evidencias/etapa-00.md), [1](docs/evidencias/etapa-01.md) e [2](docs/evidencias/etapa-02.md) registram as validações executadas.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

@@ -66,7 +66,7 @@ Camadas de negócio ainda vazias são permitidas enquanto o scaffold é desenvol
 
 O workflow `.github/workflows/ci.yml` executa em PRs, push para `main` e acionamento manual. Usa JDK 21, o mesmo `verify`, Docker do runner e publica relatórios de testes, inclusive em falha. Actions são fixadas por SHA, o token tem apenas `contents: read` e credenciais do checkout não são persistidas.
 
-A sintaxe foi validada com actionlint 1.7.12. Isso não equivale a um workflow verde no GitHub: a branch ainda precisa ser publicada e o workflow executado remotamente.
+A sintaxe foi validada com actionlint 1.7.12 e o workflow também [passou no GitHub](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39137410438), com 40 testes aprovados. Para cada novo commit, conferir os checks correspondentes à versão atual do PR.
 
 Se o processo não inicia, verificar JDK, porta e conectividade PostgreSQL. Se o build falha antes de iniciar o contexto de integração, verificar Docker/Testcontainers. Consultar `target/surefire-reports/` e `target/failsafe-reports/`, sem compartilhar dados sensíveis dos logs.
 

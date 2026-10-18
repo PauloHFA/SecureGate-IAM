@@ -2,8 +2,8 @@
 
 - Data: 18/10/2026, America/Sao_Paulo.
 - Base de trabalho: commit `19ce56f` das etapas 0/1.
-- Publicação: alterações desta etapa ainda locais, sem novo commit, push ou PR.
-- Resultado: implementação e validação local concluídas; execução da CI no GitHub pendente.
+- Publicação: commit `b1f1e3a759ff74fc7e56c21dc64f4aa7890b530e`, branch `docs/plano-de-implementacao`, [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4).
+- Resultado: implementação, validação local e CI no GitHub aprovadas.
 
 ## Ambiente e versões
 
@@ -56,7 +56,16 @@ Actions verificadas nos repositórios oficiais e fixadas por SHA:
 | setup-java | v6.1.0 | `b843ebf9b913146b38da2eaa7aeddf76074ae1ad` |
 | upload-artifact | v7.0.2 | `cf430e030ddbb5b0abf93d22962f4752f3646cd9` |
 
-A execução remota e seus links ainda não existem para esta entrega. Registrar aqui o PR e a execução verde quando as alterações forem publicadas; não considerar a validação estática equivalente à CI executada.
+### Execução remota aprovada
+
+- [CI #39137410438](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39137410438), disparada pelo PR #4 no commit `b1f1e3a759ff74fc7e56c21dc64f4aa7890b530e`.
+- Job `Java 21 / Maven verify` concluído com sucesso em 57 segundos em runner Ubuntu hospedado pelo GitHub.
+- O log confirmou `BUILD SUCCESS`: 20 testes de contrato, 12 unitários/arquitetura e 8 de integração; zero falhas, erros ou ignorados.
+- Checkout, JDK 21, Docker, build/testes e publicação do artefato `test-reports` concluíram com sucesso.
+- GitGuardian Security Checks também passou no PR.
+- Log remoto copiado para `.firecrawl/etapa2-ci-github.log`, ignorado pelo Git.
+
+Esta execução valida o código publicado da etapa 2. O commit posterior de documentação registra o resultado; seus checks devem ser confirmados no PR antes do merge.
 
 ## Artefatos e limites
 
@@ -70,4 +79,4 @@ Não houve teste separado do JAR em segundo plano: essa checagem adicional de in
 
 Camadas de negócio ainda vazias são permitidas nas regras enquanto o scaffold evolui; as fixtures comprovam a detecção de dependências proibidas. Ainda não há usuários, autenticação OAuth, tabelas de negócio, endpoints administrativos ou integração Vault/Redis/RabbitMQ no Java.
 
-Pendência do aceite da etapa 2: publicar branch/PR e confirmar CI verde. Depois, seguir para Identity e Access na etapa 3.
+Aceite da etapa 2 concluído. O PR permanece aberto para revisão e merge posterior; a próxima implementação é Identity e Access na etapa 3.
