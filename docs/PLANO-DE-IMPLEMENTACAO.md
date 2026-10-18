@@ -63,7 +63,7 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | --- | --- | --- | --- |
 | 0 | Fundação e build Maven | Decisões aprovadas | Concluída; ver evidências |
 | 1 | Infraestrutura local | 0 | Concluída localmente; ver evidências |
-| 2 | Esqueleto e CI | 0–1 | Pendente |
+| 2 | Esqueleto e CI | 0–1 | Implementada e validada localmente; execução CI remota pendente |
 | 3 | Identity e Access | 2 | Pendente |
 | 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | Pendente |
 | 5 | Políticas, risco e MFA | 3–4 | Pendente |
@@ -115,16 +115,19 @@ Subdivisão executada: **1A**, Compose/credenciais; **1B**, topologia RabbitMQ; 
 
 ## Etapa 2 — Esqueleto do iam-core e CI
 
-- [ ] Criar aplicação Spring Boot e pacotes dos seis contextos.
-- [ ] Configurar Actuator e probes com exposição mínima de endpoints.
-- [ ] Configurar PostgreSQL e primeira migração Flyway.
-- [ ] Padronizar erros com Problem Details e correlação sem dados sensíveis.
-- [ ] Criar regras ArchUnit para camadas e fronteiras entre contextos.
-- [ ] Adicionar Testcontainers com PostgreSQL real e execução das migrações.
-- [ ] Configurar Maven para executar testes unitários e integração em `verify`.
-- [ ] Criar CI com JDK 21, build, formatação, testes e relatórios.
+- [x] Criar aplicação Spring Boot e pacotes dos seis contextos.
+- [x] Configurar Actuator e probes com exposição mínima de endpoints.
+- [x] Configurar PostgreSQL e primeira migração Flyway.
+- [x] Padronizar erros com Problem Details e correlação sem dados sensíveis.
+- [x] Criar regras ArchUnit para camadas e fronteiras entre contextos.
+- [x] Adicionar Testcontainers com PostgreSQL real e execução das migrações.
+- [x] Configurar Maven para executar testes unitários e integração em `verify`.
+- [x] Criar CI com JDK 21, build, formatação, testes e relatórios.
+- [ ] Publicar a branch em PR e confirmar a execução verde da CI no GitHub.
 
 **Aceite:** CI verde; contexto sobe com banco real; regras detectam uma violação arquitetural conhecida. Registrar relatórios e comandos.
+
+Subdivisão executada: **2A**, bootstrap/segurança/probes; **2B**, PostgreSQL/Flyway; **2C**, arquitetura e testes HTTP; **2D**, workflow CI. As verificações locais passaram, incluindo 40 testes. O aceite remoto da etapa permanece pendente até executar o workflow no GitHub; não declarar a etapa integralmente concluída antes disso. Consultar [evidências](evidencias/etapa-02.md) e [runbook](runbooks/iam-core-local.md).
 
 ## Etapa 3 — Identity e Access
 
@@ -299,4 +302,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Executar a etapa 2: bootstrap do `iam-core`, Actuator, Flyway, isolamento de camadas/contextos com ArchUnit, PostgreSQL via Testcontainers e CI inicial. As etapas 0 e 1 estão concluídas localmente conforme as evidências.
+Publicar o trabalho em PR e verificar a CI para fechar o aceite remoto da etapa 2. Em seguida, executar a etapa 3: Identity e Access, com provisionamento protegido, credenciais e atribuição de papéis/permissões.

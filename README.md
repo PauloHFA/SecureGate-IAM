@@ -4,7 +4,7 @@ Plataforma de identidade e acesso baseada em Zero Trust, com provisionamento, OA
 
 ## Estado atual
 
-Fundação Maven e infraestrutura local implementadas: três módulos compiláveis, Wrapper, formatação, testes iniciais e Docker Compose com PostgreSQL, Redis, RabbitMQ e Vault. Os serviços Java ainda não possuem bootstrap executável, endpoints ou integração com infraestrutura. CI será implementada na etapa 2.
+Fundação Maven, infraestrutura local e bootstrap do `iam-core` implementados. O core inicia com Spring Boot, migra o PostgreSQL via Flyway e expõe probes de saúde. Os testes incluem arquitetura e integração com PostgreSQL temporário. O workflow CI está configurado e validado estaticamente; a execução no GitHub depende de publicar a branch e abrir um PR.
 
 ## Decisões aprovadas
 
@@ -20,18 +20,20 @@ Fundação Maven e infraestrutura local implementadas: três módulos compiláve
 - [ADR-002 — Assinatura JWT com Vault Transit](docs/adr/002-assinatura-jwt-vault-transit.md)
 - [Infraestrutura local: execução, credenciais e diagnóstico](infra/README.md)
 - [ADR-003 — Baseline da infraestrutura](docs/adr/003-infraestrutura-local.md)
+- [Execução e diagnóstico do iam-core](docs/runbooks/iam-core-local.md)
+- [Evidências da etapa 2](docs/evidencias/etapa-02.md)
 
 O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Implementação**, versão 0.1, outubro de 2026, disponível em PDF na pasta local do projeto.
 
 ## Próximo passo
 
-Implementar a etapa 2: bootstrap do `iam-core`, Actuator, Flyway, regras ArchUnit, integração PostgreSQL e CI. Consulte as evidências da [etapa 0](docs/evidencias/etapa-00.md) e da [etapa 1](docs/evidencias/etapa-01.md).
+Publicar as alterações em um PR para confirmar a CI no GitHub. Depois, iniciar a etapa 3: Identity e Access. As evidências locais das etapas [0](docs/evidencias/etapa-00.md), [1](docs/evidencias/etapa-01.md) e [2](docs/evidencias/etapa-02.md) registram as validações já executadas.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
 ## Build local
 
-Pré-requisitos: JDK 21, `JAVA_HOME` apontando para esse JDK e acesso à internet na primeira execução. O Wrapper baixa Maven 3.9.11 automaticamente. Docker não é necessário nesta etapa.
+Pré-requisitos: JDK 21, `JAVA_HOME` apontando para esse JDK, Docker Engine disponível e internet na primeira execução. O Wrapper baixa Maven 3.9.11. Testcontainers inicia seu próprio PostgreSQL temporário; não é necessário subir o Compose para executar `verify`.
 
 Windows PowerShell:
 
@@ -47,14 +49,16 @@ Linux/macOS:
 ./mvnw -B -ntp clean verify
 ```
 
-O build valida JDK/Maven, verifica a formatação, compila, executa os testes e gera os JARs em `target/` de cada módulo. Os JARs dos serviços ainda não são aplicações executáveis.
+O build valida JDK/Maven, verifica formatação, executa testes unitários e de integração e gera os JARs. `iam-core/target/iam-core-0.1.0-SNAPSHOT.jar` é executável Spring Boot; `policy-enforcer` ainda não possui bootstrap. Os testes de integração falham se Docker não estiver disponível, sem serem ignorados silenciosamente.
+
+Para executar apenas testes unitários/arquitetura sem iniciar containers, use `./mvnw test` ou `.\mvnw.cmd test`. Isso não substitui o aceite completo de `verify`. Relatórios ficam em `target/surefire-reports/` e `target/failsafe-reports/` dos módulos.
 
 Para corrigir formatação Java, execute `.\mvnw.cmd spotless:apply` no Windows ou `./mvnw spotless:apply` no Linux/macOS. O `verify` apenas verifica a formatação, sem alterar o código.
 
 | Módulo | Responsabilidade atual |
 | --- | --- |
 | `libs/security-events` | Biblioteca Java sem Spring, com validação inicial dos tipos de evento |
-| `iam-core` | Módulo reservado para o monólito modular; bootstrap na etapa 2 |
+| `iam-core` | Aplicação Spring Boot com Actuator, segurança inicial, Flyway e testes |
 | `policy-enforcer` | Módulo reservado para o consumidor; implementação na etapa 7 |
 
 O contrato inicial `SecurityEventType` aceita segmentos minúsculos separados por ponto, até 128 caracteres, e rejeita curingas de binding (`*` e `#`). O envelope versionado e a mensageria serão implementados na etapa 6. Relatórios de teste ficam em `libs/security-events/target/surefire-reports/`.
@@ -72,6 +76,18 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d --wait --wait-t
 PostgreSQL fica em `127.0.0.1:15432`, Redis em `127.0.0.1:6379`, RabbitMQ em `127.0.0.1:5672` com painel na porta `15672`, e Vault na porta `8200`. Credenciais são geradas em `.env` e `infra/.local/`, ignorados pelo Git.
 
 Vault usa modo dev e perde chaves ao reiniciar. Consulte o [guia de infraestrutura](infra/README.md) para reexecutar o bootstrap, operar a stack e entender os limites do ambiente local.
+
+## Executar o iam-core
+
+Após o build e a subida da infraestrutura:
+
+```powershell
+.\infra\scripts\Start-IamCore.ps1
+```
+
+O script lê o `.env` local e transmite a senha por variável de ambiente ao processo Java, sem gravá-la no código ou passá-la na linha de comando. A aplicação escuta em `127.0.0.1:8080`; `-Port 18080` permite trocar a porta. As migrações serão aplicadas ao banco local na primeira inicialização.
+
+Endpoints públicos: `GET /actuator/health`, `/actuator/health/liveness` e `/actuator/health/readiness`. Demais rotas são bloqueadas com HTTP 403 até a implementação da autenticação/API. Não há login, emissão de tokens ou provisionamento ainda.
 
 ## Arquivos locais
 

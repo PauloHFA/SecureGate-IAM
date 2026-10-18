@@ -1,2 +1,2 @@
-/** Application boundary for the IAM modular monolith. Bootstrap is added in stage 2. */
+/** Application boundary for the IAM modular monolith. */
 package com.securegate.iam;
