@@ -43,11 +43,11 @@ Invoke-RestMethod http://127.0.0.1:8080/actuator/health/readiness
 
 Readiness recusa tráfego com HTTP 503 quando a aplicação está fora de serviço. Isso não deve derrubar liveness. Detalhes do banco não são publicados nas respostas.
 
-A configuração não cria usuário/senha automáticos, formulário de login, Basic Auth ou sessão HTTP. Saúde permanece pública. Para administrar, usar `Start-IamCore.ps1 -EnableBootstrap`, conforme o [guia específico](provisionamento-local.md). CSRF permanece habilitado fora do namespace administrativo; as rotas administrativas autenticam exclusivamente por Bearer explícito e dispensam CSRF. OAuth/OIDC e os fluxos de sessão da etapa 4 terão configuração própria.
+A configuração padrão não cria usuário/senha ou sessão automática. Saúde permanece pública. Para administrar, usar `Start-IamCore.ps1 -EnableBootstrap`, conforme o [guia específico](provisionamento-local.md). As rotas administrativas autenticam exclusivamente por Bearer e dispensam CSRF. A ativação explícita de Authorization habilita Basic para clientes no token endpoint e formulário/sessão no navegador; login, consentimento e logout possuem proteção CSRF própria.
 
 ## Erros e correlação
 
-`Start-IamCore.ps1 -EnableTransit` habilita o JWKS em `GET /oauth2/jwks`. O adaptador de assinatura utiliza AppRole, sem token root no processo Java. A 4B acrescenta `-EnableAuthorization` para Client Credentials; consulte [Transit e JWKS](transit-local.md) e [Client Credentials](oauth-client-credentials-local.md). Login e OIDC dependem das entregas seguintes.
+`Start-IamCore.ps1 -EnableTransit` habilita o JWKS em `GET /oauth2/jwks`. O adaptador utiliza AppRole, sem token root no Java. `-EnableAuthorization` habilita Client Credentials e o fluxo de navegador com login/PKCE da 4C; consulte [Client Credentials](oauth-client-credentials-local.md) e [login/PKCE](oauth-pkce-local.md). OIDC/refresh permanecem pendentes. As cadeias de saúde, administração e token endpoint continuam sem sessão; só o navegador usa sessão HTTP local.
 
 Cada requisição recebe `X-Correlation-ID`. Um ID recebido é aceito apenas se contiver de 1 a 64 caracteres alfanuméricos, ponto, hífen ou sublinhado, começando com alfanumérico; entradas inválidas são substituídas por UUID. O ID é incluído no MDC durante a requisição e o contexto anterior é restaurado mesmo em falha.
 

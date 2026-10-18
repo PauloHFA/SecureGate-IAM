@@ -65,7 +65,7 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 1 | Infraestrutura local | 0 | Concluída localmente; ver evidências |
 | 2 | Esqueleto e CI | 0–1 | Concluída; validação local e CI GitHub aprovadas |
 | 3 | Identity e Access | 2 | Implementada e validada localmente; publicação pendente |
-| 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | Em andamento; 4A Transit/JWKS e 4B Client Credentials implementadas |
+| 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | Em andamento; 4A–4C implementadas, 4D pendente |
 | 5 | Políticas, risco e MFA | 3–4 | Pendente |
 | 6 | Eventos e Outbox | 2–5 | Pendente |
 | 7 | Enforcer e revogação | 4–6 | Pendente |
@@ -149,9 +149,9 @@ Subdivisão executada: **3A**, usuários/credenciais/ciclo de vida; **3B**, cat�
 - [x] Integrar Spring Authorization Server e persistir clientes, autorizações e consentimentos.
 - [x] Iniciar com JDBC padrão se reduzir risco; justificar e testar customização JPA.
 - [ ] Implementar Authorization Code + PKCE, Client Credentials e refresh com rotação/detecção de reuso.
-- [ ] Validar `redirect_uri` por correspondência exata e proteger autorização/consentimento.
+- [x] Validar `redirect_uri` por correspondência exata e proteger autorização/consentimento.
 - [x] Implementar porta e adaptador Transit conforme ADR-002.
-- [ ] Emitir JWT RS256 com `kid`, `roles`, `sid` e claims aplicáveis a cada fluxo.
+- [x] Emitir access tokens JWT RS256 com `kid` e claims aplicáveis; fluxo de usuário inclui `roles` e `sid`.
 - [ ] Publicar discovery, authorize, token, JWKS, revogação, introspecção e userinfo.
 - [x] Implementar rotação e sobreposição das chaves públicas, com retenção de todas as versões e teste de troca no Vault.
 - [ ] Testar expiração, emissor/audiência, assinatura incorreta, token adulterado, `alg=none` e reuso de refresh.
@@ -163,10 +163,10 @@ Subdivisão da etapa:
 
 - **4A — Transit e JWKS:** porta de assinatura, AppRole por arquivos, encoder RS256, endpoint público condicionado à ativação, cache, métricas e testes com Vault real. Ver [ADR-005](adr/005-transit-e-jwks.md), [runbook](runbooks/transit-local.md) e [evidências](evidencias/etapa-04.md).
 - **4B — Authorization Server e Client Credentials:** framework integrado, clientes/autorizações/consentimentos JDBC, cadastro administrativo protegido, segredo gerado com hash Argon2id, issuer/audiência e TTL de cinco minutos definidos. Ver [ADR-006](adr/006-authorization-server-client-credentials.md), [runbook](runbooks/oauth-client-credentials-local.md) e [evidências](evidencias/etapa-04b.md).
-- **4C — Login, Authorization Code e PKCE:** autenticar usuários provisionados, validar redirects exatos e proteger sessão/consentimento.
+- **4C — Login, Authorization Code e PKCE:** login Identity/Argon2id, clientes web confidenciais, redirects exatos, S256 obrigatório, consentimento protegido por CSRF e sessão, código com uso único transacional e JWT com papéis/sid. Ver [ADR-007](adr/007-login-pkce-e-consentimento.md), [runbook](runbooks/oauth-pkce-local.md) e [evidências](evidencias/etapa-04c.md).
 - **4D — OIDC e ciclo dos tokens:** discovery, userinfo, introspecção, revogação e refresh com rotação e detecção de reuso.
 
-As entregas 4A/4B não encerram a etapa 4. Client Credentials já emite tokens RS256 para clientes cadastrados; login de usuário, PKCE, OIDC e refresh continuam pendentes. Consentimentos têm armazenamento testado, sem fluxo interativo nesta fase. Tokens máquina a máquina não recebem `roles` ou `sid`. Remoção de versões antigas exige política de retenção considerando o maior TTL de todos os fluxos futuros, além dos cinco minutos já definidos para Client Credentials.
+As entregas 4A–4C não encerram a etapa 4. Client Credentials e Authorization Code com PKCE emitem tokens RS256; OIDC e refresh continuam pendentes. Consentimento interativo está implementado. Tokens máquina a máquina não recebem `roles` ou `sid`; tokens de usuário recebem ambos. Remoção de versões antigas exige política de retenção considerando o maior TTL de todos os fluxos futuros, além dos cinco minutos dos access tokens atuais. Sessão de navegador ainda é local à instância, e a revogação distribuída permanece na etapa 7.
 
 ## Etapa 5 — Políticas, risco e MFA
 
@@ -313,4 +313,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a entrega 4C: login dos usuários provisionados, Authorization Code com PKCE, validação exata de redirects e proteção de sessão/consentimento. A etapa 3 está no commit local `48632e4` e a 4A em `ad1a4bf`; a 4B está na branch `feat/oauth-client-credentials`. Publicação, revisão e CI remota das etapas 3/4A/4B continuam pendentes.
+Seguir para a entrega 4D: OIDC, discovery, userinfo, introspecção, revogação e refresh com rotação/detecção de reuso. A 4B está no commit local `04d082c`; a 4C está na branch `feat/oauth-pkce-login`. Publicação, revisão e CI remota do código posterior à etapa 2 continuam pendentes.

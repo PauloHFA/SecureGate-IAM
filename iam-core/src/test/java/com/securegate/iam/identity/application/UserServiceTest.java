@@ -62,6 +62,8 @@ class UserServiceTest {
     assertEquals(1, service.list(new PageRequest(20, 0)).size());
     assertTrue(service.exists(user.id()));
     assertTrue(service.isActive(user.id()));
+    assertTrue(service.isCurrent(user.id(), 0));
+    assertFalse(service.isCurrent(user.id(), 1));
     when(repository.find(user.id())).thenReturn(Optional.of(user.transition(UserStatus.LOCKED)));
     assertFalse(service.isActive(user.id()));
     when(repository.find(user.id())).thenReturn(Optional.empty());

@@ -1,6 +1,7 @@
 package com.securegate.iam.bootstrap;
 
 import com.securegate.iam.shared.presentation.ProblemResponses;
+import jakarta.servlet.DispatcherType;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -28,6 +29,8 @@ public class SecurityConfiguration {
     return http.authorizeHttpRequests(
             requests ->
                 requests
+                    .dispatcherTypeMatchers(DispatcherType.ERROR)
+                    .permitAll()
                     .requestMatchers(
                         HttpMethod.GET,
                         "/actuator/health",

@@ -1,16 +1,25 @@
 package com.securegate.iam.bootstrap;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.securegate.iam.access.application.port.EffectiveRoles;
+import com.securegate.iam.access.infrastructure.JdbcEffectiveRoles;
 import com.securegate.iam.audit.application.port.AuditTrail;
 import com.securegate.iam.authorization.application.OAuthClientService;
 import com.securegate.iam.authorization.application.port.ClientRegistry;
+import com.securegate.iam.authorization.application.port.ConsentRequests;
 import com.securegate.iam.authorization.infrastructure.AuthorizationJdbcDataSource;
+import com.securegate.iam.authorization.infrastructure.BrowserAuthorizations;
 import com.securegate.iam.authorization.infrastructure.JdbcClientRegistry;
+import com.securegate.iam.authorization.infrastructure.JdbcConsentRequests;
+import com.securegate.iam.authorization.infrastructure.SerializedCodeRedemption;
 import com.securegate.iam.authorization.presentation.OAuthFailureHandler;
+import com.securegate.iam.identity.application.port.AuthenticatedIdentity;
+import com.securegate.iam.identity.application.port.IdentityLookup;
 import com.securegate.iam.identity.application.port.PasswordHasher;
 import com.securegate.iam.shared.application.port.UnitOfWork;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import javax.sql.DataSource;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -23,11 +32,13 @@ import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncodingException;
 import org.springframework.security.oauth2.server.authorization.*;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2ClientCredentialsAuthenticationContext;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2ClientCredentialsAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2ClientCredentialsAuthenticationToken;
@@ -37,6 +48,8 @@ import org.springframework.security.oauth2.server.authorization.config.annotatio
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
 import org.springframework.security.oauth2.server.authorization.token.*;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(name = "iam.authorization.enabled", havingValue = "true")
@@ -53,8 +66,20 @@ public class AuthorizationServerConfiguration {
   @DependsOn("flywayInitializer")
   OAuth2AuthorizationService authorizationService(
       DataSource dataSource, RegisteredClientRepository clients) {
-    return new JdbcOAuth2AuthorizationService(
-        new JdbcTemplate(new AuthorizationJdbcDataSource(dataSource)), clients);
+    return new BrowserAuthorizations(
+        new JdbcOAuth2AuthorizationService(
+            new JdbcTemplate(new AuthorizationJdbcDataSource(dataSource)), clients));
+  }
+
+  @Bean
+  EffectiveRoles effectiveRoles(JdbcTemplate jdbc) {
+    return new JdbcEffectiveRoles(jdbc);
+  }
+
+  @Bean
+  ConsentRequests consentRequests(
+      OAuth2AuthorizationService authorizations, RegisteredClientRepository clients) {
+    return new JdbcConsentRequests(authorizations, clients);
   }
 
   @Bean
@@ -81,7 +106,8 @@ public class AuthorizationServerConfiguration {
   }
 
   @Bean
-  OAuth2TokenGenerator<?> tokenGenerator(JwtEncoder encoder) {
+  OAuth2TokenGenerator<?> tokenGenerator(
+      JwtEncoder encoder, IdentityLookup identities, EffectiveRoles roles) {
     JwtGenerator generator = new JwtGenerator(encoder);
     generator.setJwtCustomizer(
         context -> {
@@ -98,6 +124,19 @@ public class AuthorizationServerConfiguration {
               // JDBC's security allowlist supports ArrayList, not List.of() implementation types.
               .audience(new ArrayList<>(List.of(audience)))
               .claim("client_id", context.getRegisteredClient().getClientId());
+          if (AuthorizationGrantType.AUTHORIZATION_CODE.equals(
+              context.getAuthorizationGrantType())) {
+            if (!(context.getPrincipal().getPrincipal() instanceof AuthenticatedIdentity identity)
+                || !identities.isCurrent(UUID.fromString(identity.getName()), identity.version())
+                || context.getAuthorization() == null
+                || context.getAuthorization().getAttribute(ConsentRequests.SESSION_ID) == null) {
+              throw new OAuth2AuthenticationException("invalid_grant");
+            }
+            context
+                .getClaims()
+                .claim("roles", new ArrayList<>(roles.forUser(UUID.fromString(identity.getName()))))
+                .claim("sid", context.getAuthorization().getAttribute(ConsentRequests.SESSION_ID));
+          }
         });
     return context -> {
       try {
@@ -110,7 +149,9 @@ public class AuthorizationServerConfiguration {
 
   @Bean
   @Order(0)
-  SecurityFilterChain authorizationSecurity(HttpSecurity http, ObjectMapper json) throws Exception {
+  SecurityFilterChain authorizationSecurity(
+      HttpSecurity http, ObjectMapper json, JdbcTemplate jdbc, PlatformTransactionManager manager)
+      throws Exception {
     var failure = new OAuthFailureHandler(json);
     var server = OAuth2AuthorizationServerConfigurer.authorizationServer();
     return http.securityMatcher("/oauth2/token")
@@ -124,7 +165,8 @@ public class AuthorizationServerConfiguration {
                             token
                                 .errorResponseHandler(failure)
                                 .authenticationProviders(
-                                    AuthorizationServerConfiguration::configureGrantProviders)))
+                                    providers ->
+                                        configureGrantProviders(providers, jdbc, manager))))
         .authorizeHttpRequests(requests -> requests.anyRequest().authenticated())
         .csrf(csrf -> csrf.ignoringRequestMatchers("/oauth2/token"))
         .sessionManagement(
@@ -141,12 +183,19 @@ public class AuthorizationServerConfiguration {
         .build();
   }
 
-  private static void configureGrantProviders(List<AuthenticationProvider> providers) {
-    for (var provider : providers) {
+  private static void configureGrantProviders(
+      List<AuthenticationProvider> providers,
+      JdbcTemplate jdbc,
+      PlatformTransactionManager manager) {
+    for (int index = 0; index < providers.size(); index++) {
+      var provider = providers.get(index);
       if (provider instanceof OAuth2ClientCredentialsAuthenticationProvider credentials) {
         credentials.setAuthenticationValidator(
             new OAuth2ClientCredentialsAuthenticationValidator()
                 .andThen(AuthorizationServerConfiguration::requireScopes));
+      } else if (provider instanceof OAuth2AuthorizationCodeAuthenticationProvider) {
+        providers.set(
+            index, new SerializedCodeRedemption(provider, jdbc, new TransactionTemplate(manager)));
       }
     }
   }

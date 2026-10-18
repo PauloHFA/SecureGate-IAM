@@ -6,7 +6,7 @@ Plataforma de identidade e acesso baseada em Zero Trust, com provisionamento, OA
 
 Fundação, infraestrutura e API administrativa de Identity/Access implementadas. O core gerencia usuários, credenciais Argon2id, grupos, papéis, permissões e auditoria transacional. Administração fica desabilitada por padrão e exige ativação explícita com token bootstrap temporário. A etapa 3 foi validada localmente com 106 testes; sua publicação ainda está pendente. Consulte as [evidências](docs/evidencias/etapa-03.md).
 
-A entrega 4A acrescenta assinatura RS256 via Vault Transit com AppRole e publicação de JWKS. A 4B integra Spring Authorization Server e Client Credentials, com cadastro administrativo de clientes, persistência JDBC e tokens de cinco minutos. Login de usuário, PKCE e OIDC continuam pendentes. Consulte o [guia Client Credentials](docs/runbooks/oauth-client-credentials-local.md), o [guia Transit](docs/runbooks/transit-local.md) e as [evidências 4B](docs/evidencias/etapa-04b.md).
+A entrega 4A acrescenta assinatura RS256 via Vault Transit e JWKS; a 4B integra Client Credentials/JDBC. A 4C acrescenta login dos usuários, clientes web confidenciais e Authorization Code com PKCE S256, redirects exatos e consentimento protegido. Access tokens duram cinco minutos; OIDC e refresh continuam pendentes. Consulte o [guia PKCE](docs/runbooks/oauth-pkce-local.md), o [guia Client Credentials](docs/runbooks/oauth-client-credentials-local.md) e as [evidências 4C](docs/evidencias/etapa-04c.md).
 
 ## Decisões aprovadas
 
@@ -28,12 +28,13 @@ A entrega 4A acrescenta assinatura RS256 via Vault Transit com AppRole e publica
 - [ADR-004 — Identity, Access e bootstrap administrativo](docs/adr/004-identity-access-bootstrap.md)
 - [ADR-005 — Integração Transit e publicação de chaves](docs/adr/005-transit-e-jwks.md)
 - [ADR-006 — Authorization Server JDBC e Client Credentials](docs/adr/006-authorization-server-client-credentials.md)
+- [ADR-007 — Login, PKCE e consentimento](docs/adr/007-login-pkce-e-consentimento.md)
 
 O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Implementação**, versão 0.1, outubro de 2026, disponível em PDF na pasta local do projeto.
 
 ## Próximo passo
 
-Implementar login, Authorization Code com PKCE e proteção de sessão/consentimento na entrega 4C. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2; a etapa 3 está no commit local `48632e4` e a 4A em `ad1a4bf`. A branch `feat/oauth-client-credentials` parte deste último commit e contém a 4B. Publicação e CI remota do código posterior à etapa 2 continuam pendentes.
+Implementar OIDC e ciclo de tokens na entrega 4D. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A branch `feat/oauth-pkce-login` parte do commit `04d082c` da 4B e contém a 4C. Publicação e CI remota do código posterior à etapa 2 continuam pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
@@ -101,11 +102,13 @@ Endpoints públicos: `GET /actuator/health`, `/actuator/health/liveness` e `/act
 .\infra\scripts\Start-IamCore.ps1 -EnableBootstrap
 ```
 
-As rotas `/api/admin/**` exigem o token gerado em `.env`. Consulte o [guia de provisionamento](docs/runbooks/provisionamento-local.md) para exemplos, controle de versão e atribuições. Login de usuário, PKCE e OIDC continuam nas próximas entregas da etapa 4.
+As rotas `/api/admin/**` exigem o token gerado em `.env`. Consulte o [guia de provisionamento](docs/runbooks/provisionamento-local.md) para exemplos, controle de versão e atribuições. A sessão de usuário e os JWTs OAuth não concedem acesso administrativo.
 
 Para habilitar `GET /oauth2/jwks`, use `Start-IamCore.ps1 -EnableTransit`. Essa opção lê os arquivos AppRole de `infra/.local/` e é independente do bootstrap administrativo. Operação, rotação e diagnóstico estão no [guia Transit](docs/runbooks/transit-local.md).
 
 Para emitir tokens máquina a máquina, use `Start-IamCore.ps1 -EnableAuthorization -EnableBootstrap`, cadastre um cliente confidencial e solicite `client_credentials` com Basic Auth em `POST /oauth2/token`, conforme o [guia Client Credentials](docs/runbooks/oauth-client-credentials-local.md). Authorization ativa Transit automaticamente; bootstrap só é necessário para administrar. O segredo é entregue uma vez e fica armazenado como hash Argon2id.
+
+Os mesmos parâmetros habilitam o fluxo de navegador da 4C. Cadastre o cliente em `/api/admin/oauth-clients/browser`, provisione um usuário ACTIVE e siga o [guia de login e PKCE](docs/runbooks/oauth-pkce-local.md). A sessão local dura 15 minutos por inatividade, o consentimento pendente cinco minutos e o código dois minutos. Bloqueios e mudanças de versão da identidade impedem usar sessões/códigos antigos; revogação de JWTs já emitidos depende das próximas entregas.
 
 ## Arquivos locais
 

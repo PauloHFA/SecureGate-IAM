@@ -6,4 +6,6 @@ public interface IdentityLookup {
   boolean exists(UUID userId);
 
   boolean isActive(UUID userId);
+
+  boolean isCurrent(UUID userId, long version);
 }

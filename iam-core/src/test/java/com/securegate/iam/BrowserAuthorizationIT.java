@@ -1,0 +1,719 @@
+package com.securegate.iam;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.net.CookieManager;
+import java.net.CookiePolicy;
+import java.net.URI;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.time.Duration;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.regex.Pattern;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.oauth2.jwt.JwtValidators;
+import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.web.util.HtmlUtils;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
+
+@Testcontainers
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+class BrowserAuthorizationIT {
+  private static final ObjectMapper JSON = new ObjectMapper();
+  private static final HttpClient HTTP = HttpClient.newHttpClient();
+  private static final String ROOT = UUID.randomUUID().toString();
+  private static final String ADMIN = UUID.randomUUID().toString();
+  private static final String PASSWORD = "Synthetic-password-123!";
+  private static final String CALLBACK = "http://127.0.0.1:18090/callback";
+  private static final String ISSUER = "https://issuer.example.test";
+  private static Path credentials;
+
+  @Container
+  static final GenericContainer<?> VAULT =
+      new GenericContainer<>(DockerImageName.parse("hashicorp/vault:1.21.4"))
+          .withEnv("VAULT_DEV_ROOT_TOKEN_ID", ROOT)
+          .withEnv("SKIP_SETCAP", "true")
+          .withCommand("server", "-dev", "-dev-listen-address=0.0.0.0:8200")
+          .withExposedPorts(8200)
+          .waitingFor(Wait.forHttp("/v1/sys/health").forStatusCode(200));
+
+  @Container
+  static final PostgreSQLContainer<?> DATABASE =
+      new PostgreSQLContainer<>("postgres:16.15-alpine")
+          .withDatabaseName("browser_test")
+          .withUsername("browser_test")
+          .withPassword(UUID.randomUUID().toString());
+
+  @DynamicPropertySource
+  static void configure(DynamicPropertyRegistry registry) throws Exception {
+    vault("sys/mounts/transit", Map.of("type", "transit"));
+    vault(
+        "transit/keys/securegate-jwt",
+        Map.of("type", "rsa-3072", "exportable", false, "allow_plaintext_backup", false));
+    vault("sys/auth/approle", Map.of("type", "approle"));
+    vault(
+        "sys/policies/acl/securegate-iam-core",
+        Map.of("policy", Files.readString(Path.of("../infra/vault/iam-core.hcl"))));
+    vault(
+        "auth/approle/role/iam-core",
+        Map.of("token_policies", List.of("securegate-iam-core"), "token_ttl", "1h"));
+    credentials = Files.createTempDirectory("securegate-browser-test-");
+    Files.writeString(
+        credentials.resolve("role"),
+        vault("auth/approle/role/iam-core/role-id", null).path("data").path("role_id").asText());
+    Files.writeString(
+        credentials.resolve("secret"),
+        vault("auth/approle/role/iam-core/secret-id", Map.of())
+            .path("data")
+            .path("secret_id")
+            .asText());
+    registry.add("spring.datasource.url", DATABASE::getJdbcUrl);
+    registry.add("spring.datasource.username", DATABASE::getUsername);
+    registry.add("spring.datasource.password", DATABASE::getPassword);
+    registry.add("iam.transit.enabled", () -> true);
+    registry.add("iam.transit.address", BrowserAuthorizationIT::vaultAddress);
+    registry.add("iam.transit.role-id-file", () -> credentials.resolve("role").toString());
+    registry.add("iam.transit.secret-id-file", () -> credentials.resolve("secret").toString());
+    registry.add("iam.authorization.enabled", () -> true);
+    registry.add("iam.authorization.issuer", () -> ISSUER);
+    registry.add("iam.bootstrap.enabled", () -> true);
+    registry.add("iam.bootstrap.token", () -> ADMIN);
+  }
+
+  @AfterAll
+  static void cleanup() throws Exception {
+    if (credentials != null) {
+      Files.deleteIfExists(credentials.resolve("role"));
+      Files.deleteIfExists(credentials.resolve("secret"));
+      Files.deleteIfExists(credentials);
+    }
+  }
+
+  @Autowired JdbcTemplate jdbc;
+
+  @Autowired
+  org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService
+      authorizations;
+
+  @LocalServerPort int port;
+
+  @Test
+  void completesLoginConsentAndPkceAndPersistsOnlySafeIdentityMetadata() throws Exception {
+    Flow flow = flow();
+    UUID direct = UUID.randomUUID();
+    UUID inherited = UUID.randomUUID();
+    UUID group = UUID.randomUUID();
+    jdbc.update(
+        "INSERT INTO iam_access.roles(id,name) VALUES (?,?),(?,?)",
+        direct,
+        "READER_" + flow.suffix(),
+        inherited,
+        "GROUP_" + flow.suffix());
+    jdbc.update(
+        "INSERT INTO iam_access.user_roles(user_id,role_id) VALUES (?,?)", flow.userId(), direct);
+    jdbc.update(
+        "INSERT INTO iam_access.groups(id,name) VALUES (?,?)", group, "TEAM_" + flow.suffix());
+    jdbc.update(
+        "INSERT INTO iam_access.group_members(group_id,user_id) VALUES (?,?)",
+        group,
+        flow.userId());
+    jdbc.update(
+        "INSERT INTO iam_access.group_roles(group_id,role_id) VALUES (?,?)", group, inherited);
+    var browser = browser();
+    var pending = pending(browser, flow);
+    assertTrue(pending.body().contains("&lt;script&gt;"));
+    assertFalse(pending.body().contains("<script>"));
+    assertEquals("no-store", pending.headers().firstValue("Cache-Control").orElseThrow());
+    assertEquals("no-referrer", pending.headers().firstValue("Referrer-Policy").orElseThrow());
+    String code = approve(browser, flow, pending);
+    var response = exchange(flow, code, flow.verifier(), CALLBACK);
+    assertEquals(200, response.statusCode());
+    var body = JSON.readTree(response.body());
+    assertFalse(body.has("refresh_token"));
+    assertFalse(body.has("id_token"));
+    var decoder = NimbusJwtDecoder.withJwkSetUri(uri("/oauth2/jwks").toString()).build();
+    decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(ISSUER));
+    var jwt = decoder.decode(body.path("access_token").asText());
+    assertEquals(flow.userId().toString(), jwt.getSubject());
+    assertEquals(List.of("browser-api"), jwt.getAudience());
+    assertEquals(List.of("api:read"), jwt.getClaimAsStringList("scope"));
+    assertEquals(
+        List.of("GROUP_" + flow.suffix(), "READER_" + flow.suffix()),
+        jwt.getClaimAsStringList("roles"));
+    assertNotNull(UUID.fromString(jwt.getClaimAsString("sid")));
+    assertEquals(300, Duration.between(jwt.getIssuedAt(), jwt.getExpiresAt()).getSeconds());
+    assertEquals(flow.clientId(), jwt.getClaimAsString("client_id"));
+    String attributes =
+        jdbc.queryForObject(
+            "SELECT attributes FROM iam_authorization.oauth2_authorization WHERE access_token_value=?",
+            String.class,
+            jwt.getTokenValue());
+    assertFalse(attributes.contains("argon2"));
+    assertFalse(attributes.contains(PASSWORD));
+    assertError(exchange(flow, code, flow.verifier(), CALLBACK), "invalid_grant");
+  }
+
+  @Test
+  void protectsLoginAgainstCsrfAndRotatesTheSessionIdentifier() throws Exception {
+    Flow flow = flow();
+    CookieManager cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+    var browser = HttpClient.newBuilder().cookieHandler(cookies).build();
+    var page = get(browser, "/login");
+    assertEquals(200, page.statusCode());
+    String before =
+        cookies.getCookieStore().getCookies().stream()
+            .filter(cookie -> cookie.getName().equals("JSESSIONID"))
+            .findFirst()
+            .orElseThrow()
+            .getValue();
+    String header = page.headers().allValues("Set-Cookie").toString();
+    assertTrue(header.contains("HttpOnly"));
+    assertTrue(header.contains("SameSite=Lax"));
+    assertEquals(
+        403,
+        post(browser, "/login", Map.of("username", flow.email(), "password", PASSWORD))
+            .statusCode());
+    var result =
+        post(
+            browser,
+            "/login",
+            Map.of(
+                "username",
+                flow.email().toUpperCase(java.util.Locale.ROOT),
+                "password",
+                PASSWORD,
+                "_csrf",
+                hidden(page.body(), "_csrf")));
+    assertEquals(302, result.statusCode());
+    String after =
+        cookies.getCookieStore().getCookies().stream()
+            .filter(cookie -> cookie.getName().equals("JSESSIONID"))
+            .findFirst()
+            .orElseThrow()
+            .getValue();
+    assertNotEquals(before, after);
+    assertEquals(403, post(browser, "/logout", Map.of()).statusCode());
+    String csrf = hidden(get(browser, "/login").body(), "_csrf");
+    assertEquals(302, post(browser, "/logout", Map.of("_csrf", csrf)).statusCode());
+    assertTrue(location(get(browser, authorize(flow))).contains("/login"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"wrong-password", "missing", "LOCKED", "DISABLED"})
+  void returnsTheSameLoginFailureForUnknownWrongAndInactiveAccounts(String mode) throws Exception {
+    Flow flow = flow();
+    if (mode.equals("LOCKED") || mode.equals("DISABLED")) {
+      jdbc.update(
+          "UPDATE iam_identity.users SET status=?,version=version+1 WHERE id=?",
+          mode,
+          flow.userId());
+    }
+    var browser = browser();
+    var page = get(browser, "/login");
+    var result =
+        post(
+            browser,
+            "/login",
+            Map.of(
+                "username",
+                mode.equals("missing") ? "missing@example.test" : flow.email(),
+                "password",
+                mode.equals("wrong-password") ? "Incorrect-password-123" : PASSWORD,
+                "_csrf",
+                hidden(page.body(), "_csrf")));
+    assertEquals(302, result.statusCode());
+    assertTrue(location(result).endsWith("/login?error"));
+    var error = get(browser, "/login?error");
+    assertTrue(error.body().contains("Não foi possível entrar. Confira suas credenciais."));
+    assertFalse(error.body().contains(flow.email()));
+    assertFalse(error.body().contains(PASSWORD));
+  }
+
+  @Test
+  void requiresExactRedirectS256AndNonEmptyStateAndScopesBeforeLogin() throws Exception {
+    Flow flow = flow();
+    String valid = authorize(flow);
+    for (String invalid :
+        List.of(
+            valid.replace("code_challenge_method=S256", "code_challenge_method=plain"),
+            valid.replace("code_challenge_method=S256", "unused=x"),
+            valid.replace("state=" + enc(flow.state()), "state="),
+            valid.replace("scope=api%3Aread", "scope="),
+            valid.replace(enc(CALLBACK), enc("http://127.0.0.1:18091/callback")),
+            valid.replace(enc(CALLBACK), enc(CALLBACK + "/extra")),
+            valid.replace(enc(CALLBACK), enc("https://attacker.example/callback")))) {
+      var response = get(browser(), invalid);
+      assertEquals(400, response.statusCode());
+      assertTrue(response.headers().firstValue("Location").isEmpty());
+    }
+  }
+
+  @Test
+  void protectsConsentFromCsrfStateTamperingAndAnotherSessionOfTheSameUser() throws Exception {
+    Flow flow = flow();
+    var browser = browser();
+    var page = pending(browser, flow);
+    String state = hidden(page.body(), "state");
+    assertEquals(
+        403,
+        post(
+                browser,
+                "/oauth2/authorize",
+                Map.of("client_id", flow.clientId(), "state", state, "scope", "api:read"))
+            .statusCode());
+    assertEquals(
+        403,
+        post(
+                browser,
+                "/oauth2/authorize",
+                Map.of(
+                    "client_id",
+                    flow.clientId(),
+                    "state",
+                    "forged-state",
+                    "scope",
+                    "api:read",
+                    "_csrf",
+                    hidden(page.body(), "_csrf")))
+            .statusCode());
+    assertEquals(
+        404,
+        get(browser, "/oauth2/consent?client_id=wrong-client&state=" + enc(state)).statusCode());
+    var other = browser();
+    var login = get(other, "/login");
+    post(
+        other,
+        "/login",
+        Map.of(
+            "username",
+            flow.email(),
+            "password",
+            PASSWORD,
+            "_csrf",
+            hidden(login.body(), "_csrf")));
+    assertEquals(
+        404,
+        get(other, "/oauth2/consent?client_id=" + flow.clientId() + "&state=" + enc(state))
+            .statusCode());
+    assertEquals(
+        403,
+        post(
+                other,
+                "/oauth2/authorize",
+                Map.of(
+                    "client_id",
+                    flow.clientId(),
+                    "state",
+                    state,
+                    "scope",
+                    "api:read",
+                    "_csrf",
+                    hidden(get(other, "/login").body(), "_csrf")))
+            .statusCode());
+    approve(browser, flow, page);
+    assertEquals(
+        403,
+        post(
+                browser,
+                "/oauth2/authorize",
+                Map.of(
+                    "client_id",
+                    flow.clientId(),
+                    "state",
+                    state,
+                    "scope",
+                    "api:read",
+                    "_csrf",
+                    hidden(page.body(), "_csrf")))
+            .statusCode());
+  }
+
+  @Test
+  void denialReturnsOriginalClientStateWithoutIssuingACode() throws Exception {
+    Flow flow = flow();
+    var browser = browser();
+    var page = pending(browser, flow);
+    var denied =
+        post(
+            browser,
+            "/oauth2/authorize",
+            Map.of(
+                "client_id",
+                flow.clientId(),
+                "state",
+                hidden(page.body(), "state"),
+                "_csrf",
+                hidden(page.body(), "_csrf")));
+    assertEquals(302, denied.statusCode());
+    var query = query(location(denied));
+    assertEquals("access_denied", query.get("error"));
+    assertEquals(flow.state(), query.get("state"));
+    assertFalse(query.containsKey("code"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"verifier", "redirect", "expired"})
+  void rejectsInvalidCodeExchange(String mode) throws Exception {
+    Flow flow = flow();
+    var browser = browser();
+    String code = approve(browser, flow, pending(browser, flow));
+    if (mode.equals("expired")) {
+      jdbc.update(
+          "UPDATE iam_authorization.oauth2_authorization SET authorization_code_issued_at=current_timestamp-interval '3 minutes', authorization_code_expires_at=current_timestamp-interval '1 minute' WHERE authorization_code_value=?",
+          code);
+    }
+    assertError(
+        exchange(
+            flow,
+            code,
+            mode.equals("verifier") ? "x".repeat(64) : flow.verifier(),
+            mode.equals("redirect") ? "http://127.0.0.1:18091/callback" : CALLBACK),
+        "invalid_grant");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"LOCKED", "DISABLED", "PASSWORD"})
+  void rejectsStaleSessionsAndCodesWhenIdentityChanges(String mode) throws Exception {
+    Flow flow = flow();
+    var browser = browser();
+    String code = approve(browser, flow, pending(browser, flow));
+    if (mode.equals("PASSWORD")) {
+      assertEquals(
+          204,
+          admin(
+                  "PUT",
+                  "/api/admin/users/" + flow.userId() + "/password",
+                  Map.of("password", "New-synthetic-password-123!", "version", 0))
+              .statusCode());
+    } else {
+      jdbc.update(
+          "UPDATE iam_identity.users SET status=?,version=version+1 WHERE id=?",
+          mode,
+          flow.userId());
+    }
+    assertError(exchange(flow, code, flow.verifier(), CALLBACK), "invalid_grant");
+    var stale = get(browser, authorize(flow));
+    assertEquals(302, stale.statusCode());
+    assertTrue(location(stale).contains("/login"));
+  }
+
+  private Flow flow() throws Exception {
+    String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+    String clientId = "web-" + suffix;
+    var registered =
+        admin(
+            "POST",
+            "/api/admin/oauth-clients/browser",
+            Map.of(
+                "clientId",
+                clientId,
+                "name",
+                "Web <script>alert(1)</script>",
+                "audience",
+                "browser-api",
+                "scopes",
+                List.of("api:read", "api:write"),
+                "redirectUris",
+                List.of(CALLBACK)));
+    assertEquals(201, registered.statusCode());
+    String email = "user-" + suffix + "@example.test";
+    var user =
+        admin(
+            "POST",
+            "/api/admin/users",
+            Map.of("email", email, "displayName", "Synthetic User", "password", PASSWORD));
+    assertEquals(201, user.statusCode());
+    return new Flow(
+        suffix.toUpperCase(java.util.Locale.ROOT),
+        clientId,
+        JSON.readTree(registered.body()).path("clientSecret").asText(),
+        UUID.fromString(JSON.readTree(user.body()).path("id").asText()),
+        email,
+        UUID.randomUUID().toString().replace("-", "")
+            + UUID.randomUUID().toString().replace("-", ""),
+        UUID.randomUUID().toString());
+  }
+
+  @Test
+  void serializesConcurrentRedemptionOfTheSameCode() throws Exception {
+    Flow flow = flow();
+    var browser = browser();
+    String code = approve(browser, flow, pending(browser, flow));
+    try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+      var first =
+          executor.submit(() -> exchange(flow, code, flow.verifier(), CALLBACK).statusCode());
+      var second =
+          executor.submit(() -> exchange(flow, code, flow.verifier(), CALLBACK).statusCode());
+      assertEquals(java.util.Set.of(200, 400), java.util.Set.of(first.get(), second.get()));
+    }
+  }
+
+  @Test
+  void expiredPendingConsentCannotBeViewedOrApproved() throws Exception {
+    Flow flow = flow();
+    var browser = browser();
+    var page = pending(browser, flow);
+    String state = hidden(page.body(), "state");
+    jdbc.update(
+        "UPDATE iam_authorization.oauth2_authorization SET attributes=jsonb_set(attributes::jsonb,'{securegate.consent.expires}','0'::jsonb)::text WHERE state=?",
+        state);
+    assertEquals(
+        404,
+        get(browser, "/oauth2/consent?client_id=" + flow.clientId() + "&state=" + enc(state))
+            .statusCode());
+    assertEquals(
+        403,
+        post(
+                browser,
+                "/oauth2/authorize",
+                Map.of(
+                    "client_id",
+                    flow.clientId(),
+                    "state",
+                    state,
+                    "scope",
+                    "api:read",
+                    "_csrf",
+                    hidden(page.body(), "_csrf")))
+            .statusCode());
+  }
+
+  private record Flow(
+      String suffix,
+      String clientId,
+      String secret,
+      UUID userId,
+      String email,
+      String verifier,
+      String state) {
+    @Override
+    public String toString() {
+      return "Flow[REDACTED]";
+    }
+  }
+
+  private String authorize(Flow flow) throws Exception {
+    String challenge =
+        Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(
+                MessageDigest.getInstance("SHA-256")
+                    .digest(flow.verifier().getBytes(StandardCharsets.US_ASCII)));
+    return "/oauth2/authorize?response_type=code&client_id="
+        + flow.clientId()
+        + "&redirect_uri="
+        + enc(CALLBACK)
+        + "&scope="
+        + enc("api:read")
+        + "&state="
+        + enc(flow.state())
+        + "&code_challenge="
+        + challenge
+        + "&code_challenge_method=S256";
+  }
+
+  private HttpResponse<String> pending(HttpClient browser, Flow flow) throws Exception {
+    var initial = get(browser, authorize(flow));
+    assertEquals(302, initial.statusCode());
+    assertTrue(location(initial).contains("/login"));
+    var login = get(browser, "/login");
+    assertEquals(200, login.statusCode());
+    var authenticated =
+        post(
+            browser,
+            "/login",
+            Map.of(
+                "username",
+                flow.email(),
+                "password",
+                PASSWORD,
+                "_csrf",
+                hidden(login.body(), "_csrf")));
+    assertEquals(302, authenticated.statusCode());
+    var consent = get(browser, location(authenticated));
+    assertEquals(302, consent.statusCode());
+    var page = get(browser, location(consent));
+    assertNotNull(
+        authorizations.findByToken(
+            query(location(consent)).get("state"),
+            new org.springframework.security.oauth2.server.authorization.OAuth2TokenType("state")));
+    assertEquals(200, page.statusCode());
+    return page;
+  }
+
+  private String approve(HttpClient browser, Flow flow, HttpResponse<String> page)
+      throws Exception {
+    var approved =
+        post(
+            browser,
+            "/oauth2/authorize",
+            Map.of(
+                "client_id",
+                flow.clientId(),
+                "state",
+                hidden(page.body(), "state"),
+                "scope",
+                "api:read",
+                "_csrf",
+                hidden(page.body(), "_csrf")));
+    assertEquals(302, approved.statusCode());
+    var values = query(location(approved));
+    assertEquals(flow.state(), values.get("state"));
+    assertNotNull(values.get("code"));
+    return values.get("code");
+  }
+
+  private HttpResponse<String> exchange(Flow flow, String code, String verifier, String redirect)
+      throws Exception {
+    String basic =
+        Base64.getEncoder()
+            .encodeToString(
+                (flow.clientId() + ":" + flow.secret()).getBytes(StandardCharsets.UTF_8));
+    return HTTP.send(
+        HttpRequest.newBuilder(uri("/oauth2/token"))
+            .header("Authorization", "Basic " + basic)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    form(
+                        Map.of(
+                            "grant_type",
+                            "authorization_code",
+                            "code",
+                            code,
+                            "redirect_uri",
+                            redirect,
+                            "code_verifier",
+                            verifier))))
+            .build(),
+        HttpResponse.BodyHandlers.ofString());
+  }
+
+  private void assertError(HttpResponse<String> response, String code) throws Exception {
+    assertEquals(400, response.statusCode());
+    assertEquals(code, JSON.readTree(response.body()).path("error").asText());
+    assertFalse(JSON.readTree(response.body()).has("access_token"));
+  }
+
+  private static HttpClient browser() {
+    return HttpClient.newBuilder()
+        .cookieHandler(new CookieManager(null, CookiePolicy.ACCEPT_ALL))
+        .build();
+  }
+
+  private URI uri(String path) {
+    return path.startsWith("http")
+        ? URI.create(path)
+        : URI.create("http://127.0.0.1:" + port + path);
+  }
+
+  private HttpResponse<String> get(HttpClient client, String path) throws Exception {
+    return client.send(
+        HttpRequest.newBuilder(uri(path)).GET().build(), HttpResponse.BodyHandlers.ofString());
+  }
+
+  private HttpResponse<String> post(HttpClient client, String path, Map<String, String> values)
+      throws Exception {
+    return client.send(
+        HttpRequest.newBuilder(uri(path))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .POST(HttpRequest.BodyPublishers.ofString(form(values)))
+            .build(),
+        HttpResponse.BodyHandlers.ofString());
+  }
+
+  private HttpResponse<String> admin(String method, String path, Object body) throws Exception {
+    return HTTP.send(
+        HttpRequest.newBuilder(uri(path))
+            .header("Authorization", "Bearer " + ADMIN)
+            .header("Content-Type", "application/json")
+            .method(method, HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
+            .build(),
+        HttpResponse.BodyHandlers.ofString());
+  }
+
+  private static String enc(String value) {
+    return URLEncoder.encode(value, StandardCharsets.UTF_8);
+  }
+
+  private static String form(Map<String, String> values) {
+    return values.entrySet().stream()
+        .map(entry -> enc(entry.getKey()) + "=" + enc(entry.getValue()))
+        .collect(java.util.stream.Collectors.joining("&"));
+  }
+
+  private static String location(HttpResponse<String> response) {
+    return response.headers().firstValue("Location").orElseThrow();
+  }
+
+  private static Map<String, String> query(String uri) {
+    var values = new HashMap<String, String>();
+    for (String pair : URI.create(uri).getRawQuery().split("&")) {
+      var parts = pair.split("=", 2);
+      values.put(
+          URLDecoder.decode(parts[0], StandardCharsets.UTF_8),
+          parts.length > 1 ? URLDecoder.decode(parts[1], StandardCharsets.UTF_8) : "");
+    }
+    return values;
+  }
+
+  private static String hidden(String html, String name) {
+    var inputs = Pattern.compile("<input\\b[^>]*>").matcher(html);
+    while (inputs.find()) {
+      String tag = inputs.group();
+      if (tag.contains("name=\"" + name + "\"")) {
+        var value = Pattern.compile("value=\"([^\"]*)\"").matcher(tag);
+        if (value.find()) {
+          return HtmlUtils.htmlUnescape(value.group(1));
+        }
+      }
+    }
+    throw new AssertionError("Missing form field: " + name);
+  }
+
+  private static String vaultAddress() {
+    return "http://" + VAULT.getHost() + ":" + VAULT.getMappedPort(8200);
+  }
+
+  private static JsonNode vault(String path, Object body) throws Exception {
+    var builder =
+        HttpRequest.newBuilder(URI.create(vaultAddress() + "/v1/" + path))
+            .header("X-Vault-Token", ROOT)
+            .header("Content-Type", "application/json");
+    if (body == null) {
+      builder.GET();
+    } else {
+      builder.POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)));
+    }
+    var response = HTTP.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+    assertTrue(response.statusCode() == 200 || response.statusCode() == 204);
+    return response.body().isBlank() ? JSON.createObjectNode() : JSON.readTree(response.body());
+  }
+}

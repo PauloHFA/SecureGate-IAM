@@ -49,6 +49,33 @@ public class OAuthClientController {
     return ResponseEntity.ok().header("Cache-Control", "no-store").body(clients.get(clientId));
   }
 
+  @PostMapping("/browser")
+  ResponseEntity<OAuthClientService.CreatedClient> createBrowser(
+      @Valid @RequestBody CreateBrowserRequest body,
+      Authentication actor,
+      HttpServletRequest request) {
+    var result =
+        clients.createBrowser(
+            body.clientId(),
+            body.name(),
+            body.audience(),
+            body.scopes(),
+            body.redirectUris(),
+            OperationContexts.from(actor, request));
+    return ResponseEntity.created(
+            URI.create("/api/admin/oauth-clients/" + result.client().clientId()))
+        .header("Cache-Control", "no-store")
+        .header("Pragma", "no-cache")
+        .body(result);
+  }
+
+  public record CreateBrowserRequest(
+      @NotBlank @Size(max = 64) String clientId,
+      @NotBlank @Size(max = 120) String name,
+      @NotBlank @Size(max = 200) String audience,
+      @NotEmpty @Size(max = 10) Set<@NotBlank @Size(max = 64) String> scopes,
+      @NotEmpty @Size(max = 3) Set<@NotBlank @Size(max = 250) String> redirectUris) {}
+
   public record CreateClientRequest(
       @NotBlank @Size(max = 64) String clientId,
       @NotBlank @Size(max = 120) String name,

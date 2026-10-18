@@ -222,7 +222,6 @@ class OAuthClientCredentialsIT {
         token(null, null, "grant_type=client_credentials&scope=api:read"), 401, "invalid_client");
     for (String path :
         List.of(
-            "/oauth2/authorize",
             "/oauth2/introspect",
             "/oauth2/revoke",
             "/.well-known/openid-configuration",

@@ -109,6 +109,14 @@ public class UserService implements IdentityLookup {
     return users.find(id).orElseThrow(ResourceNotFoundException::new);
   }
 
+  @Override
+  public boolean isCurrent(UUID id, long version) {
+    return users
+        .find(id)
+        .map(user -> user.status() == UserStatus.ACTIVE && user.version() == version)
+        .orElse(false);
+  }
+
   private User versioned(UUID id, long version) {
     if (version < 0) {
       throw new IllegalArgumentException("Version is invalid");
