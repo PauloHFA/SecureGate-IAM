@@ -2,7 +2,6 @@ package com.securegate.iam.bootstrap;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.securegate.iam.access.application.port.EffectiveRoles;
-import com.securegate.iam.access.infrastructure.JdbcEffectiveRoles;
 import com.securegate.iam.audit.application.port.AuditTrail;
 import com.securegate.iam.authorization.application.OAuthClientService;
 import com.securegate.iam.authorization.application.port.ClientRegistry;
@@ -123,11 +122,6 @@ public class AuthorizationServerConfiguration {
           return new OperationContext(
               actor, correlation instanceof String id ? id : UUID.randomUUID().toString());
         });
-  }
-
-  @Bean
-  EffectiveRoles effectiveRoles(JdbcTemplate jdbc) {
-    return new JdbcEffectiveRoles(jdbc);
   }
 
   @Bean

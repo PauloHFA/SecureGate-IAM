@@ -66,7 +66,7 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 2 | Esqueleto e CI | 0–1 | Concluída; validação local e CI GitHub aprovadas |
 | 3 | Identity e Access | 2 | Implementada e validada localmente; publicação pendente |
 | 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | 4A–4D2 implementadas e validadas localmente; publicação/revisão pendentes |
-| 5 | Políticas, risco e MFA | 3–4 | Pendente |
+| 5 | Políticas, risco e MFA | 3–4 | Em andamento; 5A implementada localmente, 5B–5D pendentes |
 | 6 | Eventos e Outbox | 2–5 | Pendente |
 | 7 | Enforcer e revogação | 4–6 | Pendente |
 | 8 | Auditoria e desempenho | 6–7 | Pendente |
@@ -171,10 +171,10 @@ As entregas 4A–4D2 cobrem o escopo funcional local da etapa 4; publicação, r
 
 ## Etapa 5 — Políticas, risco e MFA
 
-- [ ] Persistir políticas JSONB com prioridade, versão e estado habilitado.
-- [ ] Implementar default deny e precedência de DENY explícito.
-- [ ] Definir combinação dos demais efeitos em tabela de decisão.
-- [ ] Retornar ALLOW, ALLOW_WITH_MFA, ALLOW_LIMITED ou DENY com motivos e políticas aplicadas.
+- [x] Persistir políticas JSONB com prioridade, versão e estado habilitado.
+- [x] Implementar default deny e precedência de DENY explícito no motor de avaliação.
+- [x] Definir combinação dos demais efeitos em tabela de decisão.
+- [x] Retornar ALLOW, ALLOW_WITH_MFA, ALLOW_LIMITED ou DENY com motivos e IDs/versões das políticas aplicadas na avaliação administrativa.
 - [ ] Implementar RBAC e DSL JSON restrita para ABAC, sem execução arbitrária de código.
 - [ ] Coletar sinais confiáveis de identidade, dispositivo, rede, comportamento e recurso.
 - [ ] Calcular risco determinístico de 0 a 100 e tratar sinais ausentes/inválidos.
@@ -182,6 +182,15 @@ As entregas 4A–4D2 cobrem o escopo funcional local da etapa 4; publicação, r
 - [ ] Aplicar decisões no login, emissão de token e autorização de recursos.
 
 **Aceite:** testes parametrizados cobrem tabela de decisão, conflitos, ausência de política, MFA incompleto e redução de escopo/TTL.
+
+Subdivisão da etapa:
+
+- **5A — Fundação de políticas:** JSONB com gramática fechada v1, target exato/`*`, condição por papéis atuais, prioridade, estado, versão otimista, auditoria transacional, tabela de decisão e simulação administrativa. DENY prevalece; limites são intersectados, com menor TTL; MFA permanece um requisito pendente. Ver [ADR-010](adr/010-politicas-e-tabela-de-decisao.md), [runbook](runbooks/politicas-local.md) e [evidências](evidencias/etapa-05a.md).
+- **5B — ABAC e risco:** evoluir a gramática de forma versionada, definir sinais confiáveis e comportamento para sinais ausentes/inválidos, com score determinístico. Pendente.
+- **5C — MFA e step-up:** TOTP, recuperação com hash e comprovação do fator associada à sessão/operação. Pendente.
+- **5D — Aplicação das decisões:** integrar políticas/risco/MFA ao login, emissão e recursos, respeitando escopos consentidos e limites de TTL. Pendente.
+
+A 5A não encerra a etapa 5: sua avaliação é uma recomendação administrativa e não altera OAuth. Papéis vêm do banco, incluindo grupos, sem entrada confiável de papéis/MFA/risco fornecida pelo solicitante. O resultado ALLOW_WITH_MFA indica exigência não satisfeita; nunca comprova fator. RBAC inicial está disponível, mas a tarefa conjunta de RBAC/DSL ABAC permanece aberta até a 5B. O aceite de MFA incompleto e aplicação efetiva de limites será completado nas entregas 5C/5D. Publicação, revisão e CI remota continuam pendentes.
 
 ## Etapa 6 — Eventos e Outbox
 
@@ -314,4 +323,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Iniciar a etapa 5 por uma entrega 5A: modelo persistido de políticas e tabela de decisão com default deny e precedência de DENY. Risco e MFA podem ser entregues em subdivisões seguintes. A 4D1 está no commit `fce0d31`; a 4D2 está na branch `feat/oidc-discovery-userinfo`, com commit consultável no histórico. Publicação, revisão e CI remota do código posterior à etapa 2 continuam pendentes.
+Seguir para a 5B: condições ABAC e risco determinístico, evoluindo a gramática com sinais confiáveis. A 4D2 está no commit `9f924f3`; a 5A está na branch `feat/policy-foundation`, com commit consultável no histórico. Publicação, revisão e CI remota do código posterior à etapa 2 continuam pendentes.

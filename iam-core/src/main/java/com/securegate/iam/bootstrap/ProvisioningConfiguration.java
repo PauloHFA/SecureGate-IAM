@@ -3,7 +3,9 @@ package com.securegate.iam.bootstrap;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.securegate.iam.access.application.AccessService;
 import com.securegate.iam.access.application.port.AccessRepository;
+import com.securegate.iam.access.application.port.EffectiveRoles;
 import com.securegate.iam.access.infrastructure.JdbcAccessRepository;
+import com.securegate.iam.access.infrastructure.JdbcEffectiveRoles;
 import com.securegate.iam.audit.application.port.AuditTrail;
 import com.securegate.iam.audit.infrastructure.JdbcAuditTrail;
 import com.securegate.iam.identity.application.UserService;
@@ -24,6 +26,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Configuration(proxyBeanMethods = false)
 public class ProvisioningConfiguration {
+  @Bean
+  EffectiveRoles effectiveRoles(JdbcTemplate jdbc) {
+    return new JdbcEffectiveRoles(jdbc);
+  }
+
   @Bean
   UnitOfWork unitOfWork(PlatformTransactionManager manager) {
     return new JdbcUnitOfWork(new TransactionTemplate(manager));

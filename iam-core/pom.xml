@@ -96,6 +96,8 @@
             <include>com/securegate/iam/access/application/**</include>
             <include>com/securegate/iam/authorization/domain/**</include>
             <include>com/securegate/iam/authorization/application/**</include>
+            <include>com/securegate/iam/policy/domain/**</include>
+            <include>com/securegate/iam/policy/application/**</include>
           </includes>
         </configuration>
         <executions>

@@ -8,6 +8,8 @@ Fundação, infraestrutura e API administrativa de Identity/Access implementadas
 
 A entrega 4A acrescenta assinatura RS256 via Vault Transit e JWKS; a 4B integra Client Credentials/JDBC. A 4C acrescenta login, clientes web confidenciais e Authorization Code com PKCE S256 e consentimento protegido. A 4D1 implementa refresh opcional com rotação, janela absoluta de 30 minutos, detecção de reuso, introspecção e revogação pelo cliente proprietário. A 4D2 adiciona discovery, ID token Transit e userinfo com claims limitadas aos escopos aprovados. Access tokens e ID tokens duram cinco minutos. Consulte os guias [PKCE](docs/runbooks/oauth-pkce-local.md), [refresh](docs/runbooks/oauth-refresh-local.md) e [OIDC](docs/runbooks/oidc-local.md), com validação registrada nas [evidências 4D2](docs/evidencias/etapa-04d2.md).
 
+A 5A acrescenta políticas JSONB versionadas e auditadas e uma avaliação administrativa por papéis atuais. O motor nega por padrão, faz DENY prevalecer e combina exigência de MFA com limites de escopo/TTL. Essa avaliação é uma simulação: a integração ao login e aos tokens ficará na 5D. Consulte o [guia de políticas](docs/runbooks/politicas-local.md) e as [evidências 5A](docs/evidencias/etapa-05a.md).
+
 ## Decisões aprovadas
 
 - Java 21, Spring Boot e Spring Authorization Server.
@@ -31,12 +33,13 @@ A entrega 4A acrescenta assinatura RS256 via Vault Transit e JWKS; a 4B integra 
 - [ADR-007 — Login, PKCE e consentimento](docs/adr/007-login-pkce-e-consentimento.md)
 - [ADR-008 — Refresh, introspecção e revogação](docs/adr/008-refresh-rotacao-e-revogacao.md)
 - [ADR-009 — OIDC, discovery e userinfo](docs/adr/009-oidc-discovery-e-userinfo.md)
+- [ADR-010 — Políticas e tabela de decisão](docs/adr/010-politicas-e-tabela-de-decisao.md)
 
 O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Implementação**, versão 0.1, outubro de 2026, disponível em PDF na pasta local do projeto.
 
 ## Próximo passo
 
-Iniciar políticas e risco na etapa 5, começando pelo modelo de políticas e regras de decisão. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A branch `feat/oidc-discovery-userinfo` parte do commit `fce0d31` da 4D1 e contém a implementação local da 4D2. Publicação e CI remota do código posterior à etapa 2 continuam pendentes.
+Seguir para a 5B: condições ABAC e risco determinístico com sinais confiáveis. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A branch `feat/policy-foundation` parte do commit `9f924f3` da 4D2 e contém a implementação local da 5A. Publicação e CI remota do código posterior à etapa 2 continuam pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
@@ -60,7 +63,7 @@ Linux/macOS:
 
 O build valida JDK/Maven, verifica formatação, executa testes unitários e de integração e gera os JARs. `iam-core/target/iam-core-0.1.0-SNAPSHOT.jar` é executável Spring Boot; `policy-enforcer` ainda não possui bootstrap. Os testes de integração falham se Docker não estiver disponível, sem serem ignorados silenciosamente.
 
-JaCoCo exige pelo menos 80% de cobertura de linhas por pacote de domínio/aplicação de Identity, Access e Authorization. O relatório HTML fica em `iam-core/target/site/jacoco/index.html`, e a CI inclui os relatórios de cobertura no artefato de testes.
+JaCoCo exige pelo menos 80% de cobertura de linhas por pacote de domínio/aplicação de Identity, Access, Authorization e Policy. O relatório HTML fica em `iam-core/target/site/jacoco/index.html`, e a CI inclui os relatórios de cobertura no artefato de testes.
 
 Para executar apenas testes unitários/arquitetura sem iniciar containers, use `./mvnw test` ou `.\mvnw.cmd test`. Isso não substitui o aceite completo de `verify`. Relatórios ficam em `target/surefire-reports/` e `target/failsafe-reports/` dos módulos.
 
@@ -69,7 +72,7 @@ Para corrigir formatação Java, execute `.\mvnw.cmd spotless:apply` no Windows 
 | Módulo | Responsabilidade atual |
 | --- | --- |
 | `libs/security-events` | Biblioteca Java sem Spring, com validação inicial dos tipos de evento |
-| `iam-core` | Identity/Access, administração, auditoria básica, OAuth/OIDC com refresh, Transit/JWKS, Actuator e Flyway |
+| `iam-core` | Identity/Access, políticas e simulação administrativa, auditoria básica, OAuth/OIDC com refresh, Transit/JWKS, Actuator e Flyway |
 | `policy-enforcer` | Módulo reservado para o consumidor; implementação na etapa 7 |
 
 O contrato inicial `SecurityEventType` aceita segmentos minúsculos separados por ponto, até 128 caracteres, e rejeita curingas de binding (`*` e `#`). O envelope versionado e a mensageria serão implementados na etapa 6. Relatórios de teste ficam em `libs/security-events/target/surefire-reports/`.
@@ -113,6 +116,8 @@ Para emitir tokens máquina a máquina, use `Start-IamCore.ps1 -EnableAuthorizat
 Os mesmos parâmetros habilitam o fluxo de navegador. Cadastre o cliente em `/api/admin/oauth-clients/browser`, provisione um usuário ACTIVE e siga o [guia de login e PKCE](docs/runbooks/oauth-pkce-local.md). A sessão local dura 15 minutos por inatividade, o consentimento pendente cinco minutos e o código dois minutos. `refreshTokens: true` habilita a renovação descrita no [guia de refresh](docs/runbooks/oauth-refresh-local.md). Bloqueios e mudanças de versão da identidade impedem usar sessões/códigos/refresh antigos. Introspecção consulta o estado atual; recursos que verificam apenas assinatura JWT dependem da futura propagação de revogação ou da expiração do token.
 
 Para autenticação OIDC, cadastre o cliente web com `oidc: true`, que adiciona `openid` automaticamente, e siga o [guia OIDC](docs/runbooks/oidc-local.md). Discovery fica em `/.well-known/openid-configuration`; userinfo exige Bearer access token do fluxo OIDC. O ID token tem audiência do cliente, e o access token, da API. O cliente deve validar assinatura, issuer, audiência, expiração e nonce antes de concluir seu login.
+
+Para administrar políticas, basta `-EnableBootstrap`; OAuth/Transit são independentes. Use `/api/admin/policies` e `POST /api/admin/policies/evaluate`, conforme o [guia de políticas](docs/runbooks/politicas-local.md). Não há endpoint público de autorização de recursos nesta entrega. A política e sua auditoria são gravadas na mesma transação; edições exigem a versão atual.
 
 ## Arquivos locais
 
