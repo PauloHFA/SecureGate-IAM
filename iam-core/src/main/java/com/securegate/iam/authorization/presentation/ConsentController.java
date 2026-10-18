@@ -49,6 +49,12 @@ public class ConsentController {
           "<p>Ao autorizar, esta aplicação poderá renovar o acesso por até 30 minutos.</p>");
     }
     for (String scope : view.scopes()) {
+      if ("openid".equals(scope)) {
+        html.append(hidden("scope", "openid"))
+            .append(
+                "<p>Identificar sua conta (openid), necessário para entrar nesta aplicação.</p>");
+        continue;
+      }
       html.append("<label><input type=\"checkbox\" name=\"scope\" value=\"")
           .append(escape(scope))
           .append("\" checked>")

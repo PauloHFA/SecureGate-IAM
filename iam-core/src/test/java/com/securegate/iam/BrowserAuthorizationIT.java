@@ -429,6 +429,232 @@ class BrowserAuthorizationIT {
   }
 
   @Test
+  void publishesOnlySupportedOidcAndOAuthMetadataWithFixedIssuer() throws Exception {
+    for (String path :
+        List.of("/.well-known/openid-configuration", "/.well-known/oauth-authorization-server")) {
+      var response = get(HTTP, path);
+      assertEquals(200, response.statusCode());
+      var metadata = JSON.readTree(response.body());
+      assertEquals(ISSUER, metadata.path("issuer").asText());
+      assertEquals(ISSUER + "/oauth2/authorize", metadata.path("authorization_endpoint").asText());
+      assertEquals(ISSUER + "/oauth2/token", metadata.path("token_endpoint").asText());
+      assertEquals(ISSUER + "/oauth2/jwks", metadata.path("jwks_uri").asText());
+      assertEquals(
+          List.of("authorization_code", "client_credentials", "refresh_token"),
+          JSON.convertValue(metadata.path("grant_types_supported"), List.class));
+      assertEquals(
+          List.of("client_secret_basic"),
+          JSON.convertValue(metadata.path("token_endpoint_auth_methods_supported"), List.class));
+      assertFalse(metadata.has("device_authorization_endpoint"));
+      assertFalse(metadata.has("end_session_endpoint"));
+      assertFalse(metadata.has("registration_endpoint"));
+      assertFalse(metadata.has("dpop_signing_alg_values_supported"));
+      assertFalse(metadata.has("tls_client_certificate_bound_access_tokens"));
+      assertFalse(response.headers().firstValue("Set-Cookie").isPresent());
+      if (path.contains("openid")) {
+        assertEquals(ISSUER + "/userinfo", metadata.path("userinfo_endpoint").asText());
+        assertEquals(
+            List.of("RS256"),
+            JSON.convertValue(metadata.path("id_token_signing_alg_values_supported"), List.class));
+      }
+    }
+    assertEquals(403, get(HTTP, "/connect/register").statusCode());
+    assertEquals(403, get(HTTP, "/connect/logout").statusCode());
+  }
+
+  @Test
+  void completesOidcWithClientAudienceNonceAndScopedUserInfo() throws Exception {
+    Flow flow = flow(true, true);
+    var browser = browser();
+    String code =
+        approveScopes(
+            browser, flow, pending(browser, flow), List.of("api:read", "profile", "email"));
+    var issued = exchange(flow, code, flow.verifier(), CALLBACK);
+    assertEquals(200, issued.statusCode(), issued.body());
+    var tokens = JSON.readTree(issued.body());
+    var decoder = oidcDecoder(flow.clientId());
+    var id = decoder.decode(tokens.path("id_token").asText());
+    assertEquals(List.of(flow.clientId()), id.getAudience());
+    assertEquals(flow.userId().toString(), id.getSubject());
+    assertEquals(flow.state(), id.getClaimAsString("nonce"));
+    assertEquals(flow.clientId(), id.getClaimAsString("azp"));
+    assertEquals("Synthetic User", id.getClaimAsString("name"));
+    assertEquals(flow.email(), id.getClaimAsString("email"));
+    assertFalse(id.hasClaim("email_verified"));
+    assertFalse(id.hasClaim("roles"));
+    assertFalse(id.hasClaim("scope"));
+    assertFalse(id.hasClaim("client_id"));
+    assertNotNull(id.getClaimAsInstant("auth_time"));
+    assertEquals(300, Duration.between(id.getIssuedAt(), id.getExpiresAt()).toSeconds());
+    var access =
+        com.nimbusds.jwt.SignedJWT.parse(tokens.path("access_token").asText()).getJWTClaimsSet();
+    assertEquals(List.of("browser-api"), access.getAudience());
+    assertEquals(access.getStringClaim("sid"), id.getClaimAsString("sid"));
+    assertThrows(
+        org.springframework.security.oauth2.jwt.JwtValidationException.class,
+        () -> oidcDecoder("other-client").decode(tokens.path("id_token").asText()));
+    var info = userinfo(tokens.path("access_token").asText());
+    assertEquals(200, info.statusCode(), info.body());
+    assertEquals(3, JSON.readTree(info.body()).size());
+    assertEquals(flow.userId().toString(), JSON.readTree(info.body()).path("sub").asText());
+    assertEquals(flow.email(), JSON.readTree(info.body()).path("email").asText());
+    assertTrue(info.headers().firstValue("Cache-Control").orElse("").contains("no-store"));
+    assertFalse(info.headers().firstValue("Set-Cookie").isPresent());
+    assertEquals(401, userinfo(tokens.path("id_token").asText()).statusCode());
+    var refreshed = refresh(flow, tokens.path("refresh_token").asText(), null);
+    assertEquals(200, refreshed.statusCode(), refreshed.body());
+    var renewed = JSON.readTree(refreshed.body());
+    var renewedId = decoder.decode(renewed.path("id_token").asText());
+    assertEquals(id.getSubject(), renewedId.getSubject());
+    assertEquals(id.getClaimAsString("sid"), renewedId.getClaimAsString("sid"));
+    assertEquals(id.getClaimAsInstant("auth_time"), renewedId.getClaimAsInstant("auth_time"));
+    assertFalse(renewedId.hasClaim("nonce"));
+    assertEquals(200, userinfo(renewed.path("access_token").asText()).statusCode());
+    assertEquals(401, userinfo(tokens.path("access_token").asText()).statusCode());
+    assertEquals(
+        200,
+        oauthPost("/oauth2/revoke", flow, Map.of("token", renewed.path("refresh_token").asText()))
+            .statusCode());
+    assertEquals(401, userinfo(renewed.path("access_token").asText()).statusCode());
+  }
+
+  @Test
+  void disclosesOnlySubjectWhenProfileAndEmailAreNotApproved() throws Exception {
+    Flow flow = flow(false, true);
+    var browser = browser();
+    String code = approve(browser, flow, pending(browser, flow));
+    var tokens = JSON.readTree(exchange(flow, code, flow.verifier(), CALLBACK).body());
+    var id = oidcDecoder(flow.clientId()).decode(tokens.path("id_token").asText());
+    assertFalse(id.hasClaim("name"));
+    assertFalse(id.hasClaim("email"));
+    var info = userinfo(tokens.path("access_token").asText());
+    assertEquals(200, info.statusCode());
+    assertEquals(
+        Map.of("sub", flow.userId().toString()),
+        JSON.convertValue(JSON.readTree(info.body()), Map.class));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"LOCKED", "PASSWORD", "EXPIRED"})
+  void rejectsUserInfoAfterIdentityChangesOrTokenExpires(String scenario) throws Exception {
+    Flow flow = flow(false, true);
+    var browser = browser();
+    String code = approveScopes(browser, flow, pending(browser, flow), List.of("email"));
+    var issued = exchange(flow, code, flow.verifier(), CALLBACK);
+    assertEquals(200, issued.statusCode(), issued.body());
+    String access = JSON.readTree(issued.body()).path("access_token").asText();
+    assertEquals(200, userinfo(access).statusCode());
+    if (scenario.equals("EXPIRED")) {
+      jdbc.update(
+          "UPDATE iam_authorization.oauth2_authorization SET access_token_issued_at=now()-interval '10 minutes',access_token_expires_at=now()-interval '5 minutes' WHERE access_token_value=?",
+          access);
+    } else if (scenario.equals("PASSWORD")) {
+      var changed =
+          admin(
+              "PUT",
+              "/api/admin/users/" + flow.userId() + "/password",
+              Map.of("password", "Changed-synthetic-password-456!", "version", 0));
+      assertEquals(204, changed.statusCode());
+    } else {
+      jdbc.update(
+          "UPDATE iam_identity.users SET status='LOCKED',version=version+1 WHERE id=?",
+          flow.userId());
+    }
+    var rejected = userinfo(access);
+    assertEquals(401, rejected.statusCode(), rejected.body());
+    assertFalse(rejected.body().contains(flow.email()));
+  }
+
+  @Test
+  void rejectsMissingMalformedAndNonOidcUserInfoTokens() throws Exception {
+    var missing = get(HTTP, "/userinfo");
+    assertEquals(401, missing.statusCode());
+    assertTrue(missing.headers().firstValue("WWW-Authenticate").orElseThrow().startsWith("Bearer"));
+    assertFalse(missing.body().contains("invalid_client"));
+    assertEquals(401, userinfo("malformed").statusCode());
+    Flow flow = flow(false);
+    var browser = browser();
+    String code = approve(browser, flow, pending(browser, flow));
+    var tokens = JSON.readTree(exchange(flow, code, flow.verifier(), CALLBACK).body());
+    assertEquals(403, userinfo(tokens.path("access_token").asText()).statusCode());
+    Flow oidc = flow(false, true);
+    String request = authorize(oidc);
+    for (String invalid :
+        List.of(
+            request.replace("&nonce=" + enc(oidc.state()), ""),
+            request.replace("&nonce=" + enc(oidc.state()), "&nonce=short"),
+            request.replace(enc(oidc.state()) + "&code_challenge", "short&code_challenge"),
+            request + "&claims=%7B%7D",
+            request + "&max_age=0",
+            request + "&request=unsupported")) {
+      assertEquals(400, get(HTTP, invalid).statusCode());
+    }
+    var denied =
+        get(
+            HTTP,
+            authorize(flow).replace("scope=api%3Aread", "scope=openid") + "&nonce=" + flow.state());
+    assertEquals(302, denied.statusCode());
+    assertEquals("invalid_scope", query(location(denied)).get("error"));
+    assertFalse(query(location(denied)).containsKey("code"));
+  }
+
+  @Test
+  void narrowedRefreshDoesNotDisclosePreviousProfileOrEmailClaims() throws Exception {
+    Flow flow = flow(true, true);
+    var browser = browser();
+    String code =
+        approveScopes(
+            browser, flow, pending(browser, flow), List.of("api:read", "profile", "email"));
+    var issued = exchange(flow, code, flow.verifier(), CALLBACK);
+    assertEquals(200, issued.statusCode());
+    var tokens = JSON.readTree(issued.body());
+    var renewedResponse = refresh(flow, tokens.path("refresh_token").asText(), "openid api:read");
+    assertEquals(200, renewedResponse.statusCode(), renewedResponse.body());
+    var renewed = JSON.readTree(renewedResponse.body());
+    var id = oidcDecoder(flow.clientId()).decode(renewed.path("id_token").asText());
+    assertFalse(id.hasClaim("name"));
+    assertFalse(id.hasClaim("email"));
+    var info = userinfo(renewed.path("access_token").asText());
+    assertEquals(200, info.statusCode());
+    assertEquals(1, JSON.readTree(info.body()).size());
+    String original = tokens.path("access_token").asText();
+    String[] segments = original.split("\\.");
+    String tampered =
+        segments[0]
+            + "."
+            + Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString("{\"sub\":\"attacker\"}".getBytes(StandardCharsets.UTF_8))
+            + "."
+            + segments[2];
+    assertEquals(401, userinfo(tampered).statusCode());
+    String unsignedHeader =
+        Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString("{\"alg\":\"none\"}".getBytes(StandardCharsets.UTF_8));
+    assertEquals(401, userinfo(unsignedHeader + "." + segments[1] + ".").statusCode());
+  }
+
+  private NimbusJwtDecoder oidcDecoder(String clientId) {
+    var decoder = NimbusJwtDecoder.withJwkSetUri(uri("/oauth2/jwks").toString()).build();
+    decoder.setJwtValidator(
+        new org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator<>(
+            JwtValidators.createDefaultWithIssuer(ISSUER),
+            new org.springframework.security.oauth2.jwt.JwtClaimValidator<List<String>>(
+                "aud", audiences -> audiences != null && audiences.equals(List.of(clientId)))));
+    return decoder;
+  }
+
+  private HttpResponse<String> userinfo(String token) throws Exception {
+    return HTTP.send(
+        HttpRequest.newBuilder(uri("/userinfo"))
+            .header("Authorization", "Bearer " + token)
+            .GET()
+            .build(),
+        HttpResponse.BodyHandlers.ofString());
+  }
+
+  @Test
   void rotatesRefreshTokensAndPreservesIdentityAndTheAbsoluteFamilyDeadline() throws Exception {
     Flow flow = flow(true);
     Pair first = initialTokens(flow);
@@ -707,6 +933,10 @@ class BrowserAuthorizationIT {
   }
 
   private Flow flow(boolean refreshTokens) throws Exception {
+    return flow(refreshTokens, false);
+  }
+
+  private Flow flow(boolean refreshTokens, boolean oidc) throws Exception {
     String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
     String clientId = "web-" + suffix;
     var registered =
@@ -721,11 +951,15 @@ class BrowserAuthorizationIT {
                 "audience",
                 "browser-api",
                 "scopes",
-                List.of("api:read", "api:write"),
+                oidc
+                    ? List.of("api:read", "api:write", "profile", "email")
+                    : List.of("api:read", "api:write"),
                 "redirectUris",
                 List.of(CALLBACK),
                 "refreshTokens",
-                refreshTokens));
+                refreshTokens,
+                "oidc",
+                oidc));
     assertEquals(201, registered.statusCode());
     String email = "user-" + suffix + "@example.test";
     var user =
@@ -742,7 +976,8 @@ class BrowserAuthorizationIT {
         email,
         UUID.randomUUID().toString().replace("-", "")
             + UUID.randomUUID().toString().replace("-", ""),
-        UUID.randomUUID().toString());
+        UUID.randomUUID().toString(),
+        oidc);
   }
 
   @Test
@@ -796,7 +1031,8 @@ class BrowserAuthorizationIT {
       UUID userId,
       String email,
       String verifier,
-      String state) {
+      String state,
+      boolean oidc) {
     @Override
     public String toString() {
       return "Flow[REDACTED]";
@@ -815,12 +1051,13 @@ class BrowserAuthorizationIT {
         + "&redirect_uri="
         + enc(CALLBACK)
         + "&scope="
-        + enc("api:read")
+        + enc(flow.oidc() ? "openid profile email api:read" : "api:read")
         + "&state="
         + enc(flow.state())
         + "&code_challenge="
         + challenge
-        + "&code_challenge_method=S256";
+        + "&code_challenge_method=S256"
+        + (flow.oidc() ? "&nonce=" + enc(flow.state()) : "");
   }
 
   private HttpResponse<String> pending(HttpClient browser, Flow flow) throws Exception {
@@ -854,19 +1091,31 @@ class BrowserAuthorizationIT {
 
   private String approve(HttpClient browser, Flow flow, HttpResponse<String> page)
       throws Exception {
+    return approveScopes(browser, flow, page, List.of("api:read"));
+  }
+
+  private String approveScopes(
+      HttpClient browser, Flow flow, HttpResponse<String> page, List<String> scopes)
+      throws Exception {
     var approved =
-        post(
-            browser,
-            "/oauth2/authorize",
-            Map.of(
-                "client_id",
-                flow.clientId(),
-                "state",
-                hidden(page.body(), "state"),
-                "scope",
-                "api:read",
-                "_csrf",
-                hidden(page.body(), "_csrf")));
+        browser.send(
+            HttpRequest.newBuilder(uri("/oauth2/authorize"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(
+                    HttpRequest.BodyPublishers.ofString(
+                        form(
+                                Map.of(
+                                    "client_id",
+                                    flow.clientId(),
+                                    "state",
+                                    hidden(page.body(), "state"),
+                                    "_csrf",
+                                    hidden(page.body(), "_csrf")))
+                            + scopes.stream()
+                                .map(scope -> "&scope=" + enc(scope))
+                                .collect(java.util.stream.Collectors.joining())))
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
     assertEquals(302, approved.statusCode());
     var values = query(location(approved));
     assertEquals(flow.state(), values.get("state"));

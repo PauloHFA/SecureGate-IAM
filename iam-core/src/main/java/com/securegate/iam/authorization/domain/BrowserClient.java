@@ -4,7 +4,11 @@ import java.net.URI;
 import java.util.Set;
 
 public record BrowserClient(
-    MachineClient definition, Set<String> redirectUris, boolean refreshTokens) {
+    MachineClient definition, Set<String> redirectUris, boolean refreshTokens, boolean oidc) {
+  public BrowserClient(MachineClient definition, Set<String> redirectUris, boolean refreshTokens) {
+    this(definition, redirectUris, refreshTokens, false);
+  }
+
   public BrowserClient(MachineClient definition, Set<String> redirectUris) {
     this(definition, redirectUris, false);
   }

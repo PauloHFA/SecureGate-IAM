@@ -1,6 +1,6 @@
 # Login e Authorization Code com PKCE — entrega 4C
 
-Este guia usa um cliente web confidencial. O segredo do cliente deve ficar no backend desse cliente. Não o incorpore em JavaScript de uma SPA. OIDC fica para a 4D2; refresh é opcional desde a 4D1, conforme o [guia de renovação](oauth-refresh-local.md).
+Este guia usa um cliente web confidencial. O segredo do cliente deve ficar no backend desse cliente. Não o incorpore em JavaScript de uma SPA. OIDC é opcional desde a [4D2](oidc-local.md); refresh é opcional desde a 4D1, conforme o [guia de renovação](oauth-refresh-local.md).
 
 ## Preparar
 
@@ -92,7 +92,7 @@ $tokens | Select-Object token_type, expires_in, scope
 
 O código vale dois minutos e tem uso único, inclusive sob duas trocas simultâneas. O verifier deve corresponder ao desafio original e o redirect deve ser o mesmo usado na autorização. O segredo gerado e o ID validado permitem o Basic do exemplo; o cliente deve fazer form encoding dos componentes se usar credenciais com caracteres reservados em outras integrações.
 
-O access token fica em `$tokens.access_token`, vale cinco minutos e é assinado pelo Vault. Contém UUID do usuário em `sub`, audiência do cliente, escopos aprovados, `roles` diretos/herdados e `sid` opaco. Este cadastro não recebe refresh token; ID token permanece pendente. O JWKS permanece em `$baseUrl/oauth2/jwks`. Evite publicar tokens, códigos, verifier, respostas de cadastro e capturas com esses valores.
+O access token fica em `$tokens.access_token`, vale cinco minutos e é assinado pelo Vault. Contém UUID do usuário em `sub`, audiência do cliente, escopos aprovados, `roles` diretos/herdados e `sid` opaco. Este cadastro não recebe refresh token nem ID token, pois omite as opções `refreshTokens` e `oidc`. O JWKS permanece em `$baseUrl/oauth2/jwks`. Evite publicar tokens, códigos, verifier, respostas de cadastro e capturas com esses valores.
 
 ## Sessão e diagnóstico
 
@@ -107,6 +107,6 @@ A sessão tem timeout por inatividade de 15 minutos, cookie HttpOnly/SameSite=La
 | 400 `invalid_grant` no token | Código expirado/reutilizado, cliente/redirect/verifier incorreto ou identidade alterada |
 | 503 `temporarily_unavailable` | Verificar Vault/AppRole; não existe assinatura local de fallback |
 
-Logout termina a sessão local do navegador, sem revogar automaticamente a família de refresh. Tokens já emitidos permanecem verificáveis offline até expirar, e não há promessa de revogação global de códigos anteriores ao logout. Introspecção e revogação explícita estão disponíveis na [4D1](oauth-refresh-local.md); OIDC continua na 4D2 e revogação distribuída na etapa 7. A sessão atual é local à instância; Redis/rate limiting vêm na etapa 7.
+Logout termina a sessão local do navegador, sem revogar automaticamente a família de refresh. Tokens já emitidos permanecem verificáveis offline até expirar, e não há promessa de revogação global de códigos anteriores ao logout. Introspecção e revogação explícita estão disponíveis na [4D1](oauth-refresh-local.md), OIDC na [4D2](oidc-local.md) e revogação distribuída continua na etapa 7. A sessão atual é local à instância; Redis/rate limiting vêm na etapa 7.
 
 Consulte [ADR-007](../adr/007-login-pkce-e-consentimento.md), [evidências 4C](../evidencias/etapa-04c.md) e [roteiro](../PLANO-DE-IMPLEMENTACAO.md).

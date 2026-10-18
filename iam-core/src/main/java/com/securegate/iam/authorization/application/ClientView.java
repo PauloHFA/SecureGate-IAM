@@ -8,14 +8,15 @@ public record ClientView(
     String audience,
     Set<String> scopes,
     long accessTokenTtlSeconds,
-    boolean refreshTokens) {
+    boolean refreshTokens,
+    boolean oidc) {
   public ClientView(
       String clientId,
       String name,
       String audience,
       Set<String> scopes,
       long accessTokenTtlSeconds) {
-    this(clientId, name, audience, scopes, accessTokenTtlSeconds, false);
+    this(clientId, name, audience, scopes, accessTokenTtlSeconds, false, false);
   }
 
   public ClientView {

@@ -65,7 +65,7 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 1 | Infraestrutura local | 0 | Concluída localmente; ver evidências |
 | 2 | Esqueleto e CI | 0–1 | Concluída; validação local e CI GitHub aprovadas |
 | 3 | Identity e Access | 2 | Implementada e validada localmente; publicação pendente |
-| 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | Em andamento; 4A–4D1 implementadas localmente, 4D2 pendente |
+| 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | 4A–4D2 implementadas e validadas localmente; publicação/revisão pendentes |
 | 5 | Políticas, risco e MFA | 3–4 | Pendente |
 | 6 | Eventos e Outbox | 2–5 | Pendente |
 | 7 | Enforcer e revogação | 4–6 | Pendente |
@@ -152,7 +152,7 @@ Subdivisão executada: **3A**, usuários/credenciais/ciclo de vida; **3B**, cat�
 - [x] Validar `redirect_uri` por correspondência exata e proteger autorização/consentimento.
 - [x] Implementar porta e adaptador Transit conforme ADR-002.
 - [x] Emitir access tokens JWT RS256 com `kid` e claims aplicáveis; fluxo de usuário inclui `roles` e `sid`.
-- [ ] Publicar discovery, authorize, token, JWKS, revogação, introspecção e userinfo.
+- [x] Disponibilizar discovery, authorize, token, JWKS, revogação, introspecção e userinfo na aplicação; publicação da branch ainda pendente.
 - [x] Implementar rotação e sobreposição das chaves públicas, com retenção de todas as versões e teste de troca no Vault.
 - [x] Testar expiração, emissor/audiência, assinatura incorreta, token adulterado, `alg=none` e reuso de refresh nos fluxos OAuth implementados.
 - [x] Testar Vault indisponível sem fallback local.
@@ -165,9 +165,9 @@ Subdivisão da etapa:
 - **4B — Authorization Server e Client Credentials:** framework integrado, clientes/autorizações/consentimentos JDBC, cadastro administrativo protegido, segredo gerado com hash Argon2id, issuer/audiência e TTL de cinco minutos definidos. Ver [ADR-006](adr/006-authorization-server-client-credentials.md), [runbook](runbooks/oauth-client-credentials-local.md) e [evidências](evidencias/etapa-04b.md).
 - **4C — Login, Authorization Code e PKCE:** login Identity/Argon2id, clientes web confidenciais, redirects exatos, S256 obrigatório, consentimento protegido por CSRF e sessão, código com uso único transacional e JWT com papéis/sid. Ver [ADR-007](adr/007-login-pkce-e-consentimento.md), [runbook](runbooks/oauth-pkce-local.md) e [evidências](evidencias/etapa-04c.md).
 - **4D1 — Ciclo dos tokens:** refresh opcional com rotação, prazo absoluto de 30 minutos, histórico de hashes, detecção de reuso transacional, introspecção e revogação pelo cliente proprietário. Implementada e validada localmente com 190 testes. Ver [ADR-008](adr/008-refresh-rotacao-e-revogacao.md), [runbook](runbooks/oauth-refresh-local.md) e [evidências](evidencias/etapa-04d1.md).
-- **4D2 — OIDC:** discovery, emissão e validação de ID token e userinfo. Pendente; não habilitar `openid`/`offline_access` antes desta entrega.
+- **4D2 — OIDC:** discovery OAuth/OIDC, ID token Transit com audiência do cliente, nonce obrigatório, auth_time/sid e userinfo condicionado a escopos/estado atual da identidade. Cadastro web opta por `oidc: true`, adicionando `openid` automaticamente; `offline_access` continua indisponível. Ver [ADR-009](adr/009-oidc-discovery-e-userinfo.md), [runbook](runbooks/oidc-local.md) e [evidências](evidencias/etapa-04d2.md).
 
-As entregas 4A–4D1 não encerram a etapa 4: OIDC permanece pendente. Client Credentials e Authorization Code com PKCE emitem tokens RS256; clientes web podem optar por refresh rotativo. Consentimento interativo está implementado. Tokens máquina a máquina não recebem `roles` ou `sid`; tokens de usuário recebem ambos, com papéis recalculados na renovação. Remoção de versões antigas exige política de retenção considerando o maior TTL de todos os fluxos futuros, além dos cinco minutos dos access tokens atuais. Sessão de navegador ainda é local à instância. Introspecção já reflete revogação no servidor; propagação para recursos com verificação offline permanece na etapa 7.
+As entregas 4A–4D2 cobrem o escopo funcional local da etapa 4; publicação, revisão e CI remota continuam pendentes. Client Credentials e Authorization Code com PKCE emitem tokens RS256; clientes web podem optar por refresh rotativo e OIDC. Consentimento interativo está implementado. Access tokens de usuário recebem papéis recalculados na renovação e sid; ID tokens têm audiência do cliente e não recebem papéis de API. Client Credentials não recebe claims de usuário. Nome/e-mail exigem escopos aprovados, sem afirmar email_verified. Remoção de versões antigas exige política de retenção considerando o maior TTL de todos os fluxos futuros, além dos cinco minutos atuais. Sessão de navegador ainda é local à instância. Introspecção e userinfo já refletem revogação no servidor; propagação para recursos com verificação offline permanece na etapa 7. A implementação não declara certificação OpenID nem suporte a clientes públicos, registro dinâmico ou logout OIDC.
 
 ## Etapa 5 — Políticas, risco e MFA
 
@@ -314,4 +314,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a entrega 4D2: OIDC, discovery, ID token e userinfo. A 4C está no commit local `41497c1`; a 4D1 está implementada e validada na branch `feat/oauth-refresh-lifecycle`, com commit consultável no histórico. Publicação, revisão e CI remota do código posterior à etapa 2 continuam pendentes.
+Iniciar a etapa 5 por uma entrega 5A: modelo persistido de políticas e tabela de decisão com default deny e precedência de DENY. Risco e MFA podem ser entregues em subdivisões seguintes. A 4D1 está no commit `fce0d31`; a 4D2 está na branch `feat/oidc-discovery-userinfo`, com commit consultável no histórico. Publicação, revisão e CI remota do código posterior à etapa 2 continuam pendentes.

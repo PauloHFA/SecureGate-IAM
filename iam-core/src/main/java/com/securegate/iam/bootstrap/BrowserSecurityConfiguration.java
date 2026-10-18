@@ -2,6 +2,7 @@ package com.securegate.iam.bootstrap;
 
 import com.securegate.iam.authorization.application.port.ConsentRequests;
 import com.securegate.iam.authorization.infrastructure.CurrentBrowserIdentityFilter;
+import com.securegate.iam.authorization.infrastructure.OidcIdentityClaims;
 import com.securegate.iam.authorization.infrastructure.StrictAuthorizationRequest;
 import com.securegate.iam.identity.application.port.IdentityLookup;
 import com.securegate.iam.identity.infrastructure.JdbcLoginUsers;
@@ -28,6 +29,16 @@ import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(name = "iam.authorization.enabled", havingValue = "true")
 public class BrowserSecurityConfiguration {
+  @Bean
+  org.springframework.security.core.session.SessionRegistry sessionRegistry() {
+    return new org.springframework.security.core.session.SessionRegistryImpl();
+  }
+
+  @Bean
+  org.springframework.security.web.session.HttpSessionEventPublisher httpSessionEventPublisher() {
+    return new org.springframework.security.web.session.HttpSessionEventPublisher();
+  }
+
   @Bean
   @Order(2)
   SecurityFilterChain browserSecurity(
@@ -65,22 +76,24 @@ public class BrowserSecurityConfiguration {
         .with(
             OAuth2AuthorizationServerConfigurer.authorizationServer(),
             server ->
-                server.authorizationEndpoint(
-                    endpoint ->
-                        endpoint
-                            .consentPage("/oauth2/consent")
-                            .authenticationProviders(
-                                providers ->
-                                    providers.forEach(
-                                        auth -> {
-                                          if (auth
-                                              instanceof
-                                              OAuth2AuthorizationCodeRequestAuthenticationProvider
-                                                  authorization) {
-                                            authorization.setAuthenticationValidator(
-                                                new StrictAuthorizationRequest());
-                                          }
-                                        }))))
+                server
+                    .oidc(org.springframework.security.config.Customizer.withDefaults())
+                    .authorizationEndpoint(
+                        endpoint ->
+                            endpoint
+                                .consentPage("/oauth2/consent")
+                                .authenticationProviders(
+                                    providers ->
+                                        providers.forEach(
+                                            auth -> {
+                                              if (auth
+                                                  instanceof
+                                                  OAuth2AuthorizationCodeRequestAuthenticationProvider
+                                                      authorization) {
+                                                authorization.setAuthenticationValidator(
+                                                    new StrictAuthorizationRequest());
+                                              }
+                                            }))))
         .authenticationProvider(provider)
         .authorizeHttpRequests(
             requests -> requests.requestMatchers("/login").permitAll().anyRequest().authenticated())
@@ -106,6 +119,10 @@ public class BrowserSecurityConfiguration {
                               .getSession()
                               .setAttribute(
                                   ConsentRequests.SESSION_ID, UUID.randomUUID().toString());
+                          request
+                              .getSession()
+                              .setAttribute(
+                                  OidcIdentityClaims.AUTH_TIME, java.time.Instant.now().toString());
                           var saved = cache.getRequest(request, response);
                           cache.removeRequest(request, response);
                           String destination = "/login?authenticated";

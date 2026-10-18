@@ -14,6 +14,7 @@ public final class StrictAuthorizationRequest
     OAuth2AuthorizationCodeRequestAuthenticationToken request = context.getAuthentication();
     var parameters = request.getAdditionalParameters();
     Object challenge = parameters.get("code_challenge");
+    Object nonce = parameters.get("nonce");
     if (request.getRedirectUri() == null
         || !context.getRegisteredClient().getRedirectUris().contains(request.getRedirectUri())
         || !"S256".equals(parameters.get("code_challenge_method"))
@@ -21,7 +22,13 @@ public final class StrictAuthorizationRequest
         || !text.matches("[A-Za-z0-9_-]{43}")
         || request.getState() == null
         || !request.getState().matches("[A-Za-z0-9._~-]{16,128}")
-        || request.getScopes().isEmpty()) {
+        || request.getScopes().isEmpty()
+        || (request.getScopes().contains("openid")
+            && (!(nonce instanceof String value) || !value.matches("[A-Za-z0-9._~-]{16,128}")))
+        || parameters.containsKey("request")
+        || parameters.containsKey("request_uri")
+        || parameters.containsKey("claims")
+        || parameters.containsKey("max_age")) {
       // A null authentication result prevents redirecting to any unvalidated URI.
       throw new OAuth2AuthorizationCodeRequestAuthenticationException(
           new OAuth2Error("invalid_request"), null);

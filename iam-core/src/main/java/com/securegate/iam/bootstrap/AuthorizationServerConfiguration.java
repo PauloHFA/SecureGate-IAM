@@ -7,20 +7,25 @@ import com.securegate.iam.audit.application.port.AuditTrail;
 import com.securegate.iam.authorization.application.OAuthClientService;
 import com.securegate.iam.authorization.application.port.ClientRegistry;
 import com.securegate.iam.authorization.application.port.ConsentRequests;
+import com.securegate.iam.authorization.application.port.SigningKeys;
 import com.securegate.iam.authorization.infrastructure.AuthorizationJdbcDataSource;
 import com.securegate.iam.authorization.infrastructure.BrowserAuthorizations;
 import com.securegate.iam.authorization.infrastructure.FamilyBoundRefreshGenerator;
 import com.securegate.iam.authorization.infrastructure.JdbcClientRegistry;
 import com.securegate.iam.authorization.infrastructure.JdbcConsentRequests;
+import com.securegate.iam.authorization.infrastructure.OidcIdentityClaims;
 import com.securegate.iam.authorization.infrastructure.OwnedTokenProvider;
 import com.securegate.iam.authorization.infrastructure.RefreshTokenLedger;
 import com.securegate.iam.authorization.infrastructure.RefreshTrackingAuthorizations;
 import com.securegate.iam.authorization.infrastructure.RotatingRefreshProvider;
 import com.securegate.iam.authorization.infrastructure.SerializedCodeRedemption;
+import com.securegate.iam.authorization.infrastructure.TransitPublicJwtDecoder;
 import com.securegate.iam.authorization.presentation.OAuthFailureHandler;
 import com.securegate.iam.identity.application.port.AuthenticatedIdentity;
 import com.securegate.iam.identity.application.port.IdentityLookup;
+import com.securegate.iam.identity.application.port.IdentityProfiles;
 import com.securegate.iam.identity.application.port.PasswordHasher;
+import com.securegate.iam.identity.infrastructure.JdbcIdentityProfiles;
 import com.securegate.iam.shared.application.port.OperationContext;
 import com.securegate.iam.shared.application.port.UnitOfWork;
 import com.securegate.iam.shared.presentation.CorrelationIdFilter;
@@ -43,6 +48,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncodingException;
 import org.springframework.security.oauth2.server.authorization.*;
@@ -68,6 +74,21 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 @ConditionalOnProperty(name = "iam.authorization.enabled", havingValue = "true")
 @EnableConfigurationProperties(AuthorizationProperties.class)
 public class AuthorizationServerConfiguration {
+  @Bean
+  IdentityProfiles identityProfiles(JdbcTemplate jdbc) {
+    return new JdbcIdentityProfiles(jdbc);
+  }
+
+  @Bean
+  OidcIdentityClaims oidcIdentityClaims(IdentityProfiles profiles) {
+    return new OidcIdentityClaims(profiles);
+  }
+
+  @Bean
+  JwtDecoder jwtDecoder(SigningKeys keys, AuthorizationProperties properties) {
+    return new TransitPublicJwtDecoder(keys, properties.issuer().toString());
+  }
+
   @Bean
   @DependsOn("flywayInitializer")
   RegisteredClientRepository registeredClientRepository(DataSource dataSource) {
@@ -143,10 +164,12 @@ public class AuthorizationServerConfiguration {
       JwtEncoder encoder,
       IdentityLookup identities,
       EffectiveRoles roles,
-      RefreshTokenLedger ledger) {
+      RefreshTokenLedger ledger,
+      OidcIdentityClaims oidcClaims) {
     JwtGenerator generator = new JwtGenerator(encoder);
     generator.setJwtCustomizer(
         context -> {
+          boolean idToken = "id_token".equals(context.getTokenType().getValue());
           String audience =
               context
                   .getRegisteredClient()
@@ -155,11 +178,26 @@ public class AuthorizationServerConfiguration {
           if (audience == null || audience.isBlank()) {
             throw new OAuth2AuthenticationException("server_error");
           }
-          context
-              .getClaims()
-              // JDBC's security allowlist supports ArrayList, not List.of() implementation types.
-              .audience(new ArrayList<>(List.of(audience)))
-              .claim("client_id", context.getRegisteredClient().getClientId());
+          if (!idToken) {
+            context
+                .getClaims()
+                // JDBC's security allowlist supports ArrayList, not List.of() implementation types.
+                .audience(new ArrayList<>(List.of(audience)))
+                .claim("client_id", context.getRegisteredClient().getClientId());
+          } else {
+            context
+                .getClaims()
+                .audience(new ArrayList<>(List.of(context.getRegisteredClient().getClientId())))
+                .expiresAt(java.time.Instant.now().plusSeconds(300));
+            var identityClaims =
+                oidcClaims.forAuthorization(
+                    context.getAuthorization(), context.getAuthorizedScopes());
+            identityClaims.forEach((name, value) -> context.getClaims().claim(name, value));
+            String authTime = context.getAuthorization().getAttribute(OidcIdentityClaims.AUTH_TIME);
+            if (authTime != null) {
+              context.getClaims().claim("auth_time", java.time.Instant.parse(authTime));
+            }
+          }
           if (AuthorizationGrantType.AUTHORIZATION_CODE.equals(context.getAuthorizationGrantType())
               || AuthorizationGrantType.REFRESH_TOKEN.equals(context.getAuthorizationGrantType())) {
             if (!(context.getPrincipal().getPrincipal() instanceof AuthenticatedIdentity identity)
@@ -170,8 +208,13 @@ public class AuthorizationServerConfiguration {
             }
             context
                 .getClaims()
-                .claim("roles", new ArrayList<>(roles.forUser(UUID.fromString(identity.getName()))))
                 .claim("sid", context.getAuthorization().getAttribute(ConsentRequests.SESSION_ID));
+            if (!idToken) {
+              context
+                  .getClaims()
+                  .claim(
+                      "roles", new ArrayList<>(roles.forUser(UUID.fromString(identity.getName()))));
+            }
           }
         });
     var tokens =
@@ -194,15 +237,46 @@ public class AuthorizationServerConfiguration {
       PlatformTransactionManager manager,
       RefreshTokenLedger ledger,
       OAuth2AuthorizationService authorizations,
-      IdentityLookup identities)
+      IdentityLookup identities,
+      OidcIdentityClaims oidcClaims)
       throws Exception {
     var failure = new OAuthFailureHandler(json);
     var server = OAuth2AuthorizationServerConfigurer.authorizationServer();
-    return http.securityMatcher("/oauth2/token", "/oauth2/introspect", "/oauth2/revoke")
+    return http.securityMatcher(
+            "/oauth2/token",
+            "/oauth2/introspect",
+            "/oauth2/revoke",
+            "/userinfo",
+            "/.well-known/openid-configuration",
+            "/.well-known/oauth-authorization-server")
         .with(
             server,
             config ->
                 config
+                    .oidc(
+                        oidc ->
+                            oidc.providerConfigurationEndpoint(
+                                    endpoint ->
+                                        endpoint.providerConfigurationCustomizer(
+                                            builder ->
+                                                builder.claims(
+                                                    AuthorizationServerConfiguration
+                                                        ::supportedMetadata)))
+                                .userInfoEndpoint(
+                                    endpoint ->
+                                        endpoint.userInfoMapper(
+                                            context ->
+                                                new org.springframework.security.oauth2.core.oidc
+                                                    .OidcUserInfo(
+                                                    oidcClaims.forAuthorization(
+                                                        context.getAuthorization(),
+                                                        context.getAccessToken().getScopes())))))
+                    .authorizationServerMetadataEndpoint(
+                        endpoint ->
+                            endpoint.authorizationServerMetadataCustomizer(
+                                builder ->
+                                    builder.claims(
+                                        AuthorizationServerConfiguration::supportedMetadata)))
                     .clientAuthentication(client -> client.errorResponseHandler(failure))
                     .tokenEndpoint(
                         token ->
@@ -238,23 +312,68 @@ public class AuthorizationServerConfiguration {
                                             ledger,
                                             jdbc,
                                             manager))))
-        .authorizeHttpRequests(requests -> requests.anyRequest().authenticated())
+        .authorizeHttpRequests(
+            requests ->
+                requests
+                    .requestMatchers(
+                        org.springframework.http.HttpMethod.GET,
+                        "/.well-known/openid-configuration",
+                        "/.well-known/oauth-authorization-server")
+                    .permitAll()
+                    .anyRequest()
+                    .authenticated())
         .csrf(
             csrf ->
                 csrf.ignoringRequestMatchers(
-                    "/oauth2/token", "/oauth2/introspect", "/oauth2/revoke"))
+                    "/oauth2/token", "/oauth2/introspect", "/oauth2/revoke", "/userinfo"))
         .sessionManagement(
             sessions -> sessions.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .requestCache(AbstractHttpConfigurer::disable)
         .exceptionHandling(
             errors ->
                 errors.authenticationEntryPoint(
-                    (request, response, exception) ->
+                    (request, response, exception) -> {
+                      if ("/userinfo".equals(request.getServletPath())) {
+                        new org.springframework.security.oauth2.server.resource.web
+                                .BearerTokenAuthenticationEntryPoint()
+                            .commence(request, response, exception);
+                      } else {
                         failure.onAuthenticationFailure(
-                            request,
-                            response,
-                            new OAuth2AuthenticationException("invalid_client"))))
+                            request, response, new OAuth2AuthenticationException("invalid_client"));
+                      }
+                    }))
         .build();
+  }
+
+  private static void supportedMetadata(java.util.Map<String, Object> claims) {
+    claims.put(
+        "grant_types_supported",
+        List.of("authorization_code", "client_credentials", "refresh_token"));
+    claims.put("token_endpoint_auth_methods_supported", List.of("client_secret_basic"));
+    claims.put("revocation_endpoint_auth_methods_supported", List.of("client_secret_basic"));
+    claims.put("introspection_endpoint_auth_methods_supported", List.of("client_secret_basic"));
+    claims.put("scopes_supported", List.of("openid", "profile", "email"));
+    claims.put(
+        "claims_supported",
+        List.of(
+            "iss",
+            "sub",
+            "aud",
+            "exp",
+            "iat",
+            "auth_time",
+            "nonce",
+            "azp",
+            "sid",
+            "name",
+            "email"));
+    claims.put("claims_parameter_supported", false);
+    claims.put("request_parameter_supported", false);
+    claims.put("request_uri_parameter_supported", false);
+    claims.remove("device_authorization_endpoint");
+    claims.remove("end_session_endpoint");
+    claims.remove("tls_client_certificate_bound_access_tokens");
+    claims.remove("dpop_signing_alg_values_supported");
   }
 
   private static void configureGrantProviders(

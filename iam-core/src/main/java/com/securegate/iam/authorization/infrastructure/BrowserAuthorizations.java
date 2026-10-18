@@ -41,6 +41,8 @@ public final class BrowserAuthorizations implements OAuth2AuthorizationService {
       authorization =
           OAuth2Authorization.from(authorization)
               .attribute(ConsentRequests.SESSION_ID, sid)
+              .attribute(
+                  OidcIdentityClaims.AUTH_TIME, session.getAttribute(OidcIdentityClaims.AUTH_TIME))
               .attribute(ConsentRequests.EXPIRES, Instant.now().plusSeconds(300).toString())
               .build();
     }

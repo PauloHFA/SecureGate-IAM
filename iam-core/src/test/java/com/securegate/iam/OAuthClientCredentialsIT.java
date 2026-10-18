@@ -220,13 +220,9 @@ class OAuthClientCredentialsIT {
         "invalid_client");
     assertError(
         token(null, null, "grant_type=client_credentials&scope=api:read"), 401, "invalid_client");
-    for (String path :
-        List.of(
-            "/.well-known/openid-configuration",
-            "/.well-known/oauth-authorization-server",
-            "/userinfo")) {
-      assertEquals(403, get(path).statusCode());
-    }
+    assertEquals(200, get("/.well-known/openid-configuration").statusCode());
+    assertEquals(200, get("/.well-known/oauth-authorization-server").statusCode());
+    assertEquals(401, get("/userinfo").statusCode());
   }
 
   @Test

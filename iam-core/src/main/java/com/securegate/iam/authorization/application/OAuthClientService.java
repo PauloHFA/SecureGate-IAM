@@ -45,9 +45,10 @@ public final class OAuthClientService {
       Set<String> scopes,
       Set<String> redirectUris,
       boolean refreshTokens,
+      boolean oidc,
       OperationContext context) {
     var definition = new MachineClient(clientId, name, audience, scopes);
-    var browser = new BrowserClient(definition, redirectUris, refreshTokens);
+    var browser = new BrowserClient(definition, redirectUris, refreshTokens, oidc);
     return createInternal(definition, hash -> clients.createBrowser(browser, hash), context);
   }
 

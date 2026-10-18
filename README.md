@@ -6,7 +6,7 @@ Plataforma de identidade e acesso baseada em Zero Trust, com provisionamento, OA
 
 Fundação, infraestrutura e API administrativa de Identity/Access implementadas. O core gerencia usuários, credenciais Argon2id, grupos, papéis, permissões e auditoria transacional. Administração fica desabilitada por padrão e exige ativação explícita com token bootstrap temporário. A etapa 3 foi validada localmente com 106 testes; sua publicação ainda está pendente. Consulte as [evidências](docs/evidencias/etapa-03.md).
 
-A entrega 4A acrescenta assinatura RS256 via Vault Transit e JWKS; a 4B integra Client Credentials/JDBC. A 4C acrescenta login, clientes web confidenciais e Authorization Code com PKCE S256 e consentimento protegido. A 4D1 implementa refresh opcional com rotação, janela absoluta de 30 minutos, detecção de reuso, introspecção e revogação pelo cliente proprietário. Access tokens duram cinco minutos; OIDC fica para a 4D2. Consulte o [guia PKCE](docs/runbooks/oauth-pkce-local.md), o [guia de refresh](docs/runbooks/oauth-refresh-local.md) e as [evidências 4D1](docs/evidencias/etapa-04d1.md): 190 testes locais aprovados.
+A entrega 4A acrescenta assinatura RS256 via Vault Transit e JWKS; a 4B integra Client Credentials/JDBC. A 4C acrescenta login, clientes web confidenciais e Authorization Code com PKCE S256 e consentimento protegido. A 4D1 implementa refresh opcional com rotação, janela absoluta de 30 minutos, detecção de reuso, introspecção e revogação pelo cliente proprietário. A 4D2 adiciona discovery, ID token Transit e userinfo com claims limitadas aos escopos aprovados. Access tokens e ID tokens duram cinco minutos. Consulte os guias [PKCE](docs/runbooks/oauth-pkce-local.md), [refresh](docs/runbooks/oauth-refresh-local.md) e [OIDC](docs/runbooks/oidc-local.md), com validação registrada nas [evidências 4D2](docs/evidencias/etapa-04d2.md).
 
 ## Decisões aprovadas
 
@@ -30,12 +30,13 @@ A entrega 4A acrescenta assinatura RS256 via Vault Transit e JWKS; a 4B integra 
 - [ADR-006 — Authorization Server JDBC e Client Credentials](docs/adr/006-authorization-server-client-credentials.md)
 - [ADR-007 — Login, PKCE e consentimento](docs/adr/007-login-pkce-e-consentimento.md)
 - [ADR-008 — Refresh, introspecção e revogação](docs/adr/008-refresh-rotacao-e-revogacao.md)
+- [ADR-009 — OIDC, discovery e userinfo](docs/adr/009-oidc-discovery-e-userinfo.md)
 
 O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Implementação**, versão 0.1, outubro de 2026, disponível em PDF na pasta local do projeto.
 
 ## Próximo passo
 
-Implementar OIDC, discovery, ID token e userinfo na entrega 4D2. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A branch `feat/oauth-refresh-lifecycle` parte do commit `41497c1` da 4C e contém a implementação local da 4D1. Publicação e CI remota do código posterior à etapa 2 continuam pendentes.
+Iniciar políticas e risco na etapa 5, começando pelo modelo de políticas e regras de decisão. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A branch `feat/oidc-discovery-userinfo` parte do commit `fce0d31` da 4D1 e contém a implementação local da 4D2. Publicação e CI remota do código posterior à etapa 2 continuam pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
@@ -68,7 +69,7 @@ Para corrigir formatação Java, execute `.\mvnw.cmd spotless:apply` no Windows 
 | Módulo | Responsabilidade atual |
 | --- | --- |
 | `libs/security-events` | Biblioteca Java sem Spring, com validação inicial dos tipos de evento |
-| `iam-core` | Identity/Access, administração, auditoria básica, Client Credentials/JDBC, Transit/JWKS, Actuator e Flyway |
+| `iam-core` | Identity/Access, administração, auditoria básica, OAuth/OIDC com refresh, Transit/JWKS, Actuator e Flyway |
 | `policy-enforcer` | Módulo reservado para o consumidor; implementação na etapa 7 |
 
 O contrato inicial `SecurityEventType` aceita segmentos minúsculos separados por ponto, até 128 caracteres, e rejeita curingas de binding (`*` e `#`). O envelope versionado e a mensageria serão implementados na etapa 6. Relatórios de teste ficam em `libs/security-events/target/surefire-reports/`.
@@ -110,6 +111,8 @@ Para habilitar `GET /oauth2/jwks`, use `Start-IamCore.ps1 -EnableTransit`. Essa 
 Para emitir tokens máquina a máquina, use `Start-IamCore.ps1 -EnableAuthorization -EnableBootstrap`, cadastre um cliente confidencial e solicite `client_credentials` com Basic Auth em `POST /oauth2/token`, conforme o [guia Client Credentials](docs/runbooks/oauth-client-credentials-local.md). Authorization ativa Transit automaticamente; bootstrap só é necessário para administrar. O segredo é entregue uma vez e fica armazenado como hash Argon2id.
 
 Os mesmos parâmetros habilitam o fluxo de navegador. Cadastre o cliente em `/api/admin/oauth-clients/browser`, provisione um usuário ACTIVE e siga o [guia de login e PKCE](docs/runbooks/oauth-pkce-local.md). A sessão local dura 15 minutos por inatividade, o consentimento pendente cinco minutos e o código dois minutos. `refreshTokens: true` habilita a renovação descrita no [guia de refresh](docs/runbooks/oauth-refresh-local.md). Bloqueios e mudanças de versão da identidade impedem usar sessões/códigos/refresh antigos. Introspecção consulta o estado atual; recursos que verificam apenas assinatura JWT dependem da futura propagação de revogação ou da expiração do token.
+
+Para autenticação OIDC, cadastre o cliente web com `oidc: true`, que adiciona `openid` automaticamente, e siga o [guia OIDC](docs/runbooks/oidc-local.md). Discovery fica em `/.well-known/openid-configuration`; userinfo exige Bearer access token do fluxo OIDC. O ID token tem audiência do cliente, e o access token, da API. O cliente deve validar assinatura, issuer, audiência, expiração e nonce antes de concluir seu login.
 
 ## Arquivos locais
 

@@ -1,6 +1,6 @@
 # Client Credentials local — entrega 4B
 
-Este guia descreve aplicações confidenciais máquina a máquina. Login de usuário e Authorization Code com PKCE estão no [guia da 4C](oauth-pkce-local.md); refresh opcional para clientes web, introspecção e revogação estão no [guia da 4D1](oauth-refresh-local.md). OIDC continua pendente.
+Este guia descreve aplicações confidenciais máquina a máquina. Login de usuário e Authorization Code com PKCE estão no [guia da 4C](oauth-pkce-local.md); refresh opcional para clientes web, introspecção e revogação estão no [guia da 4D1](oauth-refresh-local.md). Autenticação OIDC para clientes web está no [guia da 4D2](oidc-local.md).
 
 ## Preparar e iniciar
 

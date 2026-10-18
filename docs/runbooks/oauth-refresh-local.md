@@ -62,4 +62,4 @@ Os mesmos endpoints atendem Client Credentials usando as credenciais do cliente 
 
 ## Limites
 
-Introspecção consulta o estado no servidor. Um recurso que verifica somente assinatura/expiração do JWT pode continuar aceitando-o até expirar; a etapa 7 implementará propagação da revogação. Logout local não revoga refresh automaticamente. OIDC, discovery, ID token e userinfo ficam para a 4D2. Veja [ADR-008](../adr/008-refresh-rotacao-e-revogacao.md) e [evidências](../evidencias/etapa-04d1.md).
+Introspecção consulta o estado no servidor. Um recurso que verifica somente assinatura/expiração do JWT pode continuar aceitando-o até expirar; a etapa 7 implementará propagação da revogação. Logout local não revoga refresh automaticamente. OIDC, discovery, ID token e userinfo estão disponíveis na [4D2](oidc-local.md). Veja [ADR-008](../adr/008-refresh-rotacao-e-revogacao.md) e [evidências](../evidencias/etapa-04d1.md).

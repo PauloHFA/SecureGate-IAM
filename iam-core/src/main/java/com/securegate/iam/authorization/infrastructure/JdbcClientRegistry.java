@@ -58,6 +58,12 @@ public final class JdbcClientRegistry implements ClientRegistry {
                 })
             .redirectUris(uris -> uris.addAll(definition.redirectUris()))
             .scopes(scopes -> scopes.addAll(definition.definition().scopes()))
+            .scopes(
+                scopes -> {
+                  if (definition.oidc()) {
+                    scopes.add("openid");
+                  }
+                })
             .clientSettings(
                 ClientSettings.builder()
                     .requireProofKey(true)
@@ -100,6 +106,7 @@ public final class JdbcClientRegistry implements ClientRegistry {
         client.getClientSettings().getSetting(AUDIENCE),
         client.getScopes(),
         client.getTokenSettings().getAccessTokenTimeToLive().toSeconds(),
-        client.getAuthorizationGrantTypes().contains(AuthorizationGrantType.REFRESH_TOKEN));
+        client.getAuthorizationGrantTypes().contains(AuthorizationGrantType.REFRESH_TOKEN),
+        client.getScopes().contains("openid"));
   }
 }

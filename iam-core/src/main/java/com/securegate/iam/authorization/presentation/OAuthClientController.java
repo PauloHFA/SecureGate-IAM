@@ -62,6 +62,7 @@ public class OAuthClientController {
             body.scopes(),
             body.redirectUris(),
             body.refreshTokens(),
+            body.oidc(),
             OperationContexts.from(actor, request));
     return ResponseEntity.created(
             URI.create("/api/admin/oauth-clients/" + result.client().clientId()))
@@ -76,7 +77,8 @@ public class OAuthClientController {
       @NotBlank @Size(max = 200) String audience,
       @NotEmpty @Size(max = 10) Set<@NotBlank @Size(max = 64) String> scopes,
       @NotEmpty @Size(max = 3) Set<@NotBlank @Size(max = 250) String> redirectUris,
-      boolean refreshTokens) {}
+      boolean refreshTokens,
+      boolean oidc) {}
 
   public record CreateClientRequest(
       @NotBlank @Size(max = 64) String clientId,
