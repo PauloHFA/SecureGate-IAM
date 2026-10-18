@@ -14,6 +14,10 @@
   <dependencies>
     <dependency>
       <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-oauth2-authorization-server</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.security</groupId>
       <artifactId>spring-security-oauth2-jose</artifactId>
     </dependency>
     <dependency>
@@ -90,6 +94,8 @@
             <include>com/securegate/iam/identity/application/**</include>
             <include>com/securegate/iam/access/domain/**</include>
             <include>com/securegate/iam/access/application/**</include>
+            <include>com/securegate/iam/authorization/domain/**</include>
+            <include>com/securegate/iam/authorization/application/**</include>
           </includes>
         </configuration>
         <executions>

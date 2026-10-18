@@ -1,4 +1,8 @@
 spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.oauth2.server.servlet.OAuth2AuthorizationServerAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.oauth2.server.servlet.OAuth2AuthorizationServerJwtAutoConfiguration
   application:
     name: iam-core
   datasource:
@@ -17,6 +21,9 @@ spring:
       enabled: true
 
 iam:
+  authorization:
+    enabled: ${IAM_AUTHORIZATION_ENABLED:false}
+    issuer: ${IAM_ISSUER:http://127.0.0.1:8080}
   transit:
     enabled: ${IAM_TRANSIT_ENABLED:false}
     address: ${IAM_VAULT_ADDRESS:http://127.0.0.1:8200}

@@ -65,7 +65,7 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 1 | Infraestrutura local | 0 | Concluída localmente; ver evidências |
 | 2 | Esqueleto e CI | 0–1 | Concluída; validação local e CI GitHub aprovadas |
 | 3 | Identity e Access | 2 | Implementada e validada localmente; publicação pendente |
-| 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | Em andamento; entrega 4A: Transit e JWKS |
+| 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | Em andamento; 4A Transit/JWKS e 4B Client Credentials implementadas |
 | 5 | Políticas, risco e MFA | 3–4 | Pendente |
 | 6 | Eventos e Outbox | 2–5 | Pendente |
 | 7 | Enforcer e revogação | 4–6 | Pendente |
@@ -146,8 +146,8 @@ Subdivisão executada: **3A**, usuários/credenciais/ciclo de vida; **3B**, cat�
 
 ## Etapa 4 — Authorization Server e Transit
 
-- [ ] Integrar Spring Authorization Server e persistir clientes, autorizações e consentimentos.
-- [ ] Iniciar com JDBC padrão se reduzir risco; justificar e testar customização JPA.
+- [x] Integrar Spring Authorization Server e persistir clientes, autorizações e consentimentos.
+- [x] Iniciar com JDBC padrão se reduzir risco; justificar e testar customização JPA.
 - [ ] Implementar Authorization Code + PKCE, Client Credentials e refresh com rotação/detecção de reuso.
 - [ ] Validar `redirect_uri` por correspondência exata e proteger autorização/consentimento.
 - [x] Implementar porta e adaptador Transit conforme ADR-002.
@@ -162,11 +162,11 @@ Subdivisão executada: **3A**, usuários/credenciais/ciclo de vida; **3B**, cat�
 Subdivisão da etapa:
 
 - **4A — Transit e JWKS:** porta de assinatura, AppRole por arquivos, encoder RS256, endpoint público condicionado à ativação, cache, métricas e testes com Vault real. Ver [ADR-005](adr/005-transit-e-jwks.md), [runbook](runbooks/transit-local.md) e [evidências](evidencias/etapa-04.md).
-- **4B — Authorization Server e Client Credentials:** integrar o framework, persistir clientes/autorizações via JDBC, definir issuer/audiências/TTL e testar emissão com Transit ponta a ponta.
+- **4B — Authorization Server e Client Credentials:** framework integrado, clientes/autorizações/consentimentos JDBC, cadastro administrativo protegido, segredo gerado com hash Argon2id, issuer/audiência e TTL de cinco minutos definidos. Ver [ADR-006](adr/006-authorization-server-client-credentials.md), [runbook](runbooks/oauth-client-credentials-local.md) e [evidências](evidencias/etapa-04b.md).
 - **4C — Login, Authorization Code e PKCE:** autenticar usuários provisionados, validar redirects exatos e proteger sessão/consentimento.
 - **4D — OIDC e ciclo dos tokens:** discovery, userinfo, introspecção, revogação e refresh com rotação e detecção de reuso.
 
-A entrega 4A não encerra a etapa 4. Não há login, cliente OAuth cadastrado ou endpoint de emissão nesta entrega. As claims dos testes criptográficos são sintéticas; seu conteúdo autorizado será definido nos fluxos. Remoção de versões antigas exige política de retenção baseada nos TTLs a serem definidos.
+As entregas 4A/4B não encerram a etapa 4. Client Credentials já emite tokens RS256 para clientes cadastrados; login de usuário, PKCE, OIDC e refresh continuam pendentes. Consentimentos têm armazenamento testado, sem fluxo interativo nesta fase. Tokens máquina a máquina não recebem `roles` ou `sid`. Remoção de versões antigas exige política de retenção considerando o maior TTL de todos os fluxos futuros, além dos cinco minutos já definidos para Client Credentials.
 
 ## Etapa 5 — Políticas, risco e MFA
 
@@ -313,4 +313,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a entrega 4B: Spring Authorization Server, persistência JDBC e Client Credentials usando o encoder Transit da 4A. A etapa 3 está no commit local `48632e4`; publicação, revisão e CI remota das etapas 3/4A continuam pendentes.
+Seguir para a entrega 4C: login dos usuários provisionados, Authorization Code com PKCE, validação exata de redirects e proteção de sessão/consentimento. A etapa 3 está no commit local `48632e4` e a 4A em `ad1a4bf`; a 4B está na branch `feat/oauth-client-credentials`. Publicação, revisão e CI remota das etapas 3/4A/4B continuam pendentes.

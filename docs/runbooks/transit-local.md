@@ -1,6 +1,6 @@
 # Assinatura Transit e JWKS — entrega 4A
 
-A assinatura remota está disponível como componente interno; OAuth/OIDC e `/oauth2/token` ainda não estão implementados. Esta entrega permite consultar as chaves públicas e valida a emissão em testes isolados.
+A entrega 4A fornece o componente de assinatura e JWKS. A 4B acrescenta emissão por Client Credentials; consulte o [guia OAuth](oauth-client-credentials-local.md) para ativá-la. Usar somente `-EnableTransit` mantém o token endpoint bloqueado.
 
 ## Iniciar
 
@@ -24,7 +24,7 @@ $jwks = Invoke-RestMethod http://127.0.0.1:8080/oauth2/jwks
 $jwks.keys | Select-Object kid, kty, alg, use
 ```
 
-Esperado: `securegate-jwt-v1`, RSA, RS256 e sig; a versão pode ser maior se já houve rotação. O documento inclui somente parâmetros públicos. `/oauth2/token` continua bloqueado nesta entrega.
+Esperado: `securegate-jwt-v1`, RSA, RS256 e sig; a versão pode ser maior se já houve rotação. O documento inclui somente parâmetros públicos. `/oauth2/token` continua bloqueado quando só Transit é habilitado.
 
 ## Configuração Java
 

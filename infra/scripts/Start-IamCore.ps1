@@ -1,10 +1,11 @@
 [CmdletBinding()]
-param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit)
+param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LocalEnvironment.ps1')
 $projectPath = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $settings = Read-LocalEnvironment (Join-Path $projectPath '.env')
+if ($EnableAuthorization) { $EnableTransit = $true }
 if ($EnableBootstrap -and (-not $settings.ContainsKey('IAM_BOOTSTRAP_TOKEN') -or $settings.IAM_BOOTSTRAP_TOKEN.Length -lt 32)) {
   throw 'Token bootstrap ausente ou invalido. Execute Initialize-Local.ps1 antes de ativar a administracao.'
 }
@@ -24,6 +25,8 @@ $applicationEnvironment = @{
   IAM_PORT = [string]$Port
   IAM_BIND_ADDRESS = '127.0.0.1'
   IAM_TRANSIT_ENABLED = $(if ($EnableTransit) { 'true' } else { 'false' })
+  IAM_AUTHORIZATION_ENABLED = $(if ($EnableAuthorization) { 'true' } else { 'false' })
+  IAM_ISSUER = 'http://127.0.0.1:' + $Port
   IAM_VAULT_ADDRESS = 'http://127.0.0.1:' + $settings.VAULT_PORT
   IAM_VAULT_ROLE_ID_FILE = $roleIdPath
   IAM_VAULT_SECRET_ID_FILE = $secretIdPath

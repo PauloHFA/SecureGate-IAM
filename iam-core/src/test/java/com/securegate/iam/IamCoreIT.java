@@ -74,7 +74,7 @@ class IamCoreIT {
   @Test
   void startsWithPostgresAndAppliesTheVersionedMigrationOnlyOnce() {
     assertEquals(1, jdbc.queryForObject("SELECT 1", Integer.class));
-    assertEquals("2", flyway.info().current().getVersion().getVersion());
+    assertEquals("3", flyway.info().current().getVersion().getVersion());
     var schemas =
         jdbc.queryForList(
             "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'iam_%'",
@@ -91,6 +91,24 @@ class IamCoreIT {
                 "iam_session")));
     flyway.validate();
     assertEquals(0, flyway.migrate().migrationsExecuted);
+  }
+
+  @Test
+  void disabledOAuthDoesNotCreateInMemoryClientsOrAnyLocalSigner() {
+    assertEquals(
+        0,
+        context.getBeanNamesForType(
+                org.springframework.security.oauth2.server.authorization.client
+                    .RegisteredClientRepository.class)
+            .length);
+    assertEquals(
+        0,
+        context.getBeanNamesForType(org.springframework.security.oauth2.jwt.JwtEncoder.class)
+            .length);
+    assertEquals(
+        0,
+        context.getBeanNamesForType(org.springframework.security.oauth2.jwt.JwtDecoder.class)
+            .length);
   }
 
   @Test
