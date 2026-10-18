@@ -101,7 +101,12 @@ public final class PolicyService {
   /** Administrative preview: caller cannot supply roles, MFA proof or a trusted risk score. */
   public DecisionView evaluate(
       UUID userId, String resource, String action, Set<String> requestedScopes) {
-    return evaluateInternal(userId, resource, action, requestedScopes, null);
+    return evaluate(userId, resource, action, requestedScopes, null);
+  }
+
+  public DecisionView evaluate(
+      UUID userId, String resource, String action, Set<String> requestedScopes, UUID contextId) {
+    return evaluateInternal(userId, resource, action, requestedScopes, null, contextId);
   }
 
   public DecisionView simulate(
@@ -113,7 +118,7 @@ public final class PolicyService {
     if (scenario == null) {
       throw new IllegalArgumentException("Simulation scenario is required");
     }
-    return evaluateInternal(userId, resource, action, requestedScopes, scenario);
+    return evaluateInternal(userId, resource, action, requestedScopes, scenario, null);
   }
 
   private DecisionView evaluateInternal(
@@ -121,7 +126,8 @@ public final class PolicyService {
       String resource,
       String action,
       Set<String> requestedScopes,
-      SimulationSignals scenario) {
+      SimulationSignals scenario,
+      UUID contextId) {
     if (userId == null) {
       throw new IllegalArgumentException("User ID is required");
     }
@@ -130,7 +136,7 @@ public final class PolicyService {
     boolean simulation = scenario != null;
     var assessment =
         riskCalculator.assess(
-            simulation ? scenario.at(now) : signals.collect(userId, resource), now);
+            simulation ? scenario.at(now) : signals.collect(userId, resource, contextId), now);
     if (!identities.isActive(userId)) {
       return DecisionView.from(
           PolicyDecision.deny("IDENTITY_INACTIVE", List.of()), assessment, simulation);

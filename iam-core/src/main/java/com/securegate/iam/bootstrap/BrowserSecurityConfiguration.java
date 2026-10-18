@@ -1,11 +1,14 @@
 package com.securegate.iam.bootstrap;
 
 import com.securegate.iam.authorization.application.port.ConsentRequests;
+import com.securegate.iam.authorization.infrastructure.BrowserRiskObserver;
 import com.securegate.iam.authorization.infrastructure.CurrentBrowserIdentityFilter;
 import com.securegate.iam.authorization.infrastructure.OidcIdentityClaims;
 import com.securegate.iam.authorization.infrastructure.StrictAuthorizationRequest;
 import com.securegate.iam.identity.application.port.IdentityLookup;
+import com.securegate.iam.identity.application.port.LoginRiskHistory;
 import com.securegate.iam.identity.infrastructure.JdbcLoginUsers;
+import com.securegate.iam.policy.application.port.RiskContextSink;
 import com.securegate.iam.shared.presentation.ProblemResponses;
 import java.net.URI;
 import java.util.UUID;
@@ -46,9 +49,12 @@ public class BrowserSecurityConfiguration {
       JdbcTemplate jdbc,
       IdentityLookup identities,
       ProblemResponses problems,
-      ConsentRequests consents)
+      ConsentRequests consents,
+      RiskContextSink riskContexts,
+      LoginRiskHistory failures)
       throws Exception {
     var provider = new DaoAuthenticationProvider(new JdbcLoginUsers(jdbc));
+    var observer = new BrowserRiskObserver(riskContexts);
     provider.setPasswordEncoder(new Argon2PasswordEncoder(16, 32, 1, 19456, 2));
     // Verify the password (or the provider's dummy hash) before reporting any account state.
     provider.setPreAuthenticationChecks(user -> {});
@@ -102,12 +108,20 @@ public class BrowserSecurityConfiguration {
             session -> session.sessionFixation(fixation -> fixation.changeSessionId()))
         .addFilterBefore(new CurrentBrowserIdentityFilter(identities, consents), CsrfFilter.class)
         .addFilterAfter(consentCsrf, CsrfFilter.class)
+        .addFilterAfter(observer, CurrentBrowserIdentityFilter.class)
         .formLogin(
             form ->
                 form.loginPage("/login")
-                    .failureUrl("/login?error")
+                    .failureHandler(
+                        (request, response, failure) -> {
+                          failures.recordFailure(request.getParameter("username"));
+                          new org.springframework.security.web.authentication
+                                  .SimpleUrlAuthenticationFailureHandler("/login?error")
+                              .onAuthenticationFailure(request, response, failure);
+                        })
                     .successHandler(
                         (request, response, authentication) -> {
+                          observer.closePrevious(request);
                           if (authentication
                               instanceof
                               org.springframework.security.authentication
@@ -124,6 +138,7 @@ public class BrowserSecurityConfiguration {
                               .setAttribute(
                                   OidcIdentityClaims.AUTH_TIME, java.time.Instant.now().toString());
                           var saved = cache.getRequest(request, response);
+                          observer.capture(request, response, authentication);
                           cache.removeRequest(request, response);
                           String destination = "/login?authenticated";
                           if (saved != null) {
@@ -136,7 +151,13 @@ public class BrowserSecurityConfiguration {
                           }
                           response.sendRedirect(destination);
                         }))
-        .logout(logout -> logout.logoutSuccessUrl("/login?logout"))
+        .logout(
+            logout ->
+                logout
+                    .addLogoutHandler(
+                        (request, response, authentication) ->
+                            observer.close(request, authentication))
+                    .logoutSuccessUrl("/login?logout"))
         .headers(
             headers ->
                 headers.referrerPolicy(

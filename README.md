@@ -10,7 +10,9 @@ A entrega 4A acrescenta assinatura RS256 via Vault Transit e JWKS; a 4B integra 
 
 A 5A acrescenta políticas JSONB versionadas e auditadas e uma avaliação administrativa por papéis atuais. O motor nega por padrão, faz DENY prevalecer e combina exigência de MFA com limites de escopo/TTL. Essa avaliação é uma recomendação administrativa: a integração ao login e aos tokens ficará na 5D. Consulte o [guia de políticas](docs/runbooks/politicas-local.md) e as [evidências 5A](docs/evidencias/etapa-05a.md).
 
-A 5B1 adiciona condições ABAC tipadas na gramática v2, risco determinístico de 0–100 e cenários administrativos separados da avaliação normal. Documentos v1 permanecem compatíveis. A coleta real ainda não existe: a avaliação normal informa os sinais ausentes e usa os pesos conservadores correspondentes. Consulte o [guia ABAC/risco](docs/runbooks/abac-risco-local.md) e as [evidências 5B1](docs/evidencias/etapa-05b1.md): 311 testes locais aprovados.
+A 5B1 adiciona condições ABAC tipadas na gramática v2, risco determinístico de 0–100 e cenários administrativos separados da avaliação normal. Documentos v1 permanecem compatíveis. Consulte o [guia ABAC/risco](docs/runbooks/abac-risco-local.md) e as [evidências 5B1](docs/evidencias/etapa-05b1.md).
+
+A 5B2 coleta contexto de navegador autenticado, rede da conexão, falhas reais de login e sensibilidade administrada de recursos. Aprovação de navegador tem prazo e versão; contextos de outro usuário, antigos ou fechados não fornecem confiança. Há cinco minutos de aquecimento do contador após iniciar o processo. Consulte o [guia de coleta](docs/runbooks/coleta-risco-local.md) e as [evidências 5B2](docs/evidencias/etapa-05b2.md).
 
 ## Decisões aprovadas
 
@@ -37,12 +39,13 @@ A 5B1 adiciona condições ABAC tipadas na gramática v2, risco determinístico 
 - [ADR-009 — OIDC, discovery e userinfo](docs/adr/009-oidc-discovery-e-userinfo.md)
 - [ADR-010 — Políticas e tabela de decisão](docs/adr/010-politicas-e-tabela-de-decisao.md)
 - [ADR-011 — ABAC e risco determinístico](docs/adr/011-abac-e-risco-deterministico.md)
+- [ADR-012 — Coleta confiável de sinais de risco](docs/adr/012-coleta-confiavel-de-risco.md)
 
 O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Implementação**, versão 0.1, outubro de 2026, disponível em PDF na pasta local do projeto.
 
 ## Próximo passo
 
-Seguir para a 5B2: coleta confiável e vínculo dos sinais ao sujeito/recurso. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A base até a 5A (`8f5666d`) foi publicada em `feat/policy-foundation`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831). A branch `feat/abac-risk-engine` contém a 5B1 local, com commit consultável no histórico; push e CI remota pendentes. Revisão e merge das entregas posteriores continuam pendentes.
+Seguir para a 5C: MFA TOTP, recuperação e step-up. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A base até a 5A (`8f5666d`) foi publicada em `feat/policy-foundation`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831). A 5B1 está no commit local `738c660`; a branch `feat/trusted-risk-signals` acrescenta a 5B2, com commit consultável no histórico; push e CI remota pendentes. Revisão e merge das entregas posteriores continuam pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
@@ -121,6 +124,8 @@ Os mesmos parâmetros habilitam o fluxo de navegador. Cadastre o cliente em `/ap
 Para autenticação OIDC, cadastre o cliente web com `oidc: true`, que adiciona `openid` automaticamente, e siga o [guia OIDC](docs/runbooks/oidc-local.md). Discovery fica em `/.well-known/openid-configuration`; userinfo exige Bearer access token do fluxo OIDC. O ID token tem audiência do cliente, e o access token, da API. O cliente deve validar assinatura, issuer, audiência, expiração e nonce antes de concluir seu login.
 
 Para administrar políticas, basta `-EnableBootstrap`; OAuth/Transit são independentes. Use `/api/admin/policies` e `POST /api/admin/policies/evaluate`, conforme o [guia de políticas](docs/runbooks/politicas-local.md). `/api/admin/policies/simulate` testa cenários sintéticos com `simulation: true`, conforme o [guia ABAC/risco](docs/runbooks/abac-risco-local.md). Não há endpoint público de autorização de recursos nesta entrega. A política e sua auditoria são gravadas na mesma transação; edições exigem a versão atual.
+
+Para coletar contexto real, habilite Authorization e faça login no navegador. A administração lista contextos em `/api/admin/risk/users/{userId}/contexts`; informe o `contextId` correspondente em evaluate. Redes, sensibilidade e aprovação de navegador ficam sob `/api/admin/risk/**`, conforme o [guia de coleta](docs/runbooks/coleta-risco-local.md). Headers de encaminhamento não definem a origem observada. A coleta não aplica decisões automaticamente ao login/tokens; essa integração será feita na 5D.
 
 ## Arquivos locais
 

@@ -2,7 +2,7 @@
 
 Prepare a aplicação com `Start-IamCore.ps1 -EnableBootstrap` e carregue `$baseUrl`, `$adminHeaders` e `$userId` conforme o [guia de políticas](politicas-local.md). Não é necessário habilitar OAuth/Transit. Flyway aplica V6, preservando políticas v1.
 
-Esta entrega testa regras em ferramentas administrativas. Não muda login/tokens nem coleta sinais reais de rede/dispositivo/comportamento/recurso. Cenários sintéticos não são comprovação de contexto e nunca satisfazem MFA.
+Este guia testa regras e cenários da 5B1 em ferramentas administrativas. A [5B2](coleta-risco-local.md) acrescenta coleta real ao caminho normal. Cenários sintéticos continuam separados, não comprovam contexto e nunca satisfazem MFA. As decisões ainda não mudam grants/tokens.
 
 ## Regra v2 de baixo risco
 
@@ -51,7 +51,7 @@ $actual | Select-Object effect, reasons, simulation
 $actual.risk
 ```
 
-O caminho normal informa `simulation: false`. Hoje os quatro sinais ainda estão ausentes: score 100/CRITICAL, com motivos e `missingSignals`. A regra acima não corresponde porque 100 está fora da faixa de baixo risco, resultando em DENY/NO_MATCH se não houver outras regras. Uma regra que dependa somente de dispositivo ficará indeterminada; nesse caso retorna DENY/INDETERMINATE_ATTRIBUTES. Um DENY comprovado por outra regra prevalece com EXPLICIT_DENY. Enviar score/cenário/headers extras a esse endpoint não fornece evidência confiável nem reduz o risco.
+O caminho normal informa `simulation: false`. Desde a 5B2, os sinais vêm das fontes descritas no [guia de coleta](coleta-risco-local.md). Este exemplo não fornece contextId, portanto dispositivo e rede permanecem UNKNOWN; outros sinais podem existir ou estar em aquecimento. Sem condição correspondente, retorna DENY/NO_MATCH; uma regra potencialmente aplicável que dependa de atributo desconhecido provoca DENY/INDETERMINATE_ATTRIBUTES. Um DENY comprovado prevalece com EXPLICIT_DENY. Enviar score/cenário/headers extras a evaluate não fornece evidência nem reduz risco.
 
 Uma regra v1 sem condições de risco mantém o comportamento anterior; score 100, por si só, não transforma um ALLOW v1 em DENY. Crie políticas explícitas para usar score/faixa como condição.
 
@@ -77,7 +77,7 @@ $predicted | Select-Object effect, reasons, simulation, mfaRequired
 $predicted.risk
 ```
 
-Esse cenário retorna score 0/LOW e pode produzir ALLOW se a identidade/papel corresponderem e não houver regra conflitante. A resposta sempre tem `simulation: true`. Repetir a avaliação normal continua retornando sinais ausentes: o cenário não é persistido ou promovido a evidência.
+Esse cenário retorna score 0/LOW e pode produzir ALLOW se a identidade/papel corresponderem e não houver regra conflitante. A resposta sempre tem `simulation: true`. Repetir a avaliação normal continua usando seus próprios sinais: o cenário não é persistido ou promovido a evidência.
 
 Altere deviceTrust/networkTrust para UNTRUSTED, failedLoginAttempts para 5 e resourceSensitivity para RESTRICTED para obter score 100/CRITICAL. Os campos podem ser omitidos dentro de `scenario`, produzindo UNKNOWN e os pontos conservadores correspondentes. `scenario` inteiro é obrigatório; valores inválidos como contador negativo ou enum em minúsculas retornam 400. Não há campos de papéis, score pronto, fator MFA ou instante de observação controlados pelo cenário.
 
@@ -97,4 +97,4 @@ O score é soma fixa: dispositivo 0/25, rede 0/20, falhas 0/10/20/30, recurso 0/
 
 Para ver as regras utilizadas, consulte `appliedPolicies` (IDs e versões). Condições indeterminadas em uma regra potencialmente aplicável provocam DENY; elas não são simplesmente descartadas para permitir por outra regra. Um atributo comprovadamente incompatível torna a conjunção ALL falsa, mesmo se outro estiver ausente.
 
-Atualização, desativação, concorrência, auditoria e paginação continuam conforme a [5A](politicas-local.md). Próxima entrega: **5B2, coleta confiável e vínculo dos sinais**; depois 5C (MFA) e 5D (aplicação). Consulte [ADR-011](../adr/011-abac-e-risco-deterministico.md), [evidências](../evidencias/etapa-05b1.md) e [roteiro](../PLANO-DE-IMPLEMENTACAO.md).
+Atualização, desativação, concorrência, auditoria e paginação continuam conforme a [5A](politicas-local.md). A coleta está no [guia 5B2](coleta-risco-local.md); próximas entregas são 5C (MFA) e 5D (aplicação). Consulte [ADR-011](../adr/011-abac-e-risco-deterministico.md), [evidências históricas](../evidencias/etapa-05b1.md) e [roteiro](../PLANO-DE-IMPLEMENTACAO.md).

@@ -117,12 +117,210 @@ class BrowserAuthorizationIT {
   }
 
   @Autowired JdbcTemplate jdbc;
+  @org.springframework.test.context.bean.override.mockito.MockitoSpyBean java.time.Clock riskClock;
+  @Autowired com.securegate.iam.identity.application.port.LoginRiskHistory loginHistory;
 
   @Autowired
   org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService
       authorizations;
 
   @LocalServerPort int port;
+
+  private JsonNode riskContext(Flow flow) throws Exception {
+    var response = admin("GET", "/api/admin/risk/users/" + flow.userId() + "/contexts", Map.of());
+    assertEquals(200, response.statusCode(), response.body());
+    assertFalse(response.body().contains("127.0.0.1"));
+    var contexts = JSON.readTree(response.body());
+    assertEquals(1, contexts.size());
+    return contexts.get(0);
+  }
+
+  @Test
+  void reauthenticationClosesPreviousRiskContextBeforeIssuingANewOne() throws Exception {
+    Flow flow = flow();
+    var browser = browser();
+    pending(browser, flow);
+    var previous = riskContext(flow);
+    var page = get(browser, "/login");
+    var relogin =
+        post(
+            browser,
+            "/login",
+            Map.of(
+                "username",
+                flow.email(),
+                "password",
+                PASSWORD,
+                "_csrf",
+                hidden(page.body(), "_csrf")));
+    assertEquals(302, relogin.statusCode());
+    var current = riskContext(flow);
+    assertNotEquals(previous.path("id").asText(), current.path("id").asText());
+    assertEquals(previous.path("deviceId").asText(), current.path("deviceId").asText());
+    assertNotNull(
+        jdbc.queryForObject(
+            "SELECT closed_at FROM iam_policy.browser_contexts WHERE id=?",
+            java.sql.Timestamp.class,
+            UUID.fromString(previous.path("id").asText())));
+  }
+
+  private JsonNode evaluateRisk(Flow flow, String resource, String contextId) throws Exception {
+    var body =
+        new HashMap<String, Object>(
+            Map.of(
+                "userId",
+                flow.userId(),
+                "resource",
+                resource,
+                "action",
+                "read",
+                "requestedScopes",
+                List.of("api:read")));
+    if (contextId != null) {
+      body.put("contextId", contextId);
+    }
+    var response = admin("POST", "/api/admin/policies/evaluate", body);
+    assertEquals(200, response.statusCode(), response.body());
+    assertFalse(JSON.readTree(response.body()).path("simulation").asBoolean());
+    return JSON.readTree(response.body()).path("risk");
+  }
+
+  @Test
+  void collectsAuthenticatedBrowserContextIgnoresForwardedHeadersAndClosesItOnLogout()
+      throws Exception {
+    var now = java.time.Instant.now().plusSeconds(600);
+    org.mockito.Mockito.doReturn(now).when(riskClock).instant();
+    Flow flow = flow();
+    var browser = browser();
+    pending(browser, flow);
+    var context = riskContext(flow);
+    String contextId = context.path("id").asText();
+    String deviceId = context.path("deviceId").asText();
+    var manager = (CookieManager) browser.cookieHandler().orElseThrow();
+    var cookie =
+        manager.getCookieStore().getCookies().stream()
+            .filter(value -> value.getName().equals("sg_device"))
+            .findFirst()
+            .orElseThrow();
+    assertTrue(cookie.isHttpOnly());
+    assertEquals(deviceId, cookie.getValue());
+    assertEquals(
+        201,
+        admin(
+                "POST",
+                "/api/admin/risk/resources",
+                Map.of(
+                    "resource",
+                    "browser-" + flow.suffix().toLowerCase(java.util.Locale.ROOT),
+                    "sensitivity",
+                    "PUBLIC"))
+            .statusCode());
+    String resource = "browser-" + flow.suffix().toLowerCase(java.util.Locale.ROOT);
+    browser.send(
+        HttpRequest.newBuilder(uri("/login"))
+            .header("X-Forwarded-For", "203.0.113.9")
+            .header("Forwarded", "for=203.0.113.9;proto=https")
+            .GET()
+            .build(),
+        HttpResponse.BodyHandlers.ofString());
+    assertEquals(
+        "127.0.0.1",
+        jdbc.queryForObject(
+            "SELECT host(remote_address) FROM iam_policy.browser_contexts WHERE id=?",
+            String.class,
+            UUID.fromString(contextId)));
+    var networks = admin("POST", "/api/admin/risk/networks", Map.of("cidr", "127.0.0.0/8"));
+    assertEquals(201, networks.statusCode(), networks.body());
+    String networkId = JSON.readTree(networks.body()).path("id").asText();
+    try {
+      assertEquals(25, evaluateRisk(flow, resource, contextId).path("score").asInt());
+      var approved =
+          admin(
+              "PUT",
+              "/api/admin/risk/users/" + flow.userId() + "/devices/" + deviceId,
+              Map.of("trusted", true, "ttlSeconds", 600, "version", 0));
+      assertEquals(200, approved.statusCode(), approved.body());
+      assertEquals(0, evaluateRisk(flow, resource, contextId).path("score").asInt());
+      assertEquals(45, evaluateRisk(flow, resource, null).path("score").asInt());
+      Flow foreign = flow();
+      assertEquals(45, evaluateRisk(foreign, resource, contextId).path("score").asInt());
+      var page = get(browser, "/login");
+      assertEquals(
+          302,
+          post(browser, "/logout", Map.of("_csrf", hidden(page.body(), "_csrf"))).statusCode());
+      assertNotNull(
+          jdbc.queryForObject(
+              "SELECT closed_at FROM iam_policy.browser_contexts WHERE id=?",
+              java.sql.Timestamp.class,
+              UUID.fromString(contextId)));
+      assertEquals(45, evaluateRisk(flow, resource, contextId).path("score").asInt());
+    } finally {
+      admin("PUT", "/api/admin/risk/networks/" + networkId, Map.of("enabled", false, "version", 0));
+    }
+  }
+
+  @Test
+  void countsActualKnownAccountFailuresAndDoesNotTransferBrowserApprovalBetweenUsers()
+      throws Exception {
+    var now = java.time.Instant.now().plusSeconds(600);
+    org.mockito.Mockito.doReturn(now).when(riskClock).instant();
+    Flow owner = flow();
+    var browser = browser();
+    var login = get(browser, "/login");
+    for (int index = 0; index < 2; index++) {
+      var failed =
+          post(
+              browser,
+              "/login",
+              Map.of(
+                  "username",
+                  owner.email(),
+                  "password",
+                  "wrong-password",
+                  "_csrf",
+                  hidden(login.body(), "_csrf")));
+      assertEquals(302, failed.statusCode());
+      assertTrue(location(failed).endsWith("/login?error"));
+    }
+    var unknown =
+        post(
+            browser,
+            "/login",
+            Map.of(
+                "username",
+                "unknown@example.test",
+                "password",
+                "wrong-password",
+                "_csrf",
+                hidden(login.body(), "_csrf")));
+    assertEquals(302, unknown.statusCode());
+    assertEquals(2, loginHistory.recentFailures(owner.userId()));
+    pending(browser, owner);
+    var first = riskContext(owner);
+    var approved =
+        admin(
+            "PUT",
+            "/api/admin/risk/users/"
+                + owner.userId()
+                + "/devices/"
+                + first.path("deviceId").asText(),
+            Map.of("trusted", true, "ttlSeconds", 600, "version", 0));
+    assertEquals(200, approved.statusCode());
+    var browser2 = browser();
+    var manager = (CookieManager) browser2.cookieHandler().orElseThrow();
+    var copied = new java.net.HttpCookie("sg_device", first.path("deviceId").asText());
+    copied.setPath("/");
+    manager.getCookieStore().add(uri("/"), copied);
+    Flow other = flow();
+    pending(browser2, other);
+    var second = riskContext(other);
+    assertNotEquals(first.path("deviceId").asText(), second.path("deviceId").asText());
+    assertTrue(second.path("trustedUntil").isNull());
+    var risk = evaluateRisk(owner, "unclassified", first.path("id").asText());
+    assertTrue(risk.path("reasons").toString().contains("RECENT_LOGIN_FAILURES"));
+    org.mockito.Mockito.doReturn(now.plusSeconds(301)).when(riskClock).instant();
+    assertEquals(0, loginHistory.recentFailures(owner.userId()));
+  }
 
   @Test
   void completesLoginConsentAndPkceAndPersistsOnlySafeIdentityMetadata() throws Exception {

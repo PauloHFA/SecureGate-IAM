@@ -56,9 +56,190 @@ class PolicyAdministrationIT {
   @Autowired ObjectMapper json;
   @Autowired JdbcTemplate jdbc;
   @MockitoSpyBean AuditTrail audit;
+  @Autowired com.securegate.iam.policy.application.port.RiskEvidence evidence;
+  @MockitoSpyBean java.time.Clock clock;
 
   private String unique() {
     return UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+  }
+
+  @Test
+  void administersClassificationsAndNetworksWithVersionsAndAuditRollback() throws Exception {
+    String resource = target();
+    var created =
+        success(
+            call(
+                "POST",
+                "/risk/resources",
+                Map.of("resource", resource, "sensitivity", "CONFIDENTIAL")),
+            201);
+    assertEquals(0, created.path("version").asLong());
+    assertEquals(created, success(call("GET", "/risk/resources?resource=" + resource, null), 200));
+    var updated =
+        success(
+            call(
+                "PUT",
+                "/risk/resources",
+                Map.of("resource", resource, "sensitivity", "PUBLIC", "version", 0)),
+            200);
+    assertEquals(1, updated.path("version").asLong());
+    assertEquals(
+        409,
+        call(
+                "PUT",
+                "/risk/resources",
+                Map.of("resource", resource, "sensitivity", "RESTRICTED", "version", 0))
+            .statusCode());
+    assertEquals(
+        409,
+        call("POST", "/risk/resources", Map.of("resource", resource, "sensitivity", "PUBLIC"))
+            .statusCode());
+    assertEquals(
+        400,
+        call("POST", "/risk/resources", Map.of("resource", target(), "sensitivity", "UNKNOWN"))
+            .statusCode());
+    assertEquals(404, call("GET", "/risk/resources?resource=" + target(), null).statusCode());
+    var network = success(call("POST", "/risk/networks", Map.of("cidr", "192.0.2.1/24")), 201);
+    assertEquals("192.0.2.0/24", network.path("cidr").asText());
+    assertEquals(409, call("POST", "/risk/networks", Map.of("cidr", "192.0.2.9/24")).statusCode());
+    success(call("GET", "/risk/networks", null), 200);
+    var disabled =
+        success(
+            call(
+                "PUT",
+                "/risk/networks/" + network.path("id").asText(),
+                Map.of("enabled", false, "version", 0)),
+            200);
+    assertFalse(disabled.path("enabled").asBoolean());
+    assertEquals(
+        409,
+        call(
+                "PUT",
+                "/risk/networks/" + network.path("id").asText(),
+                Map.of("enabled", true, "version", 0))
+            .statusCode());
+    assertEquals(
+        400, call("POST", "/risk/networks", Map.of("cidr", "example.com/24")).statusCode());
+    assertEquals(401, call("GET", "/risk/networks", null, null, "anonymous-risk").statusCode());
+    doThrow(new IllegalStateException("synthetic"))
+        .when(audit)
+        .record(argThat(event -> event.type().value().equals("risk.resource.updated")));
+    assertEquals(
+        500,
+        call(
+                "PUT",
+                "/risk/resources",
+                Map.of("resource", resource, "sensitivity", "RESTRICTED", "version", 1))
+            .statusCode());
+    assertEquals(updated, success(call("GET", "/risk/resources?resource=" + resource, null), 200));
+  }
+
+  @Test
+  void bindsContextToIdentityVersionAndExpiresEvidenceWithoutTreatingItAsSafe() throws Exception {
+    var now = java.time.Instant.now().plusSeconds(600);
+    org.mockito.Mockito.doReturn(now).when(clock).instant();
+    UUID user = user();
+    UUID other = user();
+    UUID context = UUID.randomUUID();
+    String resource = target();
+    success(
+        call("POST", "/risk/resources", Map.of("resource", resource, "sensitivity", "PUBLIC")),
+        201);
+    UUID device = evidence.observe(user, 0, context, "not-a-server-device", "203.0.113.5");
+    var observed = evidence.collect(user, resource, context);
+    assertEquals(
+        com.securegate.iam.policy.domain.RiskSignals.Trust.UNTRUSTED, observed.deviceTrust());
+    assertNull(observed.failedLoginAttempts()); // Authorization is disabled in this fixture.
+    assertEquals(
+        com.securegate.iam.policy.domain.RiskSignals.Sensitivity.PUBLIC,
+        observed.resourceSensitivity());
+    assertEquals(
+        com.securegate.iam.policy.domain.RiskSignals.Trust.UNKNOWN,
+        evidence.collect(other, resource, context).deviceTrust());
+    assertThrows(
+        IllegalStateException.class,
+        () -> evidence.observe(other, 0, context, null, "203.0.113.5"));
+    var approved =
+        success(
+            call(
+                "PUT",
+                "/risk/users/" + user + "/devices/" + device,
+                Map.of("trusted", true, "ttlSeconds", 600, "version", 0)),
+            200);
+    assertEquals(1, approved.path("version").asLong());
+    success(
+        call(
+            "PUT",
+            "/risk/users/" + user + "/devices/" + device,
+            Map.of("trusted", false, "ttlSeconds", 600, "version", 1)),
+        200);
+    assertEquals(
+        com.securegate.iam.policy.domain.RiskSignals.Trust.UNTRUSTED,
+        evidence.collect(user, resource, context).deviceTrust());
+    success(
+        call(
+            "PUT",
+            "/risk/users/" + user + "/devices/" + device,
+            Map.of("trusted", true, "ttlSeconds", 600, "version", 2)),
+        200);
+    var network = success(call("POST", "/risk/networks", Map.of("cidr", "203.0.113.0/24")), 201);
+    assertEquals(
+        com.securegate.iam.policy.domain.RiskSignals.Trust.TRUSTED,
+        evidence.collect(user, resource, context).networkTrust());
+    success(
+        call(
+            "PUT",
+            "/risk/networks/" + network.path("id").asText(),
+            Map.of("enabled", false, "version", 0)),
+        200);
+    assertEquals(
+        com.securegate.iam.policy.domain.RiskSignals.Trust.UNTRUSTED,
+        evidence.collect(user, resource, context).networkTrust());
+    assertEquals(
+        com.securegate.iam.policy.domain.RiskSignals.Trust.TRUSTED,
+        evidence.collect(user, resource, context).deviceTrust());
+    assertEquals(
+        404, call("GET", "/risk/users/" + other + "/devices/" + device, null).statusCode());
+    assertEquals(
+        409,
+        call(
+                "PUT",
+                "/risk/users/" + user + "/devices/" + device,
+                Map.of("trusted", false, "ttlSeconds", 600, "version", 0))
+            .statusCode());
+    org.mockito.Mockito.doReturn(now.plusSeconds(301)).when(clock).instant();
+    assertEquals(
+        com.securegate.iam.policy.domain.RiskSignals.Trust.UNKNOWN,
+        evidence.collect(user, resource, context).deviceTrust());
+    assertTrue(evidence.contexts(user).isEmpty());
+    evidence.observe(user, 0, context, device.toString(), "203.0.113.5");
+    assertEquals(
+        com.securegate.iam.policy.domain.RiskSignals.Trust.TRUSTED,
+        evidence.collect(user, resource, context).deviceTrust());
+    org.mockito.Mockito.doReturn(now.plusSeconds(601)).when(clock).instant();
+    evidence.observe(user, 0, context, device.toString(), "203.0.113.5");
+    assertEquals(
+        com.securegate.iam.policy.domain.RiskSignals.Trust.UNTRUSTED,
+        evidence.collect(user, resource, context).deviceTrust());
+    jdbc.update("UPDATE iam_identity.users SET version=version+1 WHERE id=?", user);
+    assertEquals(
+        com.securegate.iam.policy.domain.RiskSignals.Trust.UNKNOWN,
+        evidence.collect(user, resource, context).deviceTrust());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> evidence.observe(user, 0, UUID.randomUUID(), device.toString(), "203.0.113.5"));
+    evidence.close(user, context);
+    assertThrows(
+        IllegalStateException.class,
+        () -> evidence.observe(user, 1, context, device.toString(), "203.0.113.5"));
+    UUID freshContext = UUID.randomUUID();
+    evidence.observe(user, 1, freshContext, device.toString(), "203.0.113.5");
+    evidence.close(user, freshContext);
+    assertThrows(
+        IllegalStateException.class,
+        () -> evidence.observe(user, 1, freshContext, device.toString(), "203.0.113.5"));
+    assertEquals(
+        404, call("GET", "/risk/users/" + UUID.randomUUID() + "/contexts", null).statusCode());
   }
 
   private String target() {
@@ -535,7 +716,7 @@ class PolicyAdministrationIT {
         org.flywaydb.core.Flyway.configure()
             .dataSource(url, DATABASE.getUsername(), DATABASE.getPassword())
             .load();
-    assertEquals(1, upgraded.migrate().migrationsExecuted);
+    assertEquals(2, upgraded.migrate().migrationsExecuted);
     upgraded.validate();
     try (var connection =
             java.sql.DriverManager.getConnection(

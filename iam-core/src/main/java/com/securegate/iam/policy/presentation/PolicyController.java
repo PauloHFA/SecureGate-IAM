@@ -80,7 +80,12 @@ public class PolicyController {
   @PostMapping("/evaluate")
   ResponseEntity<DecisionView> evaluate(@Valid @RequestBody Evaluation body) {
     return noStore(
-        policies.evaluate(body.userId(), body.resource(), body.action(), body.requestedScopes()));
+        policies.evaluate(
+            body.userId(),
+            body.resource(),
+            body.action(),
+            body.requestedScopes(),
+            body.contextId()));
   }
 
   private PolicyResponse response(PolicyView policy) {
@@ -129,7 +134,8 @@ public class PolicyController {
       @NotNull UUID userId,
       @NotBlank @Size(max = 128) String resource,
       @NotBlank @Size(max = 128) String action,
-      @NotEmpty @Size(max = 10) Set<@NotBlank @Size(max = 64) String> requestedScopes) {}
+      @NotEmpty @Size(max = 10) Set<@NotBlank @Size(max = 64) String> requestedScopes,
+      UUID contextId) {}
 
   public record PolicyResponse(
       UUID id, String name, int priority, boolean enabled, long version, JsonNode document) {}

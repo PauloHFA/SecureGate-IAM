@@ -48,7 +48,7 @@ class PolicyServiceTest {
               return operation.get();
             }
           },
-          (userId, resource) ->
+          (userId, resource, contextId) ->
               com.securegate.iam.policy.domain.RiskSignals.unknown(java.time.Instant.EPOCH),
           java.time.Clock.fixed(java.time.Instant.EPOCH, java.time.ZoneOffset.UTC));
 
