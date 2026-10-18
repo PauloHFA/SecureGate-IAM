@@ -65,7 +65,7 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 1 | Infraestrutura local | 0 | Concluída localmente; ver evidências |
 | 2 | Esqueleto e CI | 0–1 | Concluída; validação local e CI GitHub aprovadas |
 | 3 | Identity e Access | 2 | Implementada e validada localmente; publicação pendente |
-| 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | Pendente |
+| 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | Em andamento; entrega 4A: Transit e JWKS |
 | 5 | Políticas, risco e MFA | 3–4 | Pendente |
 | 6 | Eventos e Outbox | 2–5 | Pendente |
 | 7 | Enforcer e revogação | 4–6 | Pendente |
@@ -150,14 +150,23 @@ Subdivisão executada: **3A**, usuários/credenciais/ciclo de vida; **3B**, cat�
 - [ ] Iniciar com JDBC padrão se reduzir risco; justificar e testar customização JPA.
 - [ ] Implementar Authorization Code + PKCE, Client Credentials e refresh com rotação/detecção de reuso.
 - [ ] Validar `redirect_uri` por correspondência exata e proteger autorização/consentimento.
-- [ ] Implementar porta e adaptador Transit conforme ADR-002.
+- [x] Implementar porta e adaptador Transit conforme ADR-002.
 - [ ] Emitir JWT RS256 com `kid`, `roles`, `sid` e claims aplicáveis a cada fluxo.
 - [ ] Publicar discovery, authorize, token, JWKS, revogação, introspecção e userinfo.
-- [ ] Implementar rotação e sobreposição das chaves públicas.
+- [x] Implementar rotação e sobreposição das chaves públicas, com retenção de todas as versões e teste de troca no Vault.
 - [ ] Testar expiração, emissor/audiência, assinatura incorreta, token adulterado, `alg=none` e reuso de refresh.
-- [ ] Testar Vault indisponível sem fallback local.
+- [x] Testar Vault indisponível sem fallback local.
 
 **Aceite:** clientes completam os fluxos; biblioteca independente verifica JWT via JWKS; rotação preserva validação dos tokens anteriores na janela definida; testes negativos passam.
+
+Subdivisão da etapa:
+
+- **4A — Transit e JWKS:** porta de assinatura, AppRole por arquivos, encoder RS256, endpoint público condicionado à ativação, cache, métricas e testes com Vault real. Ver [ADR-005](adr/005-transit-e-jwks.md), [runbook](runbooks/transit-local.md) e [evidências](evidencias/etapa-04.md).
+- **4B — Authorization Server e Client Credentials:** integrar o framework, persistir clientes/autorizações via JDBC, definir issuer/audiências/TTL e testar emissão com Transit ponta a ponta.
+- **4C — Login, Authorization Code e PKCE:** autenticar usuários provisionados, validar redirects exatos e proteger sessão/consentimento.
+- **4D — OIDC e ciclo dos tokens:** discovery, userinfo, introspecção, revogação e refresh com rotação e detecção de reuso.
+
+A entrega 4A não encerra a etapa 4. Não há login, cliente OAuth cadastrado ou endpoint de emissão nesta entrega. As claims dos testes criptográficos são sintéticas; seu conteúdo autorizado será definido nos fluxos. Remoção de versões antigas exige política de retenção baseada nos TTLs a serem definidos.
 
 ## Etapa 5 — Políticas, risco e MFA
 
@@ -304,4 +313,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Publicar e revisar a etapa 3 e executar a CI do código novo. Em seguida, iniciar a etapa 4: Authorization Server, fluxos OAuth/OIDC, persistência de clientes/autorizações e assinatura JWT via Vault Transit.
+Seguir para a entrega 4B: Spring Authorization Server, persistência JDBC e Client Credentials usando o encoder Transit da 4A. A etapa 3 está no commit local `48632e4`; publicação, revisão e CI remota das etapas 3/4A continuam pendentes.

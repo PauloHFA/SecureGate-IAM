@@ -6,6 +6,8 @@ Plataforma de identidade e acesso baseada em Zero Trust, com provisionamento, OA
 
 Fundação, infraestrutura e API administrativa de Identity/Access implementadas. O core gerencia usuários, credenciais Argon2id, grupos, papéis, permissões e auditoria transacional. Administração fica desabilitada por padrão e exige ativação explícita com token bootstrap temporário. A etapa 3 foi validada localmente com 106 testes; sua publicação ainda está pendente. Consulte as [evidências](docs/evidencias/etapa-03.md).
 
+A entrega 4A acrescenta assinatura RS256 via Vault Transit com AppRole e publicação de JWKS. Os testes cobrem rotação e falha sem fallback local. OAuth/OIDC e emissão por `/oauth2/token` entram nas próximas entregas. Consulte o [guia Transit](docs/runbooks/transit-local.md) e as [evidências da etapa 4](docs/evidencias/etapa-04.md).
+
 ## Decisões aprovadas
 
 - Java 21, Spring Boot e Spring Authorization Server.
@@ -24,18 +26,19 @@ Fundação, infraestrutura e API administrativa de Identity/Access implementadas
 - [Evidências da etapa 2](docs/evidencias/etapa-02.md)
 - [Provisionamento administrativo local](docs/runbooks/provisionamento-local.md)
 - [ADR-004 — Identity, Access e bootstrap administrativo](docs/adr/004-identity-access-bootstrap.md)
+- [ADR-005 — Integração Transit e publicação de chaves](docs/adr/005-transit-e-jwks.md)
 
 O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Implementação**, versão 0.1, outubro de 2026, disponível em PDF na pasta local do projeto.
 
 ## Próximo passo
 
-Publicar e revisar as alterações da etapa 3, depois iniciar OAuth/OIDC e assinatura JWT via Vault Transit na etapa 4. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2; o código da etapa 3 está na branch local `feat/identity-access`.
+Integrar Spring Authorization Server, persistência JDBC e Client Credentials na entrega 4B. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2; a etapa 3 está no commit local `48632e4`. A branch `feat/vault-transit` parte desse commit e contém a entrega 4A, ainda pendente de publicação e CI remota.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
 ## Build local
 
-Pré-requisitos: JDK 21, `JAVA_HOME` apontando para esse JDK, Docker Engine disponível e internet na primeira execução. O Wrapper baixa Maven 3.9.11. Testcontainers inicia seu próprio PostgreSQL temporário; não é necessário subir o Compose para executar `verify`.
+Pré-requisitos: JDK 21, `JAVA_HOME` apontando para esse JDK, Docker Engine disponível e internet na primeira execução. O Wrapper baixa Maven 3.9.11. Testcontainers inicia PostgreSQL e Vault temporários; não é necessário subir o Compose para executar `verify`.
 
 Windows PowerShell:
 
@@ -62,7 +65,7 @@ Para corrigir formatação Java, execute `.\mvnw.cmd spotless:apply` no Windows 
 | Módulo | Responsabilidade atual |
 | --- | --- |
 | `libs/security-events` | Biblioteca Java sem Spring, com validação inicial dos tipos de evento |
-| `iam-core` | Identity/Access, API administrativa protegida, auditoria básica, Actuator e Flyway |
+| `iam-core` | Identity/Access, API administrativa, auditoria básica, Transit/JWKS, Actuator e Flyway |
 | `policy-enforcer` | Módulo reservado para o consumidor; implementação na etapa 7 |
 
 O contrato inicial `SecurityEventType` aceita segmentos minúsculos separados por ponto, até 128 caracteres, e rejeita curingas de binding (`*` e `#`). O envelope versionado e a mensageria serão implementados na etapa 6. Relatórios de teste ficam em `libs/security-events/target/surefire-reports/`.
@@ -98,6 +101,8 @@ Endpoints públicos: `GET /actuator/health`, `/actuator/health/liveness` e `/act
 ```
 
 As rotas `/api/admin/**` exigem o token gerado em `.env`. Consulte o [guia de provisionamento](docs/runbooks/provisionamento-local.md) para exemplos, controle de versão e atribuições. Login de usuário, OAuth/OIDC e emissão de tokens serão implementados na etapa 4.
+
+Para habilitar `GET /oauth2/jwks`, use `Start-IamCore.ps1 -EnableTransit`. Essa opção lê os arquivos AppRole de `infra/.local/` e é independente do bootstrap administrativo. Operação, rotação e diagnóstico estão no [guia Transit](docs/runbooks/transit-local.md).
 
 ## Arquivos locais
 

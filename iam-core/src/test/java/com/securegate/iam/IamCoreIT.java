@@ -132,6 +132,7 @@ class IamCoreIT {
         List.of(
             "/api/users",
             "/api/admin/users",
+            "/oauth2/jwks",
             "/actuator/env",
             "/actuator",
             "/actuator/health/db")) {

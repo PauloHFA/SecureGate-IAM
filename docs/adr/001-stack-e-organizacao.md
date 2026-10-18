@@ -44,6 +44,7 @@ Na etapa 0, verificar documentação oficial e compatibilidade entre Spring Boot
 | ArchUnit | 1.5.1, fixado na etapa 2 |
 | Bouncy Castle | `bcprov-jdk18on` 1.86, necessário ao Argon2id na etapa 3 |
 | JaCoCo | 0.8.15, limite por pacote de domínio/aplicação na etapa 3 |
+| Spring Security OAuth2 JOSE / Nimbus JOSE JWT | 6.5.11 / 9.37.4, resolvidos pelo Boot na entrega 4A |
 
 A documentação de [requisitos do Boot 3.5](https://docs.spring.io/spring-boot/3.5/system-requirements.html) inclui Java 21 e Maven 3.9.11 nas faixas compatíveis. A [matriz oficial Spring Cloud](https://github.com/spring-cloud/spring-cloud-release/wiki/Supported-Versions) associa o release train 2025.0 a Boot 3.5 e Vault 4.3. As versões exatas acima foram confirmadas nos POMs publicados no Maven Central; usar os BOMs, sem sobrescrever versões transitivas isoladamente.
 

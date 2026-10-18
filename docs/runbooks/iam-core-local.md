@@ -47,6 +47,8 @@ A configuração não cria usuário/senha automáticos, formulário de login, Ba
 
 ## Erros e correlação
 
+Na entrega 4A, `Start-IamCore.ps1 -EnableTransit` habilita o JWKS em `GET /oauth2/jwks`. O adaptador de assinatura utiliza AppRole, sem token root no processo Java. Consulte [Transit e JWKS](transit-local.md); os fluxos OAuth ainda dependem das entregas seguintes.
+
 Cada requisição recebe `X-Correlation-ID`. Um ID recebido é aceito apenas se contiver de 1 a 64 caracteres alfanuméricos, ponto, hífen ou sublinhado, começando com alfanumérico; entradas inválidas são substituídas por UUID. O ID é incluído no MDC durante a requisição e o contexto anterior é restaurado mesmo em falha.
 
 Erros MVC de entrada, recurso ausente, método incompatível e falhas internas usam `application/problem+json` com `type`, `title`, `status`, `detail`, `instance` e `correlationId`. O corpo não inclui query string, mensagem da exceção, stack trace ou valores rejeitados. Erros de segurança usam o mesmo formato.

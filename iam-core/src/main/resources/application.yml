@@ -17,6 +17,15 @@ spring:
       enabled: true
 
 iam:
+  transit:
+    enabled: ${IAM_TRANSIT_ENABLED:false}
+    address: ${IAM_VAULT_ADDRESS:http://127.0.0.1:8200}
+    role-id-file: ${IAM_VAULT_ROLE_ID_FILE:infra/.local/iam-core-role-id}
+    secret-id-file: ${IAM_VAULT_SECRET_ID_FILE:infra/.local/iam-core-secret-id}
+    key-name: securegate-jwt
+    timeout: 2s
+    public-key-cache-ttl: 30s
+    max-concurrent-requests: 8
   bootstrap:
     enabled: ${IAM_BOOTSTRAP_ENABLED:false}
     token: ${IAM_BOOTSTRAP_TOKEN:}
