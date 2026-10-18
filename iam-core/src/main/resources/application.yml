@@ -1,0 +1,54 @@
+spring:
+  application:
+    name: iam-core
+  datasource:
+    url: ${IAM_DATABASE_URL:jdbc:postgresql://127.0.0.1:15432/securegate}
+    username: ${IAM_DATABASE_USERNAME:securegate}
+    password: ${IAM_DATABASE_PASSWORD}
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 5000
+  flyway:
+    enabled: true
+    clean-disabled: true
+    validate-on-migrate: true
+  mvc:
+    problemdetails:
+      enabled: true
+
+server:
+  address: ${IAM_BIND_ADDRESS:127.0.0.1}
+  port: ${IAM_PORT:8080}
+  error:
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+    include-exception: false
+    whitelabel:
+      enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+      discovery:
+        enabled: false
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+
+logging:
+  level:
+    org.springframework.boot: INFO
+    org.springframework.web: INFO
+    org.springframework.security: INFO
+    com.zaxxer.hikari: INFO
+  pattern:
+    level: '%5p [correlationId=%X{correlationId:-}]'
