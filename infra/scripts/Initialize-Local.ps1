@@ -10,7 +10,7 @@ New-Item -ItemType Directory -Path $localPath -Force | Out-Null
 
 if (-not (Test-Path -LiteralPath $envPath)) {
   $template = [IO.File]::ReadAllText((Join-Path $projectPath '.env.example'))
-  foreach ($variable in @('POSTGRES_PASSWORD', 'REDIS_PASSWORD', 'RABBITMQ_PASSWORD', 'VAULT_DEV_ROOT_TOKEN_ID')) {
+  foreach ($variable in @('POSTGRES_PASSWORD', 'REDIS_PASSWORD', 'RABBITMQ_PASSWORD', 'VAULT_DEV_ROOT_TOKEN_ID', 'IAM_BOOTSTRAP_TOKEN')) {
     $template = $template.Replace("$variable=GENERATED_BY_INITIALIZE_LOCAL", "$variable=$(New-LocalSecret)")
   }
   Write-Utf8File $envPath $template
@@ -20,6 +20,12 @@ if (-not (Test-Path -LiteralPath $envPath)) {
 }
 
 $settings = Read-LocalEnvironment $envPath
+if (-not $settings.ContainsKey('IAM_BOOTSTRAP_TOKEN')) {
+  $content = [IO.File]::ReadAllText($envPath).TrimEnd() + "`nIAM_BOOTSTRAP_ENABLED=false`nIAM_BOOTSTRAP_TOKEN=$(New-LocalSecret)`n"
+  Write-Utf8File $envPath $content
+  Write-Output 'Token bootstrap local adicionado; administracao continua desabilitada por padrao.'
+  $settings = Read-LocalEnvironment $envPath
+}
 $topologyPath = Join-Path $projectPath 'infra/rabbitmq/definitions.json'
 $definitions = Get-Content -LiteralPath $topologyPath -Raw | ConvertFrom-Json
 $salt = New-Object byte[] 4

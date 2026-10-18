@@ -74,7 +74,7 @@ class IamCoreIT {
   @Test
   void startsWithPostgresAndAppliesTheVersionedMigrationOnlyOnce() {
     assertEquals(1, jdbc.queryForObject("SELECT 1", Integer.class));
-    assertEquals("1", flyway.info().current().getVersion().getVersion());
+    assertEquals("5", flyway.info().current().getVersion().getVersion());
     var schemas =
         jdbc.queryForList(
             "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'iam_%'",
@@ -91,6 +91,24 @@ class IamCoreIT {
                 "iam_session")));
     flyway.validate();
     assertEquals(0, flyway.migrate().migrationsExecuted);
+  }
+
+  @Test
+  void disabledOAuthDoesNotCreateInMemoryClientsOrAnyLocalSigner() {
+    assertEquals(
+        0,
+        context.getBeanNamesForType(
+                org.springframework.security.oauth2.server.authorization.client
+                    .RegisteredClientRepository.class)
+            .length);
+    assertEquals(
+        0,
+        context.getBeanNamesForType(org.springframework.security.oauth2.jwt.JwtEncoder.class)
+            .length);
+    assertEquals(
+        0,
+        context.getBeanNamesForType(org.springframework.security.oauth2.jwt.JwtDecoder.class)
+            .length);
   }
 
   @Test
@@ -128,7 +146,15 @@ class IamCoreIT {
 
   @Test
   void deniesBusinessAndUnexposedManagementRoutesWithProblemDetails() throws Exception {
-    for (String path : List.of("/api/users", "/actuator/env", "/actuator", "/actuator/health/db")) {
+    for (String path :
+        List.of(
+            "/api/users",
+            "/api/admin/users",
+            "/api/admin/policies",
+            "/oauth2/jwks",
+            "/actuator/env",
+            "/actuator",
+            "/actuator/health/db")) {
       var response = get(path, "denied-123");
       JsonNode problem = assertProblem(response, 403, "denied-123");
       assertEquals("Forbidden", problem.path("title").asText());

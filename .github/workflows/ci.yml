@@ -33,7 +33,7 @@ jobs:
         run: docker version
       - name: Build, format check, unit and integration tests
         run: ./mvnw -B -ntp verify
-      - name: Upload test reports
+      - name: Upload test and coverage reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -41,5 +41,6 @@ jobs:
           path: |
             **/target/surefire-reports/**
             **/target/failsafe-reports/**
+            **/target/site/jacoco/**
           if-no-files-found: warn
           retention-days: 7

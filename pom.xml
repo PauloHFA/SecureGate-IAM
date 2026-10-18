@@ -34,10 +34,17 @@
     <spotless-maven-plugin.version>3.10.4</spotless-maven-plugin.version>
     <google-java-format.version>1.25.2</google-java-format.version>
     <archunit.version>1.5.1</archunit.version>
+    <bouncycastle.version>1.86</bouncycastle.version>
+    <jacoco.version>0.8.15</jacoco.version>
   </properties>
 
   <dependencyManagement>
     <dependencies>
+      <dependency>
+        <groupId>org.bouncycastle</groupId>
+        <artifactId>bcprov-jdk18on</artifactId>
+        <version>${bouncycastle.version}</version>
+      </dependency>
       <dependency>
         <groupId>org.springframework.cloud</groupId>
         <artifactId>spring-cloud-dependencies</artifactId>

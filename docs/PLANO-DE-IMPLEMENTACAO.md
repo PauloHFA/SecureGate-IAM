@@ -64,9 +64,9 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 0 | Fundação e build Maven | Decisões aprovadas | Concluída; ver evidências |
 | 1 | Infraestrutura local | 0 | Concluída localmente; ver evidências |
 | 2 | Esqueleto e CI | 0–1 | Concluída; validação local e CI GitHub aprovadas |
-| 3 | Identity e Access | 2 | Pendente |
-| 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | Pendente |
-| 5 | Políticas, risco e MFA | 3–4 | Pendente |
+| 3 | Identity e Access | 2 | Implementada e validada localmente; publicação pendente |
+| 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | 4A–4D2 implementadas e validadas localmente; publicação/revisão pendentes |
+| 5 | Políticas, risco e MFA | 3–4 | Em andamento; 5A implementada localmente, 5B–5D pendentes |
 | 6 | Eventos e Outbox | 2–5 | Pendente |
 | 7 | Enforcer e revogação | 4–6 | Pendente |
 | 8 | Auditoria e desempenho | 6–7 | Pendente |
@@ -131,38 +131,50 @@ Subdivisão executada: **2A**, bootstrap/segurança/probes; **2B**, PostgreSQL/F
 
 ## Etapa 3 — Identity e Access
 
-- [ ] Modelar usuários, ciclo de vida, credenciais separadas, papéis, permissões e grupos.
-- [ ] Implementar hash Argon2id, validações e proteção contra exposição de senha.
-- [ ] Criar migrações, repositórios e casos de uso de provisionamento/atribuição.
-- [ ] Expor API administrativa protegida por bootstrap temporário documentado, substituível por OAuth.
-- [ ] Impedir administração anônima desde a primeira entrega.
-- [ ] Registrar auditoria básica, preparando migração para etapa 8.
-- [ ] Testar autorização, conflitos, entradas inválidas, concorrência relevante e ausência de enumeração.
-- [ ] Configurar JaCoCo com cobertura mínima de 80% para domínio/aplicação destes contextos.
+- [x] Modelar usuários, ciclo de vida, credenciais separadas, papéis, permissões e grupos.
+- [x] Implementar hash Argon2id, validações e proteção contra exposição de senha.
+- [x] Criar migrações, repositórios e casos de uso de provisionamento/atribuição.
+- [x] Expor API administrativa protegida por bootstrap temporário documentado, substituível por OAuth.
+- [x] Impedir administração anônima desde a primeira entrega.
+- [x] Registrar auditoria básica, preparando migração para etapa 8.
+- [x] Testar autorização, conflitos, entradas inválidas, concorrência relevante e ausência de enumeração pela API administrativa.
+- [x] Configurar JaCoCo com cobertura mínima de 80% por pacote de domínio/aplicação destes contextos.
 
 **Aceite:** provisionar usuário, associar grupo/papel e verificar permissões em testes; administração anônima é rejeitada; cobertura mínima satisfeita.
 
+Subdivisão executada: **3A**, usuários/credenciais/ciclo de vida; **3B**, catálogos e atribuições RBAC; **3C**, bootstrap administrativo/auditoria; **3D**, testes e cobertura. As alterações estão na branch local `feat/identity-access`, baseada na etapa 2. Consultar [evidências](evidencias/etapa-03.md), [decisões](adr/004-identity-access-bootstrap.md) e [guia de provisionamento](runbooks/provisionamento-local.md). Publicação e execução remota da CI desta branch ainda não foram realizadas.
+
 ## Etapa 4 — Authorization Server e Transit
 
-- [ ] Integrar Spring Authorization Server e persistir clientes, autorizações e consentimentos.
-- [ ] Iniciar com JDBC padrão se reduzir risco; justificar e testar customização JPA.
-- [ ] Implementar Authorization Code + PKCE, Client Credentials e refresh com rotação/detecção de reuso.
-- [ ] Validar `redirect_uri` por correspondência exata e proteger autorização/consentimento.
-- [ ] Implementar porta e adaptador Transit conforme ADR-002.
-- [ ] Emitir JWT RS256 com `kid`, `roles`, `sid` e claims aplicáveis a cada fluxo.
-- [ ] Publicar discovery, authorize, token, JWKS, revogação, introspecção e userinfo.
-- [ ] Implementar rotação e sobreposição das chaves públicas.
-- [ ] Testar expiração, emissor/audiência, assinatura incorreta, token adulterado, `alg=none` e reuso de refresh.
-- [ ] Testar Vault indisponível sem fallback local.
+- [x] Integrar Spring Authorization Server e persistir clientes, autorizações e consentimentos.
+- [x] Iniciar com JDBC padrão se reduzir risco; justificar e testar customização JPA.
+- [x] Implementar Authorization Code + PKCE, Client Credentials e refresh com rotação/detecção de reuso.
+- [x] Validar `redirect_uri` por correspondência exata e proteger autorização/consentimento.
+- [x] Implementar porta e adaptador Transit conforme ADR-002.
+- [x] Emitir access tokens JWT RS256 com `kid` e claims aplicáveis; fluxo de usuário inclui `roles` e `sid`.
+- [x] Disponibilizar discovery, authorize, token, JWKS, revogação, introspecção e userinfo na aplicação; publicação da branch ainda pendente.
+- [x] Implementar rotação e sobreposição das chaves públicas, com retenção de todas as versões e teste de troca no Vault.
+- [x] Testar expiração, emissor/audiência, assinatura incorreta, token adulterado, `alg=none` e reuso de refresh nos fluxos OAuth implementados.
+- [x] Testar Vault indisponível sem fallback local.
 
 **Aceite:** clientes completam os fluxos; biblioteca independente verifica JWT via JWKS; rotação preserva validação dos tokens anteriores na janela definida; testes negativos passam.
 
+Subdivisão da etapa:
+
+- **4A — Transit e JWKS:** porta de assinatura, AppRole por arquivos, encoder RS256, endpoint público condicionado à ativação, cache, métricas e testes com Vault real. Ver [ADR-005](adr/005-transit-e-jwks.md), [runbook](runbooks/transit-local.md) e [evidências](evidencias/etapa-04.md).
+- **4B — Authorization Server e Client Credentials:** framework integrado, clientes/autorizações/consentimentos JDBC, cadastro administrativo protegido, segredo gerado com hash Argon2id, issuer/audiência e TTL de cinco minutos definidos. Ver [ADR-006](adr/006-authorization-server-client-credentials.md), [runbook](runbooks/oauth-client-credentials-local.md) e [evidências](evidencias/etapa-04b.md).
+- **4C — Login, Authorization Code e PKCE:** login Identity/Argon2id, clientes web confidenciais, redirects exatos, S256 obrigatório, consentimento protegido por CSRF e sessão, código com uso único transacional e JWT com papéis/sid. Ver [ADR-007](adr/007-login-pkce-e-consentimento.md), [runbook](runbooks/oauth-pkce-local.md) e [evidências](evidencias/etapa-04c.md).
+- **4D1 — Ciclo dos tokens:** refresh opcional com rotação, prazo absoluto de 30 minutos, histórico de hashes, detecção de reuso transacional, introspecção e revogação pelo cliente proprietário. Implementada e validada localmente com 190 testes. Ver [ADR-008](adr/008-refresh-rotacao-e-revogacao.md), [runbook](runbooks/oauth-refresh-local.md) e [evidências](evidencias/etapa-04d1.md).
+- **4D2 — OIDC:** discovery OAuth/OIDC, ID token Transit com audiência do cliente, nonce obrigatório, auth_time/sid e userinfo condicionado a escopos/estado atual da identidade. Cadastro web opta por `oidc: true`, adicionando `openid` automaticamente; `offline_access` continua indisponível. Ver [ADR-009](adr/009-oidc-discovery-e-userinfo.md), [runbook](runbooks/oidc-local.md) e [evidências](evidencias/etapa-04d2.md).
+
+As entregas 4A–4D2 cobrem o escopo funcional local da etapa 4; publicação, revisão e CI remota continuam pendentes. Client Credentials e Authorization Code com PKCE emitem tokens RS256; clientes web podem optar por refresh rotativo e OIDC. Consentimento interativo está implementado. Access tokens de usuário recebem papéis recalculados na renovação e sid; ID tokens têm audiência do cliente e não recebem papéis de API. Client Credentials não recebe claims de usuário. Nome/e-mail exigem escopos aprovados, sem afirmar email_verified. Remoção de versões antigas exige política de retenção considerando o maior TTL de todos os fluxos futuros, além dos cinco minutos atuais. Sessão de navegador ainda é local à instância. Introspecção e userinfo já refletem revogação no servidor; propagação para recursos com verificação offline permanece na etapa 7. A implementação não declara certificação OpenID nem suporte a clientes públicos, registro dinâmico ou logout OIDC.
+
 ## Etapa 5 — Políticas, risco e MFA
 
-- [ ] Persistir políticas JSONB com prioridade, versão e estado habilitado.
-- [ ] Implementar default deny e precedência de DENY explícito.
-- [ ] Definir combinação dos demais efeitos em tabela de decisão.
-- [ ] Retornar ALLOW, ALLOW_WITH_MFA, ALLOW_LIMITED ou DENY com motivos e políticas aplicadas.
+- [x] Persistir políticas JSONB com prioridade, versão e estado habilitado.
+- [x] Implementar default deny e precedência de DENY explícito no motor de avaliação.
+- [x] Definir combinação dos demais efeitos em tabela de decisão.
+- [x] Retornar ALLOW, ALLOW_WITH_MFA, ALLOW_LIMITED ou DENY com motivos e IDs/versões das políticas aplicadas na avaliação administrativa.
 - [ ] Implementar RBAC e DSL JSON restrita para ABAC, sem execução arbitrária de código.
 - [ ] Coletar sinais confiáveis de identidade, dispositivo, rede, comportamento e recurso.
 - [ ] Calcular risco determinístico de 0 a 100 e tratar sinais ausentes/inválidos.
@@ -170,6 +182,15 @@ Subdivisão executada: **2A**, bootstrap/segurança/probes; **2B**, PostgreSQL/F
 - [ ] Aplicar decisões no login, emissão de token e autorização de recursos.
 
 **Aceite:** testes parametrizados cobrem tabela de decisão, conflitos, ausência de política, MFA incompleto e redução de escopo/TTL.
+
+Subdivisão da etapa:
+
+- **5A — Fundação de políticas:** JSONB com gramática fechada v1, target exato/`*`, condição por papéis atuais, prioridade, estado, versão otimista, auditoria transacional, tabela de decisão e simulação administrativa. DENY prevalece; limites são intersectados, com menor TTL; MFA permanece um requisito pendente. Ver [ADR-010](adr/010-politicas-e-tabela-de-decisao.md), [runbook](runbooks/politicas-local.md) e [evidências](evidencias/etapa-05a.md).
+- **5B — ABAC e risco:** evoluir a gramática de forma versionada, definir sinais confiáveis e comportamento para sinais ausentes/inválidos, com score determinístico. Pendente.
+- **5C — MFA e step-up:** TOTP, recuperação com hash e comprovação do fator associada à sessão/operação. Pendente.
+- **5D — Aplicação das decisões:** integrar políticas/risco/MFA ao login, emissão e recursos, respeitando escopos consentidos e limites de TTL. Pendente.
+
+A 5A não encerra a etapa 5: sua avaliação é uma recomendação administrativa e não altera OAuth. Papéis vêm do banco, incluindo grupos, sem entrada confiável de papéis/MFA/risco fornecida pelo solicitante. O resultado ALLOW_WITH_MFA indica exigência não satisfeita; nunca comprova fator. RBAC inicial está disponível, mas a tarefa conjunta de RBAC/DSL ABAC permanece aberta até a 5B. O aceite de MFA incompleto e aplicação efetiva de limites será completado nas entregas 5C/5D. Publicação, revisão e CI remota continuam pendentes.
 
 ## Etapa 6 — Eventos e Outbox
 
@@ -302,4 +323,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Executar a etapa 3: Identity e Access, com provisionamento protegido, credenciais e atribuição de papéis/permissões. A etapa 2 tem aceite local e remoto registrado; o PR das etapas iniciais segue aberto para revisão.
+Seguir para a 5B: condições ABAC e risco determinístico, evoluindo a gramática com sinais confiáveis. A 4D2 está no commit `9f924f3`; a 5A está na branch `feat/policy-foundation`, com commit consultável no histórico. Publicação, revisão e CI remota do código posterior à etapa 2 continuam pendentes.

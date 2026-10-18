@@ -1,4 +1,8 @@
 spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.oauth2.server.servlet.OAuth2AuthorizationServerAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.oauth2.server.servlet.OAuth2AuthorizationServerJwtAutoConfiguration
   application:
     name: iam-core
   datasource:
@@ -16,7 +20,31 @@ spring:
     problemdetails:
       enabled: true
 
+iam:
+  authorization:
+    enabled: ${IAM_AUTHORIZATION_ENABLED:false}
+    issuer: ${IAM_ISSUER:http://127.0.0.1:8080}
+  transit:
+    enabled: ${IAM_TRANSIT_ENABLED:false}
+    address: ${IAM_VAULT_ADDRESS:http://127.0.0.1:8200}
+    role-id-file: ${IAM_VAULT_ROLE_ID_FILE:infra/.local/iam-core-role-id}
+    secret-id-file: ${IAM_VAULT_SECRET_ID_FILE:infra/.local/iam-core-secret-id}
+    key-name: securegate-jwt
+    timeout: 2s
+    public-key-cache-ttl: 30s
+    max-concurrent-requests: 8
+  bootstrap:
+    enabled: ${IAM_BOOTSTRAP_ENABLED:false}
+    token: ${IAM_BOOTSTRAP_TOKEN:}
+
 server:
+  servlet:
+    session:
+      timeout: 15m
+      tracking-modes: cookie
+      cookie:
+        http-only: true
+        same-site: lax
   address: ${IAM_BIND_ADDRESS:127.0.0.1}
   port: ${IAM_PORT:8080}
   error:
@@ -49,6 +77,7 @@ logging:
     org.springframework.boot: INFO
     org.springframework.web: INFO
     org.springframework.security: INFO
+    org.springframework.jdbc: INFO
     com.zaxxer.hikari: INFO
   pattern:
     level: '%5p [correlationId=%X{correlationId:-}]'
