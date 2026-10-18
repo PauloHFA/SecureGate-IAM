@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.securegate.iam.authorization.application.SigningUnavailableException;
+import com.securegate.iam.authorization.application.port.TransitEncryption;
 import com.sun.net.httpserver.HttpServer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.net.InetSocketAddress;
@@ -95,6 +96,36 @@ class VaultTransitSigningKeysTest {
                           Map.of(
                               "1",
                               Map.of("public_key", scenario.equals("bad-pem") ? "invalid" : pem))));
+            } else if (path.contains("/encrypt/") || path.contains("/decrypt/")) {
+              assertTrue(path.endsWith("/securegate-mfa"));
+              assertFalse(JSON.readTree(body).path("associated_data").asText().isEmpty());
+              if (scenario.equals("blocked")) {
+                signing.countDown();
+                release.await(3, TimeUnit.SECONDS);
+              }
+              if (scenario.equals("forbidden")) {
+                status = 403;
+                response = Map.of("errors", new String[] {"synthetic-secret never forward this"});
+              } else if (scenario.equals("missing-data")) {
+                response = Map.of("data", Map.of());
+              } else {
+                response =
+                    path.contains("/encrypt/")
+                        ? Map.of(
+                            "data",
+                            Map.of(
+                                "ciphertext",
+                                scenario.equals("bad-base64") ? "bad" : "vault:v1:AAAA"))
+                        : Map.of(
+                            "data",
+                            Map.of(
+                                "plaintext",
+                                scenario.equals("bad-base64")
+                                    ? "!"
+                                    : scenario.equals("oversized")
+                                        ? "A".repeat(1400)
+                                        : scenario.equals("empty") ? "" : "c2VlZA=="));
+              }
             } else {
               var request = JSON.readTree(body);
               if (scenario.equals("blocked")) {
@@ -148,6 +179,71 @@ class VaultTransitSigningKeysTest {
     server.stop(0);
     executor.shutdownNow();
     metrics.close();
+  }
+
+  @Test
+  void encryptionUsesTheSharedAppRoleSessionAndSeparateMetricOperations() {
+    keys.publicKeys();
+    assertEquals("vault:v1:AAAA", keys.encrypt(new byte[] {1}, new byte[] {2}));
+    assertArrayEquals(
+        new byte[] {'s', 'e', 'e', 'd'}, keys.decrypt("vault:v1:AAAA", new byte[] {2}));
+    assertEquals(1, logins.get());
+    for (String operation : new String[] {"encrypt", "decrypt"}) {
+      assertEquals(
+          1,
+          metrics
+              .get("iam.transit.requests")
+              .tags("operation", operation, "outcome", "success")
+              .timer()
+              .count());
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"bad-base64", "forbidden", "missing-data", "oversized", "empty"})
+  void rejectsMalformedOrDeniedEncryptionResponses(String scenario) {
+    mode.set(scenario);
+    var failure =
+        assertThrows(
+            TransitEncryption.Unavailable.class,
+            () -> keys.decrypt("vault:v1:AAAA", new byte[] {2}));
+    assertEquals("Remote encryption is unavailable.", failure.getMessage());
+    assertNull(failure.getCause());
+    if (!scenario.equals("oversized") && !scenario.equals("empty")) {
+      assertThrows(
+          TransitEncryption.Unavailable.class, () -> keys.encrypt(new byte[] {1}, new byte[] {2}));
+    }
+  }
+
+  @Test
+  void encryptionTimesOutAndDoesNotQueueBeyondSharedConcurrencyLimit() throws Exception {
+    keys.close();
+    keys = adapter(Duration.ofSeconds(2), 1);
+    keys.publicKeys();
+    mode.set("blocked");
+    try (var callers = Executors.newSingleThreadExecutor()) {
+      var first = callers.submit(() -> keys.encrypt(new byte[] {1}, new byte[] {2}));
+      assertTrue(signing.await(2, TimeUnit.SECONDS));
+      try {
+        assertThrows(
+            TransitEncryption.Unavailable.class,
+            () -> keys.decrypt("vault:v1:AAAA", new byte[] {2}));
+        assertEquals(
+            1, metrics.get("iam.transit.rejected").tag("operation", "decrypt").counter().count());
+      } finally {
+        release.countDown();
+      }
+      assertEquals("vault:v1:AAAA", first.get(2, TimeUnit.SECONDS));
+    }
+    keys.close();
+    keys = adapter(Duration.ofMillis(100), 1);
+    mode.set("slow");
+    assertTimeoutPreemptively(
+        Duration.ofSeconds(3),
+        () ->
+            assertThrows(
+                TransitEncryption.Unavailable.class,
+                () -> keys.encrypt(new byte[] {1}, new byte[] {2})));
   }
 
   @Test

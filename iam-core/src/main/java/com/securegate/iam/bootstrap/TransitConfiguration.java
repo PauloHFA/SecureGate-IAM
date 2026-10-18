@@ -2,9 +2,12 @@ package com.securegate.iam.bootstrap;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.securegate.iam.authorization.application.port.SigningKeys;
+import com.securegate.iam.authorization.application.port.TransitEncryption;
 import com.securegate.iam.authorization.infrastructure.TransitJwtEncoder;
 import com.securegate.iam.authorization.infrastructure.VaultTransitSettings;
 import com.securegate.iam.authorization.infrastructure.VaultTransitSigningKeys;
+import com.securegate.iam.identity.application.port.MfaSecretProtector;
+import com.securegate.iam.identity.infrastructure.TransitMfaSecretProtector;
 import com.securegate.iam.shared.presentation.ProblemResponses;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -24,8 +27,14 @@ import org.springframework.security.web.SecurityFilterChain;
 @EnableConfigurationProperties(VaultTransitSettings.class)
 public class TransitConfiguration {
   @Bean
-  SigningKeys signingKeys(VaultTransitSettings settings, ObjectMapper json, MeterRegistry metrics) {
+  VaultTransitSigningKeys signingKeys(
+      VaultTransitSettings settings, ObjectMapper json, MeterRegistry metrics) {
     return new VaultTransitSigningKeys(settings, json, metrics);
+  }
+
+  @Bean
+  MfaSecretProtector mfaSecretProtector(TransitEncryption encryption) {
+    return new TransitMfaSecretProtector(encryption);
   }
 
   @Bean

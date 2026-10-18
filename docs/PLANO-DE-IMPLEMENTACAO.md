@@ -66,7 +66,7 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 2 | Esqueleto e CI | 0–1 | Concluída; validação local e CI GitHub aprovadas |
 | 3 | Identity e Access | 2 | Incluída na base publicada 5A, com CI aprovada; revisão/merge pendentes |
 | 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | 4A–4D2 publicadas na base 5A, com CI aprovada; revisão/merge pendentes |
-| 5 | Políticas, risco e MFA | 3–4 | Em andamento; 5A publicada, 5B1/5B2 validadas localmente, 5C/5D pendentes |
+| 5 | Políticas, risco e MFA | 3–4 | Em andamento; 5A publicada, 5B1/5B2 e base 5C1 locais; 5C2/5D pendentes |
 | 6 | Eventos e Outbox | 2–5 | Pendente |
 | 7 | Enforcer e revogação | 4–6 | Pendente |
 | 8 | Auditoria e desempenho | 6–7 | Pendente |
@@ -177,7 +177,7 @@ As entregas 4A–4D2 cobrem o escopo funcional da etapa 4 e estão incluídas na
 - [x] Retornar ALLOW, ALLOW_WITH_MFA, ALLOW_LIMITED ou DENY com motivos e IDs/versões das políticas aplicadas na avaliação administrativa.
 - [x] Implementar RBAC e DSL JSON restrita para ABAC, sem execução arbitrária de código, no motor administrativo.
 - [x] Coletar sinais de identidade, navegador lembrado/aprovado, conexão observada, falhas reais e perfil administrado de recurso no modelo local documentado.
-- [x] Calcular risco determinístico de 0 a 100 e tratar sinais ausentes/inválidos; coleta real ainda pendente.
+- [x] Calcular risco determinístico de 0 a 100 e tratar sinais ausentes/inválidos, com coleta real local na 5B2.
 - [ ] Implementar TOTP, códigos de recuperação com hash e step-up.
 - [ ] Aplicar decisões no login, emissão de token e autorização de recursos.
 
@@ -188,7 +188,8 @@ Subdivisão da etapa:
 - **5A — Fundação de políticas:** JSONB com gramática fechada v1, target exato/`*`, condição por papéis atuais, prioridade, estado, versão otimista, auditoria transacional, tabela de decisão e simulação administrativa. DENY prevalece; limites são intersectados, com menor TTL; MFA permanece um requisito pendente. Ver [ADR-010](adr/010-politicas-e-tabela-de-decisao.md), [runbook](runbooks/politicas-local.md) e [evidências](evidencias/etapa-05a.md).
 - **5B1 — Motor ABAC/risco e cenários:** gramática v2 com condições tipadas ALL, score determinístico de 0–100, tratamento conservador de ausência/expiração e endpoint de cenários administrativos identificado como simulação. V1 preservada e V6 amplia a restrição JSONB sem reescrever dados. Implementada e validada localmente com 311 testes. Ver [ADR-011](adr/011-abac-e-risco-deterministico.md), [runbook](runbooks/abac-risco-local.md) e [evidências](evidencias/etapa-05b1.md).
 - **5B2 — Coleta confiável:** produtor interno do navegador autenticado, contexto vinculado a identidade/versão/sid, cookie emitido no servidor com aprovação administrativa expiráveis, classificação CIDR da conexão, contador de falhas com janela/aquecimento e sensibilidade de recurso versionada. Logout/reautenticação fecham contexto anterior; IDs não renovam observações. V7 adiciona persistência; origem encaminhada não é confiada. Ver [ADR-012](adr/012-coleta-confiavel-de-risco.md), [runbook](runbooks/coleta-risco-local.md) e [evidências](evidencias/etapa-05b2.md).
-- **5C — MFA e step-up:** TOTP, recuperação com hash e comprovação do fator associada à sessão/operação. Pendente.
+- **5C1 — Base TOTP e cifra:** sementes de 160 bits, TOTP SHA1/6 dígitos/30 segundos, contador de correspondência e cifra AES-256-GCM pelo Vault com vínculo ao usuário/inscrição. Ver [ADR-013](adr/013-base-totp-e-cifra-transit.md), [guia](runbooks/mfa-base-local.md) e [evidências](evidencias/etapa-05c1.md).
+- **5C2 — Cadastro, recuperação e step-up:** cadastro/ativação com reautenticação e CSRF; persistência cifrada; consumo de TOTP/recuperação de uso único com concorrência, bloqueio de tentativas e auditoria; prova expirável vinculada à sessão e à versão da identidade. Pendente.
 - **5D — Aplicação das decisões:** integrar políticas/risco/MFA ao login, emissão e recursos, respeitando escopos consentidos e limites de TTL. Pendente.
 
 A 5B2 não encerra a etapa 5: avaliações são recomendações administrativas e não alteram grants/tokens. Papéis vêm do banco; cenários sintéticos ficam separados da coleta real e nunca comprovam contexto ou MFA. ALLOW_WITH_MFA indica exigência não satisfeita. A confiança do dispositivo representa navegador lembrado, sem atestação de hardware; a rede representa o par conectado ao IAM, sem confiança em forwarded headers. Cobertura do contador é local ao processo, com aquecimento de cinco minutos; operação multi-instância e retenção/expurgo precisam das entregas operacionais. O aceite de MFA incompleto e aplicação efetiva de limites será completado nas entregas 5C/5D. A base até a 5A foi publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831), com 243 testes; as entregas 5B ainda aguardam publicação/CI remota. Revisão/merge continuam pendentes.
@@ -324,4 +325,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a 5C: MFA TOTP, recuperação e step-up. A 5A (`8f5666d`) foi publicada em `feat/policy-foundation` e passou na CI. A 5B1 está no commit local `738c660`; a 5B2 está na branch `feat/trusted-risk-signals`, com commit consultável no histórico; push e CI remota pendentes. Revisão e merge continuam pendentes.
+Seguir para a 5C2: cadastro/ativação MFA, recuperação e comprovação de step-up, usando a base TOTP/Transit da 5C1. A 5C1 está na branch `feat/mfa-totp-foundation`. A 5A (`8f5666d`) foi publicada em `feat/policy-foundation` e passou na CI. A 5B1 está no commit local `738c660`; a 5B2 está no commit local `3e6b136`; push e CI remota dessas entregas pendentes. Revisão e merge continuam pendentes.

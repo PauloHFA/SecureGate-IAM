@@ -18,6 +18,17 @@ if ! vault read transit/keys/securegate-jwt >/dev/null 2>&1; then
     exportable=false allow_plaintext_backup=false >/dev/null
 fi
 
+if ! vault read transit/keys/securegate-mfa >/dev/null 2>&1; then
+  vault write transit/keys/securegate-mfa type=aes256-gcm96 \
+    exportable=false allow_plaintext_backup=false >/dev/null
+fi
+if [ "$(vault read -field=type transit/keys/securegate-mfa)" != aes256-gcm96 ] || \
+   [ "$(vault read -field=exportable transit/keys/securegate-mfa)" != false ] || \
+   [ "$(vault read -field=allow_plaintext_backup transit/keys/securegate-mfa)" != false ]; then
+  echo 'Chave securegate-mfa existente incompativel; bootstrap interrompido.' >&2
+  exit 1
+fi
+
 if ! vault kv get secret/securegate/iam-core >/dev/null 2>&1; then
   vault kv put secret/securegate/iam-core \
     postgres_host=postgres postgres_database="$POSTGRES_DB" \
@@ -56,4 +67,4 @@ for role in iam-core policy-enforcer; do
   fi
 done
 
-echo 'Vault inicializado: KV, Transit RSA-3072, politicas e AppRoles prontos.'
+echo 'Vault inicializado: KV, Transit RSA-3072/AES-256-GCM, politicas e AppRoles prontos.'

@@ -98,6 +98,11 @@ class IamCoreIT {
     assertEquals(
         0,
         context.getBeanNamesForType(
+                com.securegate.iam.identity.application.port.MfaSecretProtector.class)
+            .length);
+    assertEquals(
+        0,
+        context.getBeanNamesForType(
                 org.springframework.security.oauth2.server.authorization.client
                     .RegisteredClientRepository.class)
             .length);

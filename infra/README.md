@@ -45,7 +45,7 @@ PostgreSQL, Redis com AOF e RabbitMQ usam volumes nomeados. `docker compose down
 docker compose --env-file .env -f infra/docker-compose.yml run --rm vault-init
 ```
 
-O bootstrap não recria nem rotaciona uma chave existente. Reutiliza SecretIDs válidos; se expirarem (24 horas) ou se o Vault perder seu estado, atualiza os arquivos locais de AppRole. Não se trata de rotação automática de assinatura, que será implementada na etapa 4.
+O bootstrap não recria nem rotaciona uma chave existente e rejeita configuração MFA incompatível com AES-256-GCM não exportável/sem backup em texto puro. Reutiliza SecretIDs válidos; se expirarem (24 horas) ou se o Vault perder seu estado, atualiza os arquivos locais de AppRole. Rotação é uma operação explícita, separada das permissões da aplicação.
 
 ## RabbitMQ: topologia
 
@@ -72,9 +72,10 @@ As filas locais são classic em um único nó; isso não demonstra alta disponib
 | --- | --- |
 | KV v2 | `secret/securegate/iam-core` e `secret/securegate/policy-enforcer` |
 | Transit | `transit/keys/securegate-jwt`, RSA 3072, não exportável, sem backup em texto puro |
-| AppRole `iam-core` | Lê seu KV, lê a chave pública e assina com a chave definida |
-| AppRole `policy-enforcer` | Lê apenas seu KV; não pode assinar |
-| Política `securegate-key-operator` | Permite ler e rotacionar a chave; não é atribuída às aplicações |
+| Transit MFA | `transit/keys/securegate-mfa`, AES-256-GCM, não exportável, sem backup em texto puro |
+| AppRole `iam-core` | Lê seu KV, lê a chave pública RSA, assina e cifra/decifra com a chave MFA; não lê/exporta a chave AES |
+| AppRole `policy-enforcer` | Lê apenas seu KV; não pode assinar nem cifrar/decifrar MFA |
+| Política `securegate-key-operator` | Permite ler metadados e rotacionar as chaves RSA/MFA; não é atribuída às aplicações |
 
 Os tokens de aplicação têm TTL de 1 hora e máximo de 4 horas. Os SecretIDs têm TTL de 24 horas e são reutilizáveis no ambiente local. RoleID e SecretID ficam em `infra/.local/<serviço>-role-id` e `<serviço>-secret-id`, ignorados pelo Git. O script aplica `umask 077`; no Windows, a proteção efetiva também depende das permissões NTFS da pasta.
 
@@ -84,7 +85,7 @@ Produção exige Vault persistente, TLS, unseal, recuperação e entrega protegi
 
 ## Validação e diagnóstico
 
-O smoke test verifica consulta PostgreSQL por TCP com senha, operações Redis autenticadas, exchanges/filas/bindings efetivos, roteamento, DLQ, retry com TTL, login AppRole, KV e assinatura Transit. Testa também negações de rotação, exportação e acesso a segredo alheio. Ele revoga os tokens de teste ao terminar.
+O smoke test verifica consulta PostgreSQL por TCP com senha, operações Redis autenticadas, exchanges/filas/bindings efetivos, roteamento, DLQ, retry com TTL, login AppRole, KV, assinatura Transit e cifra/decifra MFA com dados sintéticos. Testa também negações de rotação, exportação, acesso MFA pelo enforcer e acesso a segredo alheio. Ele revoga os tokens de teste ao terminar. Para uma stack existente, reaplique `vault-init` antes deste teste. Consulte o [guia 5C1](../docs/runbooks/mfa-base-local.md).
 
 Os testes RabbitMQ de mensagens ocorrem em um vhost temporário com a mesma topologia e são removidos ao final, sem consumir filas de desenvolvimento. Se o processo for encerrado abruptamente, um vhost `securegate-smoke-*` pode restar; confira o nome antes de removê-lo no painel.
 
