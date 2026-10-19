@@ -1,6 +1,9 @@
 package com.securegate.iam.bootstrap;
 
+import com.securegate.iam.authorization.application.TokenAccessService;
+import com.securegate.iam.authorization.application.port.AuthorizationContinuation;
 import com.securegate.iam.authorization.application.port.ConsentRequests;
+import com.securegate.iam.authorization.infrastructure.BrowserAuthorizationNavigation;
 import com.securegate.iam.authorization.infrastructure.BrowserRiskObserver;
 import com.securegate.iam.authorization.infrastructure.CurrentBrowserIdentityFilter;
 import com.securegate.iam.authorization.infrastructure.OidcIdentityClaims;
@@ -53,10 +56,16 @@ public class BrowserSecurityConfiguration {
       ConsentRequests consents,
       RiskContextSink riskContexts,
       LoginRiskHistory failures,
-      MfaProofs mfaProofs)
+      MfaProofs mfaProofs,
+      TokenAccessService access,
+      AuthorizationContinuation continuations,
+      org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService
+          authorizations)
       throws Exception {
     var provider = new DaoAuthenticationProvider(new JdbcLoginUsers(jdbc));
     var observer = new BrowserRiskObserver(riskContexts);
+    var navigation =
+        new BrowserAuthorizationNavigation(access, continuations, authorizations, consents);
     provider.setPasswordEncoder(new Argon2PasswordEncoder(16, 32, 1, 19456, 2));
     // Verify the password (or the provider's dummy hash) before reporting any account state.
     provider.setPreAuthenticationChecks(user -> {});
@@ -81,7 +90,13 @@ public class BrowserSecurityConfiguration {
     consentCsrf.setAccessDeniedHandler(
         (request, response, exception) -> problems.forbidden(request, response));
     return http.securityMatcher(
-            "/login", "/logout", "/mfa", "/mfa/**", "/oauth2/authorize", "/oauth2/consent")
+            "/login",
+            "/logout",
+            "/mfa",
+            "/mfa/**",
+            "/oauth2/authorize",
+            "/oauth2/consent",
+            "/oauth2/continue")
         .with(
             OAuth2AuthorizationServerConfigurer.authorizationServer(),
             server ->
@@ -100,7 +115,8 @@ public class BrowserSecurityConfiguration {
                                                   OAuth2AuthorizationCodeRequestAuthenticationProvider
                                                       authorization) {
                                                 authorization.setAuthenticationValidator(
-                                                    new StrictAuthorizationRequest());
+                                                    new StrictAuthorizationRequest()
+                                                        .andThen(navigation));
                                               }
                                             }))))
         .authenticationProvider(provider)
@@ -112,6 +128,9 @@ public class BrowserSecurityConfiguration {
         .addFilterBefore(new CurrentBrowserIdentityFilter(identities, consents), CsrfFilter.class)
         .addFilterAfter(consentCsrf, CsrfFilter.class)
         .addFilterAfter(observer, CurrentBrowserIdentityFilter.class)
+        // After both CSRF checks and before the SAS authorization endpoint filter.
+        .addFilterBefore(
+            navigation, org.springframework.security.web.authentication.logout.LogoutFilter.class)
         .formLogin(
             form ->
                 form.loginPage("/login")
@@ -124,6 +143,7 @@ public class BrowserSecurityConfiguration {
                         })
                     .successHandler(
                         (request, response, authentication) -> {
+                          continuations.clear();
                           revokeMfa(request, mfaProofs);
                           observer.closePrevious(request);
                           if (authentication
@@ -160,6 +180,7 @@ public class BrowserSecurityConfiguration {
                 logout
                     .addLogoutHandler(
                         (request, response, authentication) -> {
+                          continuations.clear();
                           revokeMfa(request, mfaProofs);
                           observer.close(request, authentication);
                         })

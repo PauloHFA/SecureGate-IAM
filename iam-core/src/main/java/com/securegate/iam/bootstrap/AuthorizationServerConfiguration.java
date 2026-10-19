@@ -3,8 +3,10 @@ package com.securegate.iam.bootstrap;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.securegate.iam.access.application.port.EffectiveRoles;
 import com.securegate.iam.audit.application.port.AuditTrail;
+import com.securegate.iam.authorization.application.AuthorizationContinuationService;
 import com.securegate.iam.authorization.application.OAuthClientService;
 import com.securegate.iam.authorization.application.TokenAccessService;
+import com.securegate.iam.authorization.application.port.AuthorizationContinuation;
 import com.securegate.iam.authorization.application.port.ClientRegistry;
 import com.securegate.iam.authorization.application.port.ConsentRequests;
 import com.securegate.iam.authorization.application.port.SigningKeys;
@@ -21,6 +23,7 @@ import com.securegate.iam.authorization.infrastructure.RefreshTokenLedger;
 import com.securegate.iam.authorization.infrastructure.RefreshTrackingAuthorizations;
 import com.securegate.iam.authorization.infrastructure.RotatingRefreshProvider;
 import com.securegate.iam.authorization.infrastructure.SerializedCodeRedemption;
+import com.securegate.iam.authorization.infrastructure.SessionContinuationStore;
 import com.securegate.iam.authorization.infrastructure.TransitPublicJwtDecoder;
 import com.securegate.iam.authorization.presentation.OAuthFailureHandler;
 import com.securegate.iam.identity.application.port.AuthenticatedIdentity;
@@ -78,6 +81,13 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 @ConditionalOnProperty(name = "iam.authorization.enabled", havingValue = "true")
 @EnableConfigurationProperties(AuthorizationProperties.class)
 public class AuthorizationServerConfiguration {
+  @Bean
+  AuthorizationContinuation authorizationContinuation(
+      IdentityLookup identities, MfaProofs proofs, java.time.Clock clock) {
+    return new AuthorizationContinuationService(
+        new SessionContinuationStore(), identities, proofs, clock);
+  }
+
   @Bean
   TokenAccessService tokenAccessService(
       PolicyDecisions policies, IdentityLookup identities, MfaProofs proofs) {

@@ -1,6 +1,6 @@
 # Validar a base MFA TOTP — 5C1
 
-Este guia descreve a base criptográfica entregue na 5C1. O fluxo de cadastro, recuperação e comprovação da sessão foi acrescentado pela 5C2; para usá-lo, siga o [guia MFA](mfa-local.md). A [5D1](politicas-tokens-local.md) aplica essa prova à emissão/renovação quando a política exige MFA. O desafio integrado à navegação fica na 5D2.
+Este guia descreve a base criptográfica entregue na 5C1. O fluxo de cadastro, recuperação e comprovação da sessão foi acrescentado pela 5C2; para usá-lo, siga o [guia MFA](mfa-local.md). A [5D1](politicas-tokens-local.md) aplica essa prova à emissão/renovação quando a política exige MFA; a [5D2](desafio-mfa-local.md) acrescenta o desafio integrado à navegação.
 
 ## Build com infraestrutura temporária
 

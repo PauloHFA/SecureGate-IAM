@@ -1,5 +1,6 @@
 package com.securegate.iam.identity.presentation;
 
+import com.securegate.iam.authorization.application.port.AuthorizationContinuation;
 import com.securegate.iam.authorization.application.port.ConsentRequests;
 import com.securegate.iam.identity.application.MfaService;
 import com.securegate.iam.identity.application.MfaService.Result;
@@ -28,9 +29,11 @@ import org.springframework.web.util.HtmlUtils;
 @ConditionalOnProperty(name = "iam.authorization.enabled", havingValue = "true")
 public class MfaController {
   private final MfaService mfa;
+  private final AuthorizationContinuation continuations;
 
-  public MfaController(MfaService mfa) {
+  public MfaController(MfaService mfa, AuthorizationContinuation continuations) {
     this.mfa = mfa;
+    this.continuations = continuations;
   }
 
   @GetMapping(value = "/mfa", produces = MediaType.TEXT_HTML_VALUE)
@@ -61,7 +64,7 @@ public class MfaController {
         body += confirmation(request);
       }
     }
-    return html(200, body);
+    return html(200, body + continuation(authentication, request));
   }
 
   @PostMapping(value = "/mfa/enroll", produces = MediaType.TEXT_HTML_VALUE)
@@ -108,7 +111,7 @@ public class MfaController {
           .append(escape(recovery))
           .append("</code></li>");
     }
-    return html(200, codes.append("</ul>").toString());
+    return html(200, codes.append("</ul>").toString() + continuation(authentication, request));
   }
 
   @PostMapping(value = "/mfa/verify", produces = MediaType.TEXT_HTML_VALUE)
@@ -124,7 +127,10 @@ public class MfaController {
             code,
             OperationContexts.from(authentication, request));
     return "SUCCESS".equals(result.outcome())
-        ? html(200, "<p>Fator comprovado para esta sessão por cinco minutos.</p>")
+        ? html(
+            200,
+            "<p>Fator comprovado para esta sessão por cinco minutos.</p>"
+                + continuation(authentication, request))
         : rejected(result);
   }
 
@@ -162,6 +168,28 @@ public class MfaController {
         "/mfa/confirm",
         "<label>Código TOTP <input name=\"code\" inputmode=\"numeric\" pattern=\"[0-9]{6}\" minlength=\"6\" maxlength=\"6\" autocomplete=\"one-time-code\" required></label>",
         "Ativar MFA");
+  }
+
+  private String continuation(Authentication authentication, HttpServletRequest request) {
+    Session current = session(authentication, request);
+    return continuations
+        .current(current.userId(), current.version(), current.sid())
+        .map(
+            view -> {
+              String text =
+                  "<p>Verificação adicional para autorizar " + escape(view.clientName()) + ".</p>";
+              return view.ready()
+                  ? text
+                      + form(
+                          request,
+                          "/oauth2/continue",
+                          "<input type=\"hidden\" name=\"ticket\" value=\""
+                              + escape(view.ticket())
+                              + "\">",
+                          "Continuar autorização")
+                  : text;
+            })
+        .orElse("");
   }
 
   private static String form(

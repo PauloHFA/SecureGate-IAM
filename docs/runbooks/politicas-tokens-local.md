@@ -44,7 +44,7 @@ Crie/atualize outra política no mesmo alvo `oauth:<client_id>` / `issue`, com e
 
 Antes de autorizar, abra `/login` e `/mfa` no **mesmo navegador** e comprove TOTP/recuperação conforme o [guia MFA](mfa-local.md). Depois inicie a autorização OAuth nessa sessão. O sid é vinculado ao código; prova feita em outro navegador não serve. O access token termina, no máximo, junto com a prova utilizada.
 
-Ainda não há redirecionamento automático de desafio. Se a troca retornar `invalid_grant` por falta de prova, use `/mfa` na sessão original e tente novamente enquanto o código estiver válido (dois minutos). Após vencer esse prazo, inicie nova autorização. No refresh, comprove de novo na sessão original se a prova tiver expirado. Se houve logout ou novo login, o sid antigo foi encerrado: faça um novo fluxo OAuth.
+A [5D2](desafio-mfa-local.md) direciona o navegador para MFA antes do consentimento quando necessário e oferece retorno protegido. A emissão continua reavaliando: se a troca retornar `invalid_grant` por falta de prova, use `/mfa` na sessão original e tente novamente enquanto o código estiver válido (dois minutos). Após vencer esse prazo, inicie nova autorização. No refresh, comprove de novo na sessão original se a prova tiver expirado. Se houve logout ou novo login, o sid antigo foi encerrado: faça um novo fluxo OAuth.
 
 ## Risco e erros
 
@@ -65,4 +65,4 @@ Build de aceite:
 .\mvnw.cmd -B -ntp clean verify
 ```
 
-Login de senha e Client Credentials ainda não passam por essa avaliação. Proteção por operação nos recursos e desafio integrado à navegação continuam nas próximas entregas. Veja [ADR-015](../adr/015-politicas-na-emissao-de-tokens.md), [evidências](../evidencias/etapa-05d1.md) e [roteiro](../PLANO-DE-IMPLEMENTACAO.md).
+Verificação de senha e Client Credentials não recebem essa política de identidade humana. A navegação tem desafio integrado desde a 5D2; proteção por operação nos recursos continua na 5D3/enforcer. Veja [ADR-015](../adr/015-politicas-na-emissao-de-tokens.md), [evidências históricas](../evidencias/etapa-05d1.md) e [roteiro](../PLANO-DE-IMPLEMENTACAO.md).

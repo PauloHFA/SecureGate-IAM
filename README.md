@@ -16,7 +16,9 @@ A 5B2 coleta contexto de navegador autenticado, rede da conexão, falhas reais d
 
 A 5C1 inicia MFA com TOTP e proteção da semente por uma chave AES-256-GCM separada no Vault Transit, vinculada ao usuário e à inscrição. A 5C2 acrescenta cadastro/ativação em `/mfa`, recuperação de uso único, limite de tentativas por conta e prova de step-up de cinco minutos vinculada à sessão. Consulte o [guia MFA](docs/runbooks/mfa-local.md), as [evidências 5C2](docs/evidencias/etapa-05c2.md) e a [base criptográfica](docs/runbooks/mfa-base-local.md).
 
-A 5D1 exige política para emissão e renovação de tokens de usuário: alvo `oauth:<client_id>`, ação `issue`. Sem permissão correspondente, a troca é negada; limites reduzem escopos/TTL e MFA exige prova no sid original. Isso vale também para clientes existentes, sem ALLOW automático. O desafio integrado à navegação e a aplicação nos recursos continuam pendentes. Consulte o [guia de políticas na emissão](docs/runbooks/politicas-tokens-local.md) e as [evidências 5D1](docs/evidencias/etapa-05d1.md).
+A 5D1 exige política para emissão e renovação de tokens de usuário: alvo `oauth:<client_id>`, ação `issue`. Sem permissão correspondente, a troca é negada; limites reduzem escopos/TTL e MFA exige prova no sid original. Isso vale também para clientes existentes, sem ALLOW automático. Consulte o [guia de políticas na emissão](docs/runbooks/politicas-tokens-local.md) e as [evidências 5D1](docs/evidencias/etapa-05d1.md).
+
+A 5D2 integra o desafio MFA à navegação de autorização, antes do consentimento e novamente na aprovação. O retorno exige CSRF, ticket de uso único, prazo e a mesma identidade/sessão; preserva state, nonce e PKCE e revalida a autorização. A aplicação por operação nos recursos continua na 5D3/enforcer. Consulte o [guia do desafio MFA](docs/runbooks/desafio-mfa-local.md) e as [evidências 5D2](docs/evidencias/etapa-05d2.md).
 
 ## Decisões aprovadas
 
@@ -47,12 +49,13 @@ A 5D1 exige política para emissão e renovação de tokens de usuário: alvo `o
 - [ADR-013 — Base TOTP e cifra de segredos pelo Transit](docs/adr/013-base-totp-e-cifra-transit.md)
 - [ADR-014 — Cadastro MFA, recuperação e prova de step-up](docs/adr/014-cadastro-mfa-recuperacao-e-step-up.md)
 - [ADR-015 — Políticas na emissão e renovação de tokens](docs/adr/015-politicas-na-emissao-de-tokens.md)
+- [ADR-016 — Desafio MFA na navegação da autorização](docs/adr/016-desafio-mfa-na-autorizacao.md)
 
 O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Implementação**, versão 0.1, outubro de 2026, disponível em PDF na pasta local do projeto.
 
 ## Próximo passo
 
-Seguir para a 5D2: desafio MFA integrado à navegação da autorização; depois, aplicação aos recursos na 5D3/enforcer. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A base até a 5A (`8f5666d`) foi publicada em `feat/policy-foundation`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831). As entregas 5B/5C estão em commits locais, incluindo a 5C2 (`9039107`); a 5D1 está na branch `feat/policy-token-enforcement`. Essas entregas aguardam publicação/CI remota. Revisão e merge continuam pendentes.
+Seguir para a 5D3: aplicação das decisões por operação nos recursos, coordenada com o enforcer. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A base até a 5A (`8f5666d`) foi publicada em `feat/policy-foundation`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831). As entregas 5B/5C/5D1 estão em commits locais, incluindo a 5D1 (`31984bd`); a 5D2 está na branch `feat/mfa-authorization-navigation`. Essas entregas aguardam publicação/CI remota. Revisão e merge continuam pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

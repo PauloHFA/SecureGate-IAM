@@ -22,6 +22,35 @@ public final class TokenAccessService {
 
   public Permit authorize(
       UUID userId, long version, UUID sid, String clientId, Set<String> grantedScopes) {
+    Permit permit = evaluate(userId, version, sid, clientId, grantedScopes);
+    Instant deadline = null;
+    if (permit.decision().mfaRequired()) {
+      deadline = proofs.current(userId, version, sid).orElseThrow(Denied::new).expiresAt();
+    }
+    return new Permit(
+        userId,
+        permit.resource(),
+        permit.scopes(),
+        permit.ttlSeconds(),
+        deadline,
+        permit.decision());
+  }
+
+  /** Guidance for browser navigation only. Issuance always evaluates again. */
+  public Navigation navigation(
+      UUID userId, long version, UUID sid, String clientId, Set<String> scopes) {
+    try {
+      var permit = evaluate(userId, version, sid, clientId, scopes);
+      return permit.decision().mfaRequired() && proofs.current(userId, version, sid).isEmpty()
+          ? Navigation.MFA_REQUIRED
+          : Navigation.READY;
+    } catch (Denied exception) {
+      return Navigation.DENIED;
+    }
+  }
+
+  private Permit evaluate(
+      UUID userId, long version, UUID sid, String clientId, Set<String> grantedScopes) {
     if (userId == null
         || sid == null
         || clientId == null
@@ -42,12 +71,13 @@ public final class TokenAccessService {
         || (grantedScopes.contains("openid") && !scopes.contains("openid"))) {
       throw new Denied();
     }
-    Instant deadline = null;
-    if (decision.mfaRequired()) {
-      deadline = proofs.current(userId, version, sid).orElseThrow(Denied::new).expiresAt();
-    }
-    return new Permit(
-        userId, resource, Set.copyOf(scopes), decision.ttlSeconds(), deadline, decision);
+    return new Permit(userId, resource, Set.copyOf(scopes), decision.ttlSeconds(), null, decision);
+  }
+
+  public enum Navigation {
+    READY,
+    MFA_REQUIRED,
+    DENIED
   }
 
   public record Permit(

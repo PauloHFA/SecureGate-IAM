@@ -29,6 +29,30 @@ class TokenAccessServiceTest {
   }
 
   @Test
+  void navigationDistinguishesMfaGuidanceWithoutApprovingIssuance() {
+    decision(false, Set.of("api:read"), 300, false);
+    assertEquals(
+        TokenAccessService.Navigation.READY,
+        service.navigation(user, 0, sid, "web-test", Set.of("api:read")));
+    decision(true, Set.of("api:read"), 300, false);
+    assertEquals(
+        TokenAccessService.Navigation.DENIED,
+        service.navigation(user, 0, sid, "web-test", Set.of("api:read")));
+    decision(false, Set.of("api:read"), 300, true);
+    when(proofs.current(user, 0, sid)).thenReturn(Optional.empty());
+    assertEquals(
+        TokenAccessService.Navigation.MFA_REQUIRED,
+        service.navigation(user, 0, sid, "web-test", Set.of("api:read")));
+    when(proofs.current(user, 0, sid))
+        .thenReturn(
+            Optional.of(
+                new MfaProofs.Proof("TOTP", Instant.now(), Instant.now().plusSeconds(300))));
+    assertEquals(
+        TokenAccessService.Navigation.READY,
+        service.navigation(user, 0, sid, "web-test", Set.of("api:read")));
+  }
+
+  @Test
   void canOnlyNarrowGrantedScopesAndUsesLiveSessionContext() {
     decision(false, Set.of("api:read", "api:admin"), 60, false);
     var permit = service.authorize(user, 0, sid, "web-test", Set.of("api:read", "api:write"));
