@@ -33,6 +33,9 @@ public final class SerializedCodeRedemption implements AuthenticationProvider {
               try {
                 return new Result(delegate.authenticate(authentication), null);
               } catch (AuthenticationException failure) {
+                if (failure instanceof PolicyGrantException) {
+                  status.setRollbackOnly();
+                }
                 // Commit the provider's invalidation on replay, then propagate the OAuth error.
                 return new Result(null, failure);
               }

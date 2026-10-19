@@ -138,6 +138,8 @@ $vaultBase = 'http://127.0.0.1:' + $settings.VAULT_PORT + '/v1'
 $rootHeaders = @{ 'X-Vault-Token' = $settings.VAULT_DEV_ROOT_TOKEN_ID }
 $key = Invoke-JsonApi -Uri "$vaultBase/transit/keys/securegate-jwt" -Headers $rootHeaders
 Assert-Local ($key.data.type -eq 'rsa-3072' -and -not $key.data.exportable -and -not $key.data.allow_plaintext_backup) 'Chave Transit fora da configuracao esperada.'
+$mfaKey = Invoke-JsonApi -Uri "$vaultBase/transit/keys/securegate-mfa" -Headers $rootHeaders
+Assert-Local ($mfaKey.data.type -eq 'aes256-gcm96' -and -not $mfaKey.data.exportable -and -not $mfaKey.data.allow_plaintext_backup) 'Chave MFA fora da configuracao esperada.'
 $clientHeaders = $null
 try {
   $login = Invoke-JsonApi -Uri "$vaultBase/auth/approle/login" -Method 'POST' -Body @{
@@ -158,8 +160,18 @@ try {
   Assert-Local ([bool]$verified.data.valid) 'Assinatura Transit nao verificada.'
   Assert-Forbidden "$vaultBase/transit/keys/securegate-jwt/rotate" 'POST' $clientHeaders @{}
   Assert-Forbidden "$vaultBase/transit/export/signing-key/securegate-jwt" 'GET' $clientHeaders $null
+  $binding = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('securegate-stage5c1-probe-binding'))
+  $encrypted = Invoke-JsonApi -Uri "$vaultBase/transit/encrypt/securegate-mfa" -Method 'POST' -Headers $clientHeaders -Body @{
+    plaintext = $inputData; associated_data = $binding
+  }
+  $decrypted = Invoke-JsonApi -Uri "$vaultBase/transit/decrypt/securegate-mfa" -Method 'POST' -Headers $clientHeaders -Body @{
+    ciphertext = $encrypted.data.ciphertext; associated_data = $binding
+  }
+  Assert-Local ($decrypted.data.plaintext -eq $inputData) 'Cifra MFA nao validada.'
+  Assert-Forbidden "$vaultBase/transit/keys/securegate-mfa/rotate" 'POST' $clientHeaders @{}
+  Assert-Forbidden "$vaultBase/transit/export/encryption-key/securegate-mfa" 'GET' $clientHeaders $null
   Assert-Forbidden "$vaultBase/secret/data/securegate/policy-enforcer" 'GET' $clientHeaders $null
-  Write-Output 'PASS Vault iam-core: AppRole, KV e assinatura RSA; rotacao, exportacao e segredo alheio negados.'
+  Write-Output 'PASS Vault iam-core: AppRole, KV, assinatura RSA e cifra MFA; rotacao, exportacao e segredo alheio negados.'
 } finally {
   if ($null -ne $clientHeaders) {
     $null = Invoke-JsonApi -Uri "$vaultBase/auth/token/revoke-self" -Method 'POST' -Headers $clientHeaders -Body @{}
@@ -176,7 +188,9 @@ try {
   $secret = Invoke-JsonApi -Uri "$vaultBase/secret/data/securegate/policy-enforcer" -Headers $clientHeaders
   Assert-Local ($secret.data.data.redis_password -eq $settings.REDIS_PASSWORD) 'Segredo do enforcer divergente.'
   Assert-Forbidden "$vaultBase/transit/sign/securegate-jwt" 'POST' $clientHeaders @{ input = 'dGVzdA==' }
-  Write-Output 'PASS Vault policy-enforcer: AppRole e KV; permissao de assinatura negada.'
+  Assert-Forbidden "$vaultBase/transit/encrypt/securegate-mfa" 'POST' $clientHeaders @{ plaintext = 'dGVzdA==' }
+  Assert-Forbidden "$vaultBase/transit/decrypt/securegate-mfa" 'POST' $clientHeaders @{ ciphertext = 'vault:v1:AAAA' }
+  Write-Output 'PASS Vault policy-enforcer: AppRole e KV; assinatura e cifra MFA negadas.'
 } finally {
   if ($null -ne $clientHeaders) {
     $null = Invoke-JsonApi -Uri "$vaultBase/auth/token/revoke-self" -Method 'POST' -Headers $clientHeaders -Body @{}

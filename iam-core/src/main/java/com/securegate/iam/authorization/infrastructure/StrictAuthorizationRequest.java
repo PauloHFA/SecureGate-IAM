@@ -25,6 +25,7 @@ public final class StrictAuthorizationRequest
         || request.getScopes().isEmpty()
         || (request.getScopes().contains("openid")
             && (!(nonce instanceof String value) || !value.matches("[A-Za-z0-9._~-]{16,128}")))
+        || (request.getScopes().contains("openid") && !validPrompt(parameters.get("prompt")))
         || parameters.containsKey("request")
         || parameters.containsKey("request_uri")
         || parameters.containsKey("claims")
@@ -34,5 +35,20 @@ public final class StrictAuthorizationRequest
           new OAuth2Error("invalid_request"), null);
     }
     OAuth2AuthorizationCodeRequestAuthenticationValidator.DEFAULT_SCOPE_VALIDATOR.accept(context);
+  }
+
+  private static boolean validPrompt(Object input) {
+    if (input == null) {
+      return true;
+    }
+    if (!(input instanceof String prompt) || prompt.length() > 64) {
+      return false;
+    }
+    var values =
+        java.util.Arrays.stream(prompt.split(" "))
+            .filter(value -> !value.isBlank())
+            .collect(java.util.stream.Collectors.toSet());
+    return java.util.Set.of("none", "login", "consent", "select_account").containsAll(values)
+        && (!values.contains("none") || values.size() == 1);
   }
 }

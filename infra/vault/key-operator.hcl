@@ -6,3 +6,11 @@ path "transit/keys/securegate-jwt" {
 path "transit/keys/securegate-jwt/rotate" {
   capabilities = ["update"]
 }
+
+path "transit/keys/securegate-mfa" {
+  capabilities = ["read"]
+}
+
+path "transit/keys/securegate-mfa/rotate" {
+  capabilities = ["update"]
+}

@@ -175,7 +175,7 @@ class PolicyEvaluatorTest {
   void rejectsInvalidDefinitionsAndPreservesVersioning() {
     assertThrows(
         IllegalArgumentException.class,
-        () -> new PolicyRule(2, "*", "*", PolicyEffect.ALLOW, Set.of(), Set.of(), null));
+        () -> new PolicyRule(3, "*", "*", PolicyEffect.ALLOW, Set.of(), Set.of(), null));
     assertThrows(
         IllegalArgumentException.class,
         () -> new PolicyRule(1, "*", "*", null, Set.of(), Set.of(), null));

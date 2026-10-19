@@ -79,6 +79,9 @@ class BrowserAuthorizationIT {
         Map.of("type", "rsa-3072", "exportable", false, "allow_plaintext_backup", false));
     vault("sys/auth/approle", Map.of("type", "approle"));
     vault(
+        "transit/keys/securegate-mfa",
+        Map.of("type", "aes256-gcm96", "exportable", false, "allow_plaintext_backup", false));
+    vault(
         "sys/policies/acl/securegate-iam-core",
         Map.of("policy", Files.readString(Path.of("../infra/vault/iam-core.hcl"))));
     vault(
@@ -103,6 +106,7 @@ class BrowserAuthorizationIT {
     registry.add("iam.transit.secret-id-file", () -> credentials.resolve("secret").toString());
     registry.add("iam.authorization.enabled", () -> true);
     registry.add("iam.authorization.issuer", () -> ISSUER);
+    registry.add("iam.resources.audience", () -> "browser-api");
     registry.add("iam.bootstrap.enabled", () -> true);
     registry.add("iam.bootstrap.token", () -> ADMIN);
   }
@@ -117,12 +121,1397 @@ class BrowserAuthorizationIT {
   }
 
   @Autowired JdbcTemplate jdbc;
+  @org.springframework.test.context.bean.override.mockito.MockitoSpyBean java.time.Clock riskClock;
+  @Autowired com.securegate.iam.identity.application.port.LoginRiskHistory loginHistory;
+  @Autowired com.securegate.iam.identity.application.MfaService mfa;
+  @Autowired com.securegate.iam.authorization.application.port.ResourceTokens resourceTokens;
+
+  @org.junit.jupiter.api.AfterEach
+  void removeResourcePolicies() {
+    jdbc.update("DELETE FROM iam_policy.policies WHERE document->>'resource'='account:self'");
+  }
+
+  private HttpResponse<String> resource(String token) throws Exception {
+    var request = HttpRequest.newBuilder(uri("/api/resources/account"));
+    if (token != null) {
+      request.header("Authorization", "Bearer " + token);
+    }
+    return HTTP.send(request.GET().build(), HttpResponse.BodyHandlers.ofString());
+  }
+
+  private void resourcePolicy(String effect, List<String> scopes, Integer ttl) throws Exception {
+    var rule = new HashMap<String, Object>();
+    rule.put("schemaVersion", 1);
+    rule.put("resource", "account:self");
+    rule.put("action", "read");
+    rule.put("effect", effect);
+    rule.put("rolesAnyOf", List.of());
+    rule.put("allowedScopes", scopes);
+    if (ttl != null) {
+      rule.put("maxAccessTokenTtlSeconds", ttl);
+    }
+    var response =
+        admin(
+            "POST",
+            "/api/admin/policies",
+            Map.of(
+                "name",
+                "resource-" + UUID.randomUUID(),
+                "priority",
+                100,
+                "enabled",
+                true,
+                "document",
+                rule));
+    assertEquals(201, response.statusCode(), response.body());
+  }
+
+  @Test
+  void resourceRequiresBearerAndOwnPolicyThenReevaluatesDeny() throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    assertEquals(401, resource(null).statusCode());
+    assertEquals(401, resource("bad-token").statusCode());
+    assertEquals(403, resource(tokens.access()).statusCode());
+    resourcePolicy("ALLOW_LIMITED", List.of("api:read"), 60);
+    var response = resource(tokens.access());
+    assertEquals(200, response.statusCode(), response.body());
+    var body = JSON.readTree(response.body());
+    assertEquals(flow.userId().toString(), body.path("sub").asText());
+    assertEquals("api:read", body.path("scope").get(0).asText());
+    assertEquals(3, body.size());
+    assertEquals("no-store", response.headers().firstValue("Cache-Control").orElseThrow());
+    assertTrue(response.headers().allValues("Set-Cookie").isEmpty());
+    assertEquals(401, get(mfaLogin(flow), "/api/resources/account").statusCode());
+    var unsupported =
+        HTTP.send(
+            HttpRequest.newBuilder(uri("/api/resources/account"))
+                .header("Authorization", "Bearer " + tokens.access())
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(403, unsupported.statusCode());
+    assertEquals(
+        1,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.security_events WHERE event_type='resource.access.allowed' AND actor=? AND resource='account:self' AND details->>'action'='read'",
+            Integer.class,
+            flow.userId().toString()));
+    resourcePolicy("DENY", List.of(), null);
+    assertEquals(403, resource(tokens.access()).statusCode());
+  }
+
+  @Test
+  void resourceUsesCurrentPolicyTtlWithoutSlidingTheTokenAge() throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    resourcePolicy("ALLOW_LIMITED", List.of("api:read"), 30);
+    assertEquals(200, resource(tokens.access()).statusCode());
+    var issued =
+        com.nimbusds.jwt.SignedJWT.parse(tokens.access())
+            .getJWTClaimsSet()
+            .getIssueTime()
+            .toInstant();
+    org.mockito.Mockito.doReturn(issued.plusSeconds(30)).when(riskClock).instant();
+    assertEquals(403, resource(tokens.access()).statusCode());
+  }
+
+  @Test
+  void resourceSeesRevocationRefreshReplacementAndIdentityVersionImmediately() throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    resourcePolicy("ALLOW", List.of(), null);
+    assertEquals(200, resource(tokens.access()).statusCode());
+    var renewed = JSON.readTree(refresh(flow, tokens.refresh(), null).body());
+    String access = renewed.path("access_token").asText();
+    assertFalse(access.isBlank());
+    assertEquals(401, resource(tokens.access()).statusCode());
+    assertEquals(200, resource(access).statusCode());
+    assertEquals(200, oauthPost("/oauth2/revoke", flow, Map.of("token", access)).statusCode());
+    assertEquals(401, resource(access).statusCode());
+    Flow other = flow(true);
+    Pair otherTokens = initialTokens(other);
+    assertEquals(200, resource(otherTokens.access()).statusCode());
+    jdbc.update("UPDATE iam_identity.users SET version=version+1 WHERE id=?", other.userId());
+    assertEquals(401, resource(otherTokens.access()).statusCode());
+  }
+
+  @Test
+  void resourceMfaCannotUseProofFromAnotherLoginAndLogoutRemovesProof() throws Exception {
+    Flow flow = flow(true);
+    HttpClient browser = mfaLogin(flow);
+    String code = approve(browser, flow, get(browser, location(get(browser, authorize(flow)))));
+    var tokens = pair(exchange(flow, code, flow.verifier(), CALLBACK));
+    resourcePolicy("ALLOW_WITH_MFA", List.of(), null);
+    assertEquals(
+        "mfa_required", JSON.readTree(resource(tokens.access()).body()).path("error").asText());
+    HttpClient other = mfaLogin(flow);
+    String seed = mfaSeed(mfaPost(other, "/mfa/enroll", Map.of("password", PASSWORD)));
+    var activated = mfaPost(other, "/mfa/confirm", Map.of("code", mfaCode(seed)));
+    var recovery = mfaRecovery(activated);
+    assertEquals(403, resource(tokens.access()).statusCode());
+    assertEquals(
+        200,
+        mfaPost(browser, "/mfa/verify", Map.of("code", recovery.getFirst(), "method", "RECOVERY"))
+            .statusCode());
+    assertEquals(200, resource(tokens.access()).statusCode());
+    var page = get(browser, "/mfa");
+    post(browser, "/logout", Map.of("_csrf", hidden(page.body(), "_csrf")));
+    assertEquals(403, resource(tokens.access()).statusCode());
+  }
+
+  @Test
+  void resourceRejectsIdTokensWrongAudienceAndTamperedTokens() throws Exception {
+    Flow flow = flow(false, true);
+    var browser = browser();
+    String code =
+        approveScopes(browser, flow, pending(browser, flow), List.of("openid", "api:read"));
+    var tokens = JSON.readTree(exchange(flow, code, flow.verifier(), CALLBACK).body());
+    resourcePolicy("ALLOW", List.of(), null);
+    String access = tokens.path("access_token").asText();
+    assertEquals(200, resource(access).statusCode());
+    assertEquals(401, resource(tokens.path("id_token").asText()).statusCode());
+    String[] parts = access.split("\\.");
+    parts[1] =
+        Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString("{\"sub\":\"forged\"}".getBytes(StandardCharsets.UTF_8));
+    assertEquals(401, resource(String.join(".", parts)).statusCode());
+    // A valid signature and stored authorization still do not substitute for the resource audience.
+    assertTrue(resourceTokens.resolve(access, "foreign-api").isEmpty());
+  }
+
+  @Test
+  void resourcePolicyDependencyFailureReturns503WithoutLeakingDetails() throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic-secret-detail"))
+        .when(enforcementPolicies)
+        .decide(
+            org.mockito.ArgumentMatchers.eq(flow.userId()),
+            org.mockito.ArgumentMatchers.eq("account:self"),
+            org.mockito.ArgumentMatchers.eq("read"),
+            org.mockito.ArgumentMatchers.anySet(),
+            org.mockito.ArgumentMatchers.any());
+    var response = resource(tokens.access());
+    assertEquals(503, response.statusCode(), response.body());
+    assertEquals("{\"error\":\"temporarily_unavailable\"}", response.body());
+    assertEquals("5", response.headers().firstValue("Retry-After").orElseThrow());
+    org.mockito.Mockito.reset(enforcementPolicies);
+    resourcePolicy("ALLOW", List.of(), null);
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic-audit-detail"))
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                event -> event.type().value().equals("resource.access.allowed")));
+    assertEquals(503, resource(tokens.access()).statusCode());
+  }
+
+  @Test
+  void authorizationChallengesBeforeConsentAndResumesOidcWithOriginalPkceStateAndNonce()
+      throws Exception {
+    Flow flow = flow(false, true);
+    issuancePolicy(flow, "ALLOW_WITH_MFA", List.of(), null, List.of(), true);
+    HttpClient browser = mfaLogin(flow);
+    var challenge = get(browser, authorize(flow));
+    assertEquals(302, challenge.statusCode());
+    assertEquals("/mfa", location(challenge));
+    assertEquals(0, authorizationRows(flow));
+    var page = get(browser, "/mfa");
+    assertTrue(page.body().contains("Verificação adicional"));
+    assertFalse(page.body().contains("<script>alert"));
+    assertFalse(page.body().contains("name=\"ticket\""));
+    String seed = mfaSeed(mfaPost(browser, "/mfa/enroll", Map.of("password", PASSWORD)));
+    var activated = mfaPost(browser, "/mfa/confirm", Map.of("code", mfaCode(seed)));
+    assertEquals(10, mfaRecovery(activated).size());
+    assertTrue(activated.body().contains("Continuar autorização"));
+    String ticket = hidden(activated.body(), "ticket");
+    assertEquals(403, post(browser, "/oauth2/continue", Map.of("ticket", ticket)).statusCode());
+    var resumed =
+        post(
+            browser,
+            "/oauth2/continue",
+            Map.of(
+                "ticket",
+                ticket,
+                "return_to",
+                "https://attacker.example/",
+                "_csrf",
+                hidden(activated.body(), "_csrf")));
+    assertEquals(303, resumed.statusCode());
+    assertTrue(location(resumed).startsWith("/oauth2/authorize?"));
+    assertEquals(flow.state(), query(location(resumed)).get("state"));
+    assertEquals(flow.state(), query(location(resumed)).get("nonce"));
+    assertEquals(
+        query(authorize(flow)).get("code_challenge"),
+        query(location(resumed)).get("code_challenge"));
+    var consent = get(browser, location(resumed));
+    assertEquals(302, consent.statusCode());
+    assertTrue(location(consent).contains("/oauth2/consent"));
+    var approval = get(browser, location(consent));
+    assertEquals(200, approval.statusCode());
+    String code = approveScopes(browser, flow, approval, List.of("openid", "api:read"));
+    var tokens = exchange(flow, code, flow.verifier(), CALLBACK);
+    assertEquals(200, tokens.statusCode(), tokens.body());
+    assertEquals(
+        flow.state(),
+        com.nimbusds.jwt.SignedJWT.parse(JSON.readTree(tokens.body()).path("id_token").asText())
+            .getJWTClaimsSet()
+            .getStringClaim("nonce"));
+    assertEquals(
+        400,
+        post(
+                browser,
+                "/oauth2/continue",
+                Map.of("ticket", ticket, "_csrf", hidden(get(browser, "/mfa").body(), "_csrf")))
+            .statusCode());
+  }
+
+  @Test
+  void mfaRequirementAddedDuringConsentChallengesWithoutRecordingApproval() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = browser();
+    var page = pending(browser, flow);
+    String oldState = hidden(page.body(), "state");
+    issuancePolicy(flow, "ALLOW_WITH_MFA", List.of(), null, List.of(), true);
+    assertEquals(
+        403,
+        post(
+                browser,
+                "/oauth2/authorize",
+                Map.of("client_id", flow.clientId(), "state", oldState, "scope", "api:read"))
+            .statusCode());
+    assertFalse(get(browser, "/mfa").body().contains("Verificação adicional"));
+    var challenge = navigationConsent(browser, flow, page, List.of("api:read"));
+    assertEquals("/mfa", location(challenge));
+    assertNull(
+        authorizations.findByToken(
+            oldState,
+            new org.springframework.security.oauth2.server.authorization.OAuth2TokenType("state")));
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_authorization.oauth2_authorization_consent WHERE principal_name=?",
+            Integer.class,
+            flow.userId().toString()));
+    String seed = mfaSeed(mfaPost(browser, "/mfa/enroll", Map.of("password", PASSWORD)));
+    var activated = mfaPost(browser, "/mfa/confirm", Map.of("code", mfaCode(seed)));
+    var resumed = continueAuthorization(browser, activated);
+    var consent = get(browser, location(resumed));
+    var newPage = get(browser, location(consent));
+    assertNotEquals(oldState, hidden(newPage.body(), "state"));
+    var denied = navigationConsent(browser, flow, newPage, List.of());
+    assertEquals("access_denied", query(location(denied)).get("error"));
+    assertEquals(flow.state(), query(location(denied)).get("state"));
+  }
+
+  @Test
+  void proofExpiringWhileConsentIsDisplayedRequiresAnotherVerification() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = mfaLogin(flow);
+    java.time.Instant now =
+        java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    org.mockito.Mockito.doReturn(now).when(riskClock).instant();
+    String seed = mfaSeed(mfaPost(browser, "/mfa/enroll", Map.of("password", PASSWORD)));
+    var recovery = mfaRecovery(mfaPost(browser, "/mfa/confirm", Map.of("code", mfaCode(seed))));
+    issuancePolicy(flow, "ALLOW_WITH_MFA", List.of(), null, List.of(), true);
+    var consent = get(browser, authorize(flow));
+    var page = get(browser, location(consent));
+    org.mockito.Mockito.doReturn(now.plusSeconds(301)).when(riskClock).instant();
+    assertEquals("/mfa", location(navigationConsent(browser, flow, page, List.of("api:read"))));
+    var verified =
+        mfaPost(browser, "/mfa/verify", Map.of("method", "RECOVERY", "code", recovery.getFirst()));
+    assertEquals(303, continueAuthorization(browser, verified).statusCode());
+  }
+
+  @Test
+  void activeFactorCanResumeWithRecoveryAndPendingChallengeHasAbsoluteExpiry() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = mfaLogin(flow);
+    java.time.Instant now =
+        java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    org.mockito.Mockito.doReturn(now).when(riskClock).instant();
+    String seed = mfaSeed(mfaPost(browser, "/mfa/enroll", Map.of("password", PASSWORD)));
+    List<String> recovery =
+        mfaRecovery(mfaPost(browser, "/mfa/confirm", Map.of("code", mfaCode(seed))));
+    issuancePolicy(flow, "ALLOW_WITH_MFA", List.of(), null, List.of(), true);
+    org.mockito.Mockito.doReturn(now.plusSeconds(301)).when(riskClock).instant();
+    assertEquals("/mfa", location(get(browser, authorize(flow))));
+    var verified =
+        mfaPost(browser, "/mfa/verify", Map.of("method", "RECOVERY", "code", recovery.getFirst()));
+    assertTrue(verified.body().contains("Continuar autorização"));
+    String ticket = hidden(verified.body(), "ticket");
+    org.mockito.Mockito.doReturn(now.plusSeconds(602)).when(riskClock).instant();
+    assertFalse(get(browser, "/mfa").body().contains("name=\"ticket\""));
+    assertEquals(
+        400,
+        post(
+                browser,
+                "/oauth2/continue",
+                Map.of("ticket", ticket, "_csrf", hidden(get(browser, "/mfa").body(), "_csrf")))
+            .statusCode());
+    assertEquals("/mfa", location(get(browser, authorize(flow))));
+    verified =
+        mfaPost(browser, "/mfa/verify", Map.of("method", "RECOVERY", "code", recovery.get(1)));
+    assertEquals(303, continueAuthorization(browser, verified).statusCode());
+  }
+
+  @Test
+  void continuationReevaluatesPolicyAndCannotBypassDenyIntroducedDuringMfa() throws Exception {
+    Flow flow = flow();
+    issuancePolicy(flow, "ALLOW_WITH_MFA", List.of(), null, List.of(), true);
+    HttpClient browser = mfaLogin(flow);
+    assertEquals("/mfa", location(get(browser, authorize(flow))));
+    String seed = mfaSeed(mfaPost(browser, "/mfa/enroll", Map.of("password", PASSWORD)));
+    var activated = mfaPost(browser, "/mfa/confirm", Map.of("code", mfaCode(seed)));
+    issuancePolicy(flow, "DENY", List.of(), null, List.of(), true);
+    var resumed = continueAuthorization(browser, activated);
+    var denied = get(browser, location(resumed));
+    assertEquals("access_denied", query(location(denied)).get("error"));
+    assertEquals(flow.state(), query(location(denied)).get("state"));
+    assertEquals(0, authorizationRows(flow));
+  }
+
+  @Test
+  void continuationIsBoundToBrowserAndClearedOnReauthentication() throws Exception {
+    Flow flow = flow();
+    issuancePolicy(flow, "ALLOW_WITH_MFA", List.of(), null, List.of(), true);
+    HttpClient browser = mfaLogin(flow);
+    get(browser, authorize(flow));
+    String seed = mfaSeed(mfaPost(browser, "/mfa/enroll", Map.of("password", PASSWORD)));
+    var activated = mfaPost(browser, "/mfa/confirm", Map.of("code", mfaCode(seed)));
+    String ticket = hidden(activated.body(), "ticket");
+    HttpClient other = mfaLogin(flow);
+    assertEquals(
+        400,
+        post(
+                other,
+                "/oauth2/continue",
+                Map.of("ticket", ticket, "_csrf", hidden(get(other, "/mfa").body(), "_csrf")))
+            .statusCode());
+    assertEquals(
+        400,
+        post(
+                browser,
+                "/oauth2/continue",
+                Map.of(
+                    "ticket",
+                    UUID.randomUUID().toString(),
+                    "_csrf",
+                    hidden(get(browser, "/mfa").body(), "_csrf")))
+            .statusCode());
+    var login = get(browser, "/login");
+    assertEquals(
+        302,
+        post(
+                browser,
+                "/login",
+                Map.of(
+                    "username",
+                    flow.email(),
+                    "password",
+                    PASSWORD,
+                    "_csrf",
+                    hidden(login.body(), "_csrf")))
+            .statusCode());
+    assertEquals(
+        400,
+        post(
+                browser,
+                "/oauth2/continue",
+                Map.of("ticket", ticket, "_csrf", hidden(get(browser, "/mfa").body(), "_csrf")))
+            .statusCode());
+  }
+
+  @Test
+  void promptNoneNeverCreatesMfaChallengeAndMalformedRedirectRemainsLocal() throws Exception {
+    Flow flow = flow(false, true);
+    issuancePolicy(flow, "ALLOW_WITH_MFA", List.of(), null, List.of(), true);
+    HttpClient browser = mfaLogin(flow);
+    var denied = get(browser, authorize(flow) + "&prompt=none");
+    assertEquals("interaction_required", query(location(denied)).get("error"));
+    assertEquals(flow.state(), query(location(denied)).get("state"));
+    assertFalse(get(browser, "/mfa").body().contains("Verificação adicional"));
+    assertEquals(0, authorizationRows(flow));
+    var invalid =
+        get(
+            browser,
+            authorize(flow).replace(enc(CALLBACK), enc("https://attacker.example/callback")));
+    assertEquals(400, invalid.statusCode());
+    assertTrue(invalid.headers().firstValue("Location").isEmpty());
+    var anonymous = get(browser(), authorize(flow) + "&prompt=none");
+    assertEquals("login_required", query(location(anonymous)).get("error"));
+  }
+
+  @Test
+  void userCanDenyConsentWithoutCompletingNewMfaRequirement() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = browser();
+    var page = pending(browser, flow);
+    issuancePolicy(flow, "ALLOW_WITH_MFA", List.of(), null, List.of(), true);
+    var denied = navigationConsent(browser, flow, page, List.of());
+    assertEquals("access_denied", query(location(denied)).get("error"));
+    assertFalse(get(browser, "/mfa").body().contains("Verificação adicional"));
+  }
+
+  @Test
+  void browserPolicyFailureReturns503WithoutCreatingConsentOrContinuation() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = mfaLogin(flow);
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic navigation failure"))
+        .when(enforcementPolicies)
+        .decide(
+            org.mockito.ArgumentMatchers.eq(flow.userId()),
+            org.mockito.ArgumentMatchers.anyString(),
+            org.mockito.ArgumentMatchers.anyString(),
+            org.mockito.ArgumentMatchers.anySet(),
+            org.mockito.ArgumentMatchers.any());
+    var failed = get(browser, authorize(flow));
+    assertEquals(503, failed.statusCode());
+    assertTrue(failed.headers().firstValue("Location").isEmpty());
+    assertFalse(failed.body().contains("synthetic"));
+    assertEquals(0, authorizationRows(flow));
+    org.mockito.Mockito.reset(enforcementPolicies);
+    assertTrue(location(get(browser, authorize(flow))).contains("/oauth2/consent"));
+  }
+
+  private int authorizationRows(Flow flow) {
+    return jdbc.queryForObject(
+        "SELECT count(*) FROM iam_authorization.oauth2_authorization a JOIN iam_authorization.oauth2_registered_client c ON c.id=a.registered_client_id WHERE c.client_id=?",
+        Integer.class,
+        flow.clientId());
+  }
+
+  private HttpResponse<String> continueAuthorization(HttpClient browser, HttpResponse<String> page)
+      throws Exception {
+    return post(
+        browser,
+        "/oauth2/continue",
+        Map.of("ticket", hidden(page.body(), "ticket"), "_csrf", hidden(page.body(), "_csrf")));
+  }
+
+  private HttpResponse<String> navigationConsent(
+      HttpClient browser, Flow flow, HttpResponse<String> page, List<String> scopes)
+      throws Exception {
+    String values =
+        form(
+                Map.of(
+                    "client_id",
+                    flow.clientId(),
+                    "state",
+                    hidden(page.body(), "state"),
+                    "_csrf",
+                    hidden(page.body(), "_csrf")))
+            + scopes.stream()
+                .map(scope -> "&scope=" + enc(scope))
+                .collect(java.util.stream.Collectors.joining());
+    return browser.send(
+        HttpRequest.newBuilder(uri("/oauth2/authorize"))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .POST(HttpRequest.BodyPublishers.ofString(values))
+            .build(),
+        HttpResponse.BodyHandlers.ofString());
+  }
+
+  @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+  com.securegate.iam.policy.application.port.PolicyDecisions enforcementPolicies;
+
+  @Test
+  void tokenPolicyDefaultsToDenyAndReevaluatesTheSameUnconsumedCode() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = browser();
+    String code = approve(browser, flow, pending(browser, flow));
+    issuancePolicy(flow, "ALLOW", List.of(), null, List.of(), false);
+    assertError(exchange(flow, code, flow.verifier(), CALLBACK), "invalid_grant");
+    assertTrue(
+        authorizations
+            .findByToken(
+                code,
+                new org.springframework.security.oauth2.server.authorization.OAuth2TokenType(
+                    "code"))
+            .getToken(
+                org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCode
+                    .class)
+            .isActive());
+    issuancePolicy(flow, "DENY", List.of(), null, List.of(), true);
+    assertError(exchange(flow, code, flow.verifier(), CALLBACK), "invalid_grant");
+    issuancePolicy(flow, "ALLOW", List.of(), null, List.of(), true);
+    assertEquals(200, exchange(flow, code, flow.verifier(), CALLBACK).statusCode());
+  }
+
+  @Test
+  void limitedPolicyNarrowsJwtResponsePersistenceAndOidcClaims() throws Exception {
+    Flow flow = flow(false, true);
+    issuancePolicy(flow, "ALLOW_LIMITED", List.of("openid", "api:read"), 60, List.of(), true);
+    HttpClient browser = browser();
+    String code =
+        approveScopes(
+            browser,
+            flow,
+            pending(browser, flow),
+            List.of("openid", "profile", "email", "api:read"));
+    var response = exchange(flow, code, flow.verifier(), CALLBACK);
+    assertEquals(200, response.statusCode(), response.body());
+    var body = JSON.readTree(response.body());
+    assertEquals(
+        java.util.Set.of("openid", "api:read"),
+        java.util.Set.of(body.path("scope").asText().split(" ")));
+    assertTrue(body.path("expires_in").asLong() <= 60);
+    var jwt =
+        com.nimbusds.jwt.SignedJWT.parse(body.path("access_token").asText()).getJWTClaimsSet();
+    assertEquals(
+        java.util.Set.of("openid", "api:read"),
+        java.util.Set.copyOf(jwt.getStringListClaim("scope")));
+    assertTrue(jwt.getExpirationTime().getTime() - jwt.getIssueTime().getTime() <= 60000);
+    var identity =
+        com.nimbusds.jwt.SignedJWT.parse(body.path("id_token").asText()).getJWTClaimsSet();
+    assertNull(identity.getClaim("email"));
+    assertNull(identity.getClaim("name"));
+    assertNotNull(identity.getClaim("nonce"));
+    var saved =
+        authorizations.findByToken(
+            body.path("access_token").asText(),
+            org.springframework.security.oauth2.server.authorization.OAuth2TokenType.ACCESS_TOKEN);
+    assertEquals(java.util.Set.of("openid", "api:read"), saved.getAuthorizedScopes());
+    assertEquals(saved.getAuthorizedScopes(), saved.getAccessToken().getToken().getScopes());
+    var userinfo = userinfo(body.path("access_token").asText());
+    assertEquals(200, userinfo.statusCode());
+    assertEquals(1, JSON.readTree(userinfo.body()).size());
+    issuancePolicy(flow, "ALLOW_LIMITED", List.of("api:read"), 60, List.of(), true);
+    Flow next = flow(false, true);
+    browser = browser();
+    code = approveScopes(browser, next, pending(browser, next), List.of("openid", "api:read"));
+    issuancePolicy(next, "ALLOW_LIMITED", List.of("api:read"), 60, List.of(), true);
+    assertError(exchange(next, code, next.verifier(), CALLBACK), "invalid_grant");
+  }
+
+  @Test
+  void refreshReevaluatesPolicyWithoutRestoringPreviouslyRemovedScopes() throws Exception {
+    Flow flow = flow(true, true);
+    HttpClient browser = browser();
+    String code =
+        approveScopes(
+            browser,
+            flow,
+            pending(browser, flow),
+            List.of("openid", "profile", "email", "api:read"));
+    Pair initial = pair(exchange(flow, code, flow.verifier(), CALLBACK));
+    issuancePolicy(flow, "ALLOW_LIMITED", List.of("openid", "api:read"), 45, List.of(), true);
+    var limited = refresh(flow, initial.refresh(), null);
+    assertEquals(200, limited.statusCode(), limited.body());
+    var body = JSON.readTree(limited.body());
+    assertTrue(body.path("expires_in").asLong() <= 45);
+    assertEquals(
+        java.util.Set.of("openid", "api:read"),
+        java.util.Set.of(body.path("scope").asText().split(" ")));
+    issuancePolicy(flow, "ALLOW", List.of(), null, List.of(), true);
+    assertError(refresh(flow, body.path("refresh_token").asText(), "email"), "invalid_scope");
+    var again = refresh(flow, body.path("refresh_token").asText(), null);
+    assertEquals(200, again.statusCode());
+    assertEquals(
+        java.util.Set.of("openid", "api:read"),
+        java.util.Set.of(JSON.readTree(again.body()).path("scope").asText().split(" ")));
+  }
+
+  @Test
+  void tokenPolicyRequiresMfaFromTheOriginalSessionAndRechecksItOnRefresh() throws Exception {
+    Flow flow = flow(true);
+    HttpClient browser = browser();
+    String code = approve(browser, flow, pending(browser, flow));
+    issuancePolicy(flow, "ALLOW_WITH_MFA", List.of(), null, List.of(), true);
+    assertError(exchange(flow, code, flow.verifier(), CALLBACK), "invalid_grant");
+    HttpClient other = mfaLogin(flow);
+    String seed = mfaSeed(mfaPost(other, "/mfa/enroll", Map.of("password", PASSWORD)));
+    var recovery = mfaRecovery(mfaPost(other, "/mfa/confirm", Map.of("code", mfaCode(seed))));
+    assertError(exchange(flow, code, flow.verifier(), CALLBACK), "invalid_grant");
+    assertEquals(
+        200,
+        mfaPost(browser, "/mfa/verify", Map.of("method", "RECOVERY", "code", recovery.getFirst()))
+            .statusCode());
+    Pair issued = pair(exchange(flow, code, flow.verifier(), CALLBACK));
+    java.time.Instant now = java.time.Instant.now();
+    org.mockito.Mockito.doReturn(now.plusSeconds(301)).when(riskClock).instant();
+    assertError(refresh(flow, issued.refresh(), null), "invalid_grant");
+    assertEquals(
+        200,
+        mfaPost(browser, "/mfa/verify", Map.of("method", "RECOVERY", "code", recovery.get(1)))
+            .statusCode());
+    assertEquals(200, refresh(flow, issued.refresh(), null).statusCode());
+  }
+
+  @Test
+  void tokenPolicyUsesTheServerBrowserContextForLiveNetworkEvidence() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = browser();
+    String code = approve(browser, flow, pending(browser, flow));
+    issuancePolicy(
+        flow,
+        "ALLOW",
+        List.of(),
+        null,
+        List.of(
+            Map.of("attribute", "NETWORK_TRUST", "operator", "EQ", "values", List.of("TRUSTED"))),
+        true);
+    assertError(exchange(flow, code, flow.verifier(), CALLBACK), "invalid_grant");
+    // Other tests may already have an allowlisted loopback network; isolate the classification.
+    var networks =
+        jdbc.queryForList(
+            "SELECT id,enabled,version FROM iam_policy.trusted_networks WHERE network='127.0.0.1/32'::cidr");
+    if (networks.isEmpty()) {
+      assertEquals(
+          201,
+          admin("POST", "/api/admin/risk/networks", Map.of("cidr", "127.0.0.1/32")).statusCode());
+    } else {
+      var network = networks.getFirst();
+      assertEquals(
+          200,
+          admin(
+                  "PUT",
+                  "/api/admin/risk/networks/" + network.get("id"),
+                  Map.of("enabled", true, "version", network.get("version")))
+              .statusCode());
+    }
+    assertEquals(200, exchange(flow, code, flow.verifier(), CALLBACK).statusCode());
+    jdbc.update(
+        "UPDATE iam_policy.trusted_networks SET enabled=false WHERE network='127.0.0.1/32'::cidr");
+  }
+
+  @Test
+  void policyAuditFailureRollsBackCodeAndRefreshIssuance() throws Exception {
+    Flow flow = flow(true);
+    HttpClient browser = browser();
+    String code = approve(browser, flow, pending(browser, flow));
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic policy audit failure"))
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                event -> event.type().value().equals("oauth.policy.applied")));
+    var failed = exchange(flow, code, flow.verifier(), CALLBACK);
+    assertEquals(503, failed.statusCode());
+    assertEquals("temporarily_unavailable", JSON.readTree(failed.body()).path("error").asText());
+    org.mockito.Mockito.reset(mfaAudit);
+    Pair issued = pair(exchange(flow, code, flow.verifier(), CALLBACK));
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic policy audit failure"))
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                event -> event.type().value().equals("oauth.policy.applied")));
+    assertEquals(503, refresh(flow, issued.refresh(), null).statusCode());
+    org.mockito.Mockito.reset(mfaAudit);
+    assertEquals(200, refresh(flow, issued.refresh(), null).statusCode());
+  }
+
+  @Test
+  void policyCollectorFailureCannotFallBackToUnrestrictedTokens() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = browser();
+    String code = approve(browser, flow, pending(browser, flow));
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic collector failure"))
+        .when(enforcementPolicies)
+        .decide(
+            org.mockito.ArgumentMatchers.eq(flow.userId()),
+            org.mockito.ArgumentMatchers.anyString(),
+            org.mockito.ArgumentMatchers.anyString(),
+            org.mockito.ArgumentMatchers.anySet(),
+            org.mockito.ArgumentMatchers.any());
+    assertEquals(503, exchange(flow, code, flow.verifier(), CALLBACK).statusCode());
+    org.mockito.Mockito.reset(enforcementPolicies);
+    assertEquals(200, exchange(flow, code, flow.verifier(), CALLBACK).statusCode());
+  }
+
+  private void issuancePolicy(
+      Flow flow,
+      String effect,
+      List<String> scopes,
+      Integer ttl,
+      List<Map<String, Object>> conditions,
+      boolean enabled)
+      throws Exception {
+    UUID id =
+        jdbc.queryForObject(
+            "SELECT id FROM iam_policy.policies WHERE name=?",
+            UUID.class,
+            "issuance-" + flow.clientId());
+    var previous = JSON.readTree(admin("GET", "/api/admin/policies/" + id, Map.of()).body());
+    var rule = new HashMap<String, Object>();
+    rule.put("schemaVersion", conditions.isEmpty() ? 1 : 2);
+    rule.put("resource", "oauth:" + flow.clientId());
+    rule.put("action", "issue");
+    rule.put("effect", effect);
+    rule.put("rolesAnyOf", List.of());
+    rule.put("allowedScopes", scopes);
+    if (ttl != null) {
+      rule.put("maxAccessTokenTtlSeconds", ttl);
+    }
+    if (!conditions.isEmpty()) {
+      rule.put("conditions", conditions);
+    }
+    var result =
+        admin(
+            "PUT",
+            "/api/admin/policies/" + id,
+            Map.of(
+                "name",
+                "issuance-" + flow.clientId(),
+                "priority",
+                100,
+                "enabled",
+                enabled,
+                "version",
+                previous.path("version").asLong(),
+                "document",
+                rule));
+    assertEquals(200, result.statusCode(), result.body());
+  }
+
+  @Autowired com.securegate.iam.identity.application.port.MfaProofs mfaProofs;
+
+  @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+  com.securegate.iam.audit.application.port.AuditTrail mfaAudit;
+
+  @Test
+  void mfaEnrollmentIsCsrfProtectedEncryptedAndReturnsRecoveryCodesOnlyOnce() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = mfaLogin(flow);
+    org.mockito.Mockito.doReturn(java.time.Instant.now()).when(riskClock).instant();
+    assertEquals(403, post(browser, "/mfa/enroll", Map.of("password", PASSWORD)).statusCode());
+    assertEquals(
+        400,
+        mfaPost(browser, "/mfa/enroll", Map.of("password", "incorrect-password")).statusCode());
+    var enrollment = mfaPost(browser, "/mfa/enroll", Map.of("password", PASSWORD));
+    assertEquals(200, enrollment.statusCode());
+    assertEquals("no-store", enrollment.headers().firstValue("Cache-Control").orElseThrow());
+    assertTrue(
+        enrollment
+            .headers()
+            .firstValue("Content-Security-Policy")
+            .orElseThrow()
+            .contains("default-src 'none'"));
+    String seed = mfaSeed(enrollment);
+    String ciphertext =
+        jdbc.queryForObject(
+            "SELECT ciphertext FROM iam_identity.mfa_factors WHERE user_id=?",
+            String.class,
+            flow.userId());
+    assertTrue(ciphertext.startsWith("vault:v1:"));
+    assertFalse(ciphertext.contains(seed));
+    assertFalse(get(browser, "/mfa").body().contains(seed));
+    var activated = mfaPost(browser, "/mfa/confirm", Map.of("code", mfaCode(seed)));
+    assertEquals(200, activated.statusCode());
+    var codes = mfaRecovery(activated);
+    assertEquals(10, codes.size());
+    assertEquals(10, codes.stream().distinct().count());
+    assertEquals(
+        10,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_identity.mfa_recovery_codes c JOIN iam_identity.mfa_factors f ON f.id=c.factor_id WHERE f.user_id=? AND c.code_hash ~ '^[0-9a-f]{64}$'",
+            Integer.class,
+            flow.userId()));
+    var page = get(browser, "/mfa");
+    assertTrue(page.body().contains("Step-up"));
+    for (String code : codes) {
+      assertFalse(page.body().contains(code));
+    }
+    assertEquals(400, mfaPost(browser, "/mfa/confirm", Map.of("code", mfaCode(seed))).statusCode());
+    assertEquals(400, mfaPost(browser, "/mfa/enroll", Map.of("password", PASSWORD)).statusCode());
+    assertEquals(
+        400,
+        mfaPost(browser, "/mfa/verify", Map.of("method", "TOTP", "code", mfaCode(seed)))
+            .statusCode());
+    String details =
+        jdbc.queryForObject(
+            "SELECT string_agg(details::text,',') FROM iam_audit.security_events WHERE resource=?",
+            String.class,
+            "identity/mfa/" + flow.userId());
+    assertFalse(details.contains(seed));
+    for (String code : codes) {
+      assertFalse(details.contains(code));
+    }
+    assertEquals(302, get(browser(), "/mfa").statusCode());
+    assertEquals(401, admin("GET", "/mfa", Map.of()).statusCode());
+  }
+
+  @Test
+  void mfaConfirmationBindsPendingEnrollmentToSessionAndExpiresIt() throws Exception {
+    Flow flow = flow();
+    HttpClient owner = mfaLogin(flow);
+    HttpClient other = mfaLogin(flow);
+    // PostgreSQL persists instants at microsecond precision; keep the exact boundary deterministic.
+    java.time.Instant now =
+        java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    org.mockito.Mockito.doReturn(now).when(riskClock).instant();
+    String seed = mfaSeed(mfaPost(owner, "/mfa/enroll", Map.of("password", PASSWORD)));
+    assertEquals(400, mfaPost(other, "/mfa/confirm", Map.of("code", mfaCode(seed))).statusCode());
+    org.mockito.Mockito.doReturn(now.plusSeconds(300)).when(riskClock).instant();
+    assertEquals(400, mfaPost(owner, "/mfa/confirm", Map.of("code", mfaCode(seed))).statusCode());
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_session.mfa_proofs WHERE user_id=?",
+            Integer.class,
+            flow.userId()));
+    assertEquals(400, mfaPost(owner, "/mfa/enroll", Map.of("password", PASSWORD)).statusCode());
+  }
+
+  @Test
+  void mfaAttemptsAreSharedAcrossSessionsAndRemainCommittedOnRejection() throws Exception {
+    Flow flow = flow();
+    HttpClient first = mfaLogin(flow);
+    HttpClient second = mfaLogin(flow);
+    java.time.Instant now = java.time.Instant.now();
+    org.mockito.Mockito.doReturn(now).when(riskClock).instant();
+    for (int attempt = 0; attempt < 5; attempt++) {
+      assertEquals(
+          attempt == 4 ? 429 : 400,
+          mfaPost(
+                  attempt % 2 == 0 ? first : second,
+                  "/mfa/enroll",
+                  Map.of("password", "incorrect-password"))
+              .statusCode());
+    }
+    assertEquals(
+        5,
+        jdbc.queryForObject(
+            "SELECT failures FROM iam_identity.mfa_factors WHERE user_id=?",
+            Integer.class,
+            flow.userId()));
+    assertEquals(429, mfaPost(second, "/mfa/enroll", Map.of("password", PASSWORD)).statusCode());
+    org.mockito.Mockito.doReturn(now.plusSeconds(301)).when(riskClock).instant();
+    assertEquals(
+        400,
+        mfaPost(first, "/mfa/verify", Map.of("method", "TOTP", "code", "000000")).statusCode());
+    assertEquals(
+        1,
+        jdbc.queryForObject(
+            "SELECT failures FROM iam_identity.mfa_factors WHERE user_id=?",
+            Integer.class,
+            flow.userId()));
+  }
+
+  @Test
+  void mfaRecoveryAndTotpAreConsumedOnceUnderConcurrency() throws Exception {
+    Flow flow = flow();
+    HttpClient first = mfaLogin(flow);
+    HttpClient second = mfaLogin(flow);
+    java.time.Instant now = java.time.Instant.now();
+    org.mockito.Mockito.doReturn(now).when(riskClock).instant();
+    String seed = mfaSeed(mfaPost(first, "/mfa/enroll", Map.of("password", PASSWORD)));
+    List<String> codes = mfaRecovery(mfaPost(first, "/mfa/confirm", Map.of("code", mfaCode(seed))));
+    String csrf1 = hidden(get(first, "/mfa").body(), "_csrf");
+    String csrf2 = hidden(get(second, "/mfa").body(), "_csrf");
+    try (var callers = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+      var one =
+          callers.submit(
+              () ->
+                  post(
+                          first,
+                          "/mfa/verify",
+                          Map.of("method", "RECOVERY", "code", codes.getFirst(), "_csrf", csrf1))
+                      .statusCode());
+      var two =
+          callers.submit(
+              () ->
+                  post(
+                          second,
+                          "/mfa/verify",
+                          Map.of("method", "RECOVERY", "code", codes.getFirst(), "_csrf", csrf2))
+                      .statusCode());
+      assertEquals(
+          List.of(200, 400), java.util.stream.Stream.of(one.get(), two.get()).sorted().toList());
+    }
+    assertEquals(
+        9,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_identity.mfa_recovery_codes c JOIN iam_identity.mfa_factors f ON f.id=c.factor_id WHERE f.user_id=?",
+            Integer.class,
+            flow.userId()));
+    org.mockito.Mockito.doReturn(now.plusSeconds(30)).when(riskClock).instant();
+    String code = mfaCode(seed);
+    try (var callers = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+      var one =
+          callers.submit(
+              () ->
+                  post(first, "/mfa/verify", Map.of("method", "TOTP", "code", code, "_csrf", csrf1))
+                      .statusCode());
+      var two =
+          callers.submit(
+              () ->
+                  post(
+                          second,
+                          "/mfa/verify",
+                          Map.of("method", "TOTP", "code", code, "_csrf", csrf2))
+                      .statusCode());
+      assertEquals(
+          List.of(200, 400), java.util.stream.Stream.of(one.get(), two.get()).sorted().toList());
+    }
+  }
+
+  @Test
+  void mfaAuditFailureRollsBackActivationRecoveryConsumptionAndProof() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = mfaLogin(flow);
+    org.mockito.Mockito.doReturn(java.time.Instant.now()).when(riskClock).instant();
+    String seed = mfaSeed(mfaPost(browser, "/mfa/enroll", Map.of("password", PASSWORD)));
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic audit failure"))
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                event -> event.type().value().equals("identity.mfa.activated")));
+    assertEquals(500, mfaPost(browser, "/mfa/confirm", Map.of("code", mfaCode(seed))).statusCode());
+    assertEquals(
+        "PENDING",
+        jdbc.queryForObject(
+            "SELECT state FROM iam_identity.mfa_factors WHERE user_id=?",
+            String.class,
+            flow.userId()));
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_session.mfa_proofs WHERE user_id=?",
+            Integer.class,
+            flow.userId()));
+    org.mockito.Mockito.reset(mfaAudit);
+    var codes = mfaRecovery(mfaPost(browser, "/mfa/confirm", Map.of("code", mfaCode(seed))));
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic audit failure"))
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                event -> event.type().value().equals("identity.mfa.recoveryused")));
+    assertEquals(
+        500,
+        mfaPost(browser, "/mfa/verify", Map.of("method", "RECOVERY", "code", codes.getFirst()))
+            .statusCode());
+    assertEquals(
+        10,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_identity.mfa_recovery_codes c JOIN iam_identity.mfa_factors f ON f.id=c.factor_id WHERE f.user_id=?",
+            Integer.class,
+            flow.userId()));
+    org.mockito.Mockito.reset(mfaAudit);
+    assertEquals(
+        200,
+        mfaPost(browser, "/mfa/verify", Map.of("method", "RECOVERY", "code", codes.getFirst()))
+            .statusCode());
+  }
+
+  @Test
+  void mfaProofExpiresAndIsInvalidatedByReauthenticationLogoutAndIdentityChanges()
+      throws Exception {
+    Flow flow = flow();
+    HttpClient browser = mfaLogin(flow);
+    java.time.Instant now = java.time.Instant.now();
+    org.mockito.Mockito.doReturn(now).when(riskClock).instant();
+    String seed = mfaSeed(mfaPost(browser, "/mfa/enroll", Map.of("password", PASSWORD)));
+    List<String> codes =
+        mfaRecovery(mfaPost(browser, "/mfa/confirm", Map.of("code", mfaCode(seed))));
+    UUID sid =
+        jdbc.queryForObject(
+            "SELECT session_id FROM iam_session.mfa_proofs WHERE user_id=?",
+            UUID.class,
+            flow.userId());
+    assertTrue(mfaProofs.current(flow.userId(), 0, sid).isPresent());
+    assertTrue(mfaProofs.current(flow.userId(), 0, UUID.randomUUID()).isEmpty());
+    assertTrue(mfaProofs.current(UUID.randomUUID(), 0, sid).isEmpty());
+    org.mockito.Mockito.doReturn(now.plusSeconds(300)).when(riskClock).instant();
+    assertTrue(mfaProofs.current(flow.userId(), 0, sid).isEmpty());
+    org.mockito.Mockito.doReturn(now).when(riskClock).instant();
+    var login = get(browser, "/login");
+    assertEquals(
+        302,
+        post(
+                browser,
+                "/login",
+                Map.of(
+                    "username",
+                    flow.email(),
+                    "password",
+                    PASSWORD,
+                    "_csrf",
+                    hidden(login.body(), "_csrf")))
+            .statusCode());
+    assertTrue(mfaProofs.current(flow.userId(), 0, sid).isEmpty());
+    assertEquals(
+        200,
+        mfaPost(browser, "/mfa/verify", Map.of("method", "RECOVERY", "code", codes.getFirst()))
+            .statusCode());
+    sid =
+        jdbc.queryForObject(
+            "SELECT session_id FROM iam_session.mfa_proofs WHERE user_id=?",
+            UUID.class,
+            flow.userId());
+    assertEquals(
+        302,
+        post(browser, "/logout", Map.of("_csrf", hidden(get(browser, "/login").body(), "_csrf")))
+            .statusCode());
+    assertTrue(mfaProofs.current(flow.userId(), 0, sid).isEmpty());
+    browser = mfaLogin(flow);
+    assertEquals(
+        200,
+        mfaPost(browser, "/mfa/verify", Map.of("method", "RECOVERY", "code", codes.get(1)))
+            .statusCode());
+    sid =
+        jdbc.queryForObject(
+            "SELECT session_id FROM iam_session.mfa_proofs WHERE user_id=?",
+            UUID.class,
+            flow.userId());
+    jdbc.update("UPDATE iam_identity.users SET version=version+1 WHERE id=?", flow.userId());
+    assertTrue(mfaProofs.current(flow.userId(), 0, sid).isEmpty());
+    assertEquals(302, get(browser, "/mfa").statusCode());
+  }
+
+  @Test
+  void mfaVaultFailureReturnsSanitized503WithoutConsumingConfirmation() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = mfaLogin(flow);
+    org.mockito.Mockito.doReturn(java.time.Instant.now()).when(riskClock).instant();
+    String seed = mfaSeed(mfaPost(browser, "/mfa/enroll", Map.of("password", PASSWORD)));
+    jdbc.update(
+        "UPDATE iam_identity.mfa_factors SET ciphertext='vault:v999:AAAA' WHERE user_id=?",
+        flow.userId());
+    var denied = mfaPost(browser, "/mfa/confirm", Map.of("code", mfaCode(seed)));
+    assertEquals(503, denied.statusCode());
+    assertFalse(denied.body().contains(seed));
+    assertFalse(denied.body().contains("vault:v"));
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT failures FROM iam_identity.mfa_factors WHERE user_id=?",
+            Integer.class,
+            flow.userId()));
+    assertEquals(
+        -1L,
+        jdbc.queryForObject(
+            "SELECT last_counter FROM iam_identity.mfa_factors WHERE user_id=?",
+            Long.class,
+            flow.userId()));
+  }
+
+  @Test
+  void closingMfaSessionCannotBeUndoneByAnInFlightVerification() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = mfaLogin(flow);
+    java.time.Instant now = java.time.Instant.now();
+    org.mockito.Mockito.doReturn(now).when(riskClock).instant();
+    String seed = mfaSeed(mfaPost(browser, "/mfa/enroll", Map.of("password", PASSWORD)));
+    List<String> codes =
+        mfaRecovery(mfaPost(browser, "/mfa/confirm", Map.of("code", mfaCode(seed))));
+    UUID sid =
+        jdbc.queryForObject(
+            "SELECT session_id FROM iam_session.mfa_proofs WHERE user_id=?",
+            UUID.class,
+            flow.userId());
+    var session =
+        new com.securegate.iam.identity.application.MfaService.Session(flow.userId(), 0, sid, now);
+    var context =
+        new com.securegate.iam.shared.application.port.OperationContext(
+            flow.userId().toString(), "mfa-close-race");
+    var verified = new java.util.concurrent.CountDownLatch(1);
+    var release = new java.util.concurrent.CountDownLatch(1);
+    org.mockito.Mockito.doAnswer(
+            call -> {
+              verified.countDown();
+              assertTrue(release.await(5, java.util.concurrent.TimeUnit.SECONDS));
+              return call.callRealMethod();
+            })
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                event -> event.type().value().equals("identity.mfa.recoveryused")));
+    try (var callers = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+      var verification =
+          callers.submit(() -> mfa.verify(session, "RECOVERY", codes.getFirst(), context));
+      try {
+        assertTrue(verified.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        var closing = callers.submit(() -> mfaProofs.revokeSession(sid));
+        release.countDown();
+        assertEquals(
+            "SUCCESS", verification.get(5, java.util.concurrent.TimeUnit.SECONDS).outcome());
+        closing.get(5, java.util.concurrent.TimeUnit.SECONDS);
+      } finally {
+        release.countDown();
+      }
+    }
+    assertTrue(mfaProofs.current(flow.userId(), 0, sid).isEmpty());
+    assertThrows(
+        com.securegate.iam.identity.application.MfaService.StaleSession.class,
+        () -> mfa.verify(session, "RECOVERY", codes.get(1), context));
+    assertEquals(
+        9,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_identity.mfa_recovery_codes c JOIN iam_identity.mfa_factors f ON f.id=c.factor_id WHERE f.user_id=?",
+            Integer.class,
+            flow.userId()));
+  }
+
+  private HttpClient mfaLogin(Flow flow) throws Exception {
+    HttpClient browser = browser();
+    var page = get(browser, "/login");
+    assertEquals(
+        302,
+        post(
+                browser,
+                "/login",
+                Map.of(
+                    "username",
+                    flow.email(),
+                    "password",
+                    PASSWORD,
+                    "_csrf",
+                    hidden(page.body(), "_csrf")))
+            .statusCode());
+    assertEquals(200, get(browser, "/mfa").statusCode());
+    return browser;
+  }
+
+  private HttpResponse<String> mfaPost(HttpClient browser, String path, Map<String, String> values)
+      throws Exception {
+    var body = new HashMap<>(values);
+    body.put("_csrf", hidden(get(browser, "/mfa").body(), "_csrf"));
+    return post(browser, path, body);
+  }
+
+  private static String mfaSeed(HttpResponse<String> response) {
+    assertEquals(200, response.statusCode());
+    var matcher = Pattern.compile("id=\"totp-secret\">([A-Z2-7]{32})").matcher(response.body());
+    assertTrue(matcher.find());
+    return matcher.group(1);
+  }
+
+  private static List<String> mfaRecovery(HttpResponse<String> response) {
+    assertEquals(200, response.statusCode());
+    return Pattern.compile("class=\"recovery-code\">([A-Za-z0-9_-]{22})")
+        .matcher(response.body())
+        .results()
+        .map(match -> match.group(1))
+        .toList();
+  }
+
+  private String mfaCode(String seed) throws Exception {
+    String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    StringBuilder binary = new StringBuilder();
+    for (char letter : seed.toCharArray()) {
+      binary.append(
+          String.format("%5s", Integer.toBinaryString(alphabet.indexOf(letter))).replace(' ', '0'));
+    }
+    byte[] key = new byte[20];
+    for (int i = 0; i < 20; i++) {
+      key[i] = (byte) Integer.parseInt(binary.substring(i * 8, i * 8 + 8), 2);
+    }
+    var hmac = javax.crypto.Mac.getInstance("HmacSHA1");
+    hmac.init(new javax.crypto.spec.SecretKeySpec(key, "HmacSHA1"));
+    byte[] digest =
+        hmac.doFinal(
+            java.nio.ByteBuffer.allocate(8)
+                .putLong(riskClock.instant().getEpochSecond() / 30)
+                .array());
+    int offset = digest[19] & 15;
+    return String.format(
+        java.util.Locale.ROOT,
+        "%06d",
+        (java.nio.ByteBuffer.wrap(digest, offset, 4).getInt() & 0x7fffffff) % 1000000);
+  }
 
   @Autowired
   org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService
       authorizations;
 
   @LocalServerPort int port;
+
+  private JsonNode riskContext(Flow flow) throws Exception {
+    var response = admin("GET", "/api/admin/risk/users/" + flow.userId() + "/contexts", Map.of());
+    assertEquals(200, response.statusCode(), response.body());
+    assertFalse(response.body().contains("127.0.0.1"));
+    var contexts = JSON.readTree(response.body());
+    assertEquals(1, contexts.size());
+    return contexts.get(0);
+  }
+
+  @Test
+  void reauthenticationClosesPreviousRiskContextBeforeIssuingANewOne() throws Exception {
+    Flow flow = flow();
+    var browser = browser();
+    pending(browser, flow);
+    var previous = riskContext(flow);
+    var page = get(browser, "/login");
+    var relogin =
+        post(
+            browser,
+            "/login",
+            Map.of(
+                "username",
+                flow.email(),
+                "password",
+                PASSWORD,
+                "_csrf",
+                hidden(page.body(), "_csrf")));
+    assertEquals(302, relogin.statusCode());
+    var current = riskContext(flow);
+    assertNotEquals(previous.path("id").asText(), current.path("id").asText());
+    assertEquals(previous.path("deviceId").asText(), current.path("deviceId").asText());
+    assertNotNull(
+        jdbc.queryForObject(
+            "SELECT closed_at FROM iam_policy.browser_contexts WHERE id=?",
+            java.sql.Timestamp.class,
+            UUID.fromString(previous.path("id").asText())));
+  }
+
+  private JsonNode evaluateRisk(Flow flow, String resource, String contextId) throws Exception {
+    var body =
+        new HashMap<String, Object>(
+            Map.of(
+                "userId",
+                flow.userId(),
+                "resource",
+                resource,
+                "action",
+                "read",
+                "requestedScopes",
+                List.of("api:read")));
+    if (contextId != null) {
+      body.put("contextId", contextId);
+    }
+    var response = admin("POST", "/api/admin/policies/evaluate", body);
+    assertEquals(200, response.statusCode(), response.body());
+    assertFalse(JSON.readTree(response.body()).path("simulation").asBoolean());
+    return JSON.readTree(response.body()).path("risk");
+  }
+
+  @Test
+  void collectsAuthenticatedBrowserContextIgnoresForwardedHeadersAndClosesItOnLogout()
+      throws Exception {
+    var now = java.time.Instant.now().plusSeconds(600);
+    org.mockito.Mockito.doReturn(now).when(riskClock).instant();
+    Flow flow = flow();
+    var browser = browser();
+    pending(browser, flow);
+    var context = riskContext(flow);
+    String contextId = context.path("id").asText();
+    String deviceId = context.path("deviceId").asText();
+    var manager = (CookieManager) browser.cookieHandler().orElseThrow();
+    var cookie =
+        manager.getCookieStore().getCookies().stream()
+            .filter(value -> value.getName().equals("sg_device"))
+            .findFirst()
+            .orElseThrow();
+    assertTrue(cookie.isHttpOnly());
+    assertEquals(deviceId, cookie.getValue());
+    assertEquals(
+        201,
+        admin(
+                "POST",
+                "/api/admin/risk/resources",
+                Map.of(
+                    "resource",
+                    "browser-" + flow.suffix().toLowerCase(java.util.Locale.ROOT),
+                    "sensitivity",
+                    "PUBLIC"))
+            .statusCode());
+    String resource = "browser-" + flow.suffix().toLowerCase(java.util.Locale.ROOT);
+    browser.send(
+        HttpRequest.newBuilder(uri("/login"))
+            .header("X-Forwarded-For", "203.0.113.9")
+            .header("Forwarded", "for=203.0.113.9;proto=https")
+            .GET()
+            .build(),
+        HttpResponse.BodyHandlers.ofString());
+    assertEquals(
+        "127.0.0.1",
+        jdbc.queryForObject(
+            "SELECT host(remote_address) FROM iam_policy.browser_contexts WHERE id=?",
+            String.class,
+            UUID.fromString(contextId)));
+    var networks = admin("POST", "/api/admin/risk/networks", Map.of("cidr", "127.0.0.0/8"));
+    assertEquals(201, networks.statusCode(), networks.body());
+    String networkId = JSON.readTree(networks.body()).path("id").asText();
+    try {
+      assertEquals(25, evaluateRisk(flow, resource, contextId).path("score").asInt());
+      var approved =
+          admin(
+              "PUT",
+              "/api/admin/risk/users/" + flow.userId() + "/devices/" + deviceId,
+              Map.of("trusted", true, "ttlSeconds", 600, "version", 0));
+      assertEquals(200, approved.statusCode(), approved.body());
+      assertEquals(0, evaluateRisk(flow, resource, contextId).path("score").asInt());
+      assertEquals(45, evaluateRisk(flow, resource, null).path("score").asInt());
+      Flow foreign = flow();
+      assertEquals(45, evaluateRisk(foreign, resource, contextId).path("score").asInt());
+      var page = get(browser, "/login");
+      assertEquals(
+          302,
+          post(browser, "/logout", Map.of("_csrf", hidden(page.body(), "_csrf"))).statusCode());
+      assertNotNull(
+          jdbc.queryForObject(
+              "SELECT closed_at FROM iam_policy.browser_contexts WHERE id=?",
+              java.sql.Timestamp.class,
+              UUID.fromString(contextId)));
+      assertEquals(45, evaluateRisk(flow, resource, contextId).path("score").asInt());
+    } finally {
+      admin("PUT", "/api/admin/risk/networks/" + networkId, Map.of("enabled", false, "version", 0));
+    }
+  }
+
+  @Test
+  void countsActualKnownAccountFailuresAndDoesNotTransferBrowserApprovalBetweenUsers()
+      throws Exception {
+    var now = java.time.Instant.now().plusSeconds(600);
+    org.mockito.Mockito.doReturn(now).when(riskClock).instant();
+    Flow owner = flow();
+    var browser = browser();
+    var login = get(browser, "/login");
+    for (int index = 0; index < 2; index++) {
+      var failed =
+          post(
+              browser,
+              "/login",
+              Map.of(
+                  "username",
+                  owner.email(),
+                  "password",
+                  "wrong-password",
+                  "_csrf",
+                  hidden(login.body(), "_csrf")));
+      assertEquals(302, failed.statusCode());
+      assertTrue(location(failed).endsWith("/login?error"));
+    }
+    var unknown =
+        post(
+            browser,
+            "/login",
+            Map.of(
+                "username",
+                "unknown@example.test",
+                "password",
+                "wrong-password",
+                "_csrf",
+                hidden(login.body(), "_csrf")));
+    assertEquals(302, unknown.statusCode());
+    assertEquals(2, loginHistory.recentFailures(owner.userId()));
+    pending(browser, owner);
+    var first = riskContext(owner);
+    var approved =
+        admin(
+            "PUT",
+            "/api/admin/risk/users/"
+                + owner.userId()
+                + "/devices/"
+                + first.path("deviceId").asText(),
+            Map.of("trusted", true, "ttlSeconds", 600, "version", 0));
+    assertEquals(200, approved.statusCode());
+    var browser2 = browser();
+    var manager = (CookieManager) browser2.cookieHandler().orElseThrow();
+    var copied = new java.net.HttpCookie("sg_device", first.path("deviceId").asText());
+    copied.setPath("/");
+    manager.getCookieStore().add(uri("/"), copied);
+    Flow other = flow();
+    pending(browser2, other);
+    var second = riskContext(other);
+    assertNotEquals(first.path("deviceId").asText(), second.path("deviceId").asText());
+    assertTrue(second.path("trustedUntil").isNull());
+    var risk = evaluateRisk(owner, "unclassified", first.path("id").asText());
+    assertTrue(risk.path("reasons").toString().contains("RECENT_LOGIN_FAILURES"));
+    org.mockito.Mockito.doReturn(now.plusSeconds(301)).when(riskClock).instant();
+    assertEquals(0, loginHistory.recentFailures(owner.userId()));
+  }
 
   @Test
   void completesLoginConsentAndPkceAndPersistsOnlySafeIdentityMetadata() throws Exception {
@@ -968,6 +2357,32 @@ class BrowserAuthorizationIT {
             "/api/admin/users",
             Map.of("email", email, "displayName", "Synthetic User", "password", PASSWORD));
     assertEquals(201, user.statusCode());
+    var permit =
+        admin(
+            "POST",
+            "/api/admin/policies",
+            Map.of(
+                "name",
+                "issuance-" + clientId,
+                "priority",
+                100,
+                "enabled",
+                true,
+                "document",
+                Map.of(
+                    "schemaVersion",
+                    1,
+                    "resource",
+                    "oauth:" + clientId,
+                    "action",
+                    "issue",
+                    "effect",
+                    "ALLOW",
+                    "rolesAnyOf",
+                    List.of(),
+                    "allowedScopes",
+                    List.of())));
+    assertEquals(201, permit.statusCode(), permit.body());
     return new Flow(
         suffix.toUpperCase(java.util.Locale.ROOT),
         clientId,

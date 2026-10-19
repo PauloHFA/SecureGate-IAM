@@ -55,7 +55,7 @@ $tokenResult | Select-Object token_type, expires_in, scope
 
 O access token fica em `$tokenResult.access_token`; não o imprima em logs. O header Basic deste exemplo é válido para os IDs e segredos gerados, que não contêm caracteres reservados que precisariam de form encoding. A resposta retorna `token_type=Bearer`, validade próxima de 300 segundos e os escopos solicitados. Não há refresh token ou ID token.
 
-O token tem audiência `securegate-api`, sujeito/client_id `local-machine-client`, escopos limitados ao cadastro e assinatura RS256. O JWKS público fica em `$baseUrl/oauth2/jwks`. A API administrativa continua exigindo seu próprio token bootstrap: este JWT de aplicação não a autoriza. O projeto ainda não oferece um endpoint de recurso de negócio que aceite esse Bearer; os testes verificam o JWT com um decoder independente via JWKS.
+O token tem audiência `securegate-api`, sujeito/client_id `local-machine-client`, escopos limitados ao cadastro e assinatura RS256. O JWKS público fica em `$baseUrl/oauth2/jwks`. A API administrativa continua exigindo seu próprio token bootstrap: este JWT de aplicação não a autoriza. O [recurso local da 5D3](recursos-local.md) atende somente grants de usuário e rejeita Client Credentials. Os testes deste fluxo verificam o JWT com um decoder independente via JWKS.
 
 ## Diagnóstico e limites
 

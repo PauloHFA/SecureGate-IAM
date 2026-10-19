@@ -9,6 +9,9 @@ import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jwt.SignedJWT;
 import com.securegate.iam.authorization.application.SigningUnavailableException;
 import com.securegate.iam.authorization.application.port.SigningKeys;
+import com.securegate.iam.authorization.application.port.TransitEncryption;
+import com.securegate.iam.identity.application.port.MfaSecretProtector;
+import com.securegate.iam.identity.domain.TotpSecret;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -78,6 +81,9 @@ class TransitSigningIT {
         "transit/keys/securegate-jwt",
         Map.of("type", "rsa-3072", "exportable", false, "allow_plaintext_backup", false));
     admin("sys/auth/approle", Map.of("type", "approle"));
+    admin(
+        "transit/keys/securegate-mfa",
+        Map.of("type", "aes256-gcm96", "exportable", false, "allow_plaintext_backup", false));
     // Exercise the actual application policy, not root permissions or a test approximation.
     admin(
         "sys/policies/acl/securegate-iam-core",
@@ -108,6 +114,8 @@ class TransitSigningIT {
 
   @Autowired JwtEncoder encoder;
   @Autowired SigningKeys keys;
+  @Autowired MfaSecretProtector mfaSecrets;
+  @Autowired TransitEncryption encryption;
   @LocalServerPort int port;
 
   @AfterAll
@@ -243,6 +251,120 @@ class TransitSigningIT {
 
   @Test
   @Order(4)
+  void encryptsMfaSecretsWithAccountAndFactorBindingAndSurvivesKeyRotation() throws Exception {
+    UUID user = UUID.randomUUID();
+    UUID factor = UUID.randomUUID();
+    TotpSecret secret = TotpSecret.generate();
+    String before = mfaSecrets.protect(user, factor, secret);
+    assertTrue(before.startsWith("vault:v1:"));
+    assertFalse(before.contains(secret.encoded()));
+    assertNotEquals(before, mfaSecrets.protect(user, factor, secret));
+    assertEquals(secret.encoded(), mfaSecrets.unprotect(user, factor, before).encoded());
+    assertThrows(
+        MfaSecretProtector.Unavailable.class,
+        () -> mfaSecrets.unprotect(UUID.randomUUID(), factor, before));
+    assertThrows(
+        MfaSecretProtector.Unavailable.class,
+        () -> mfaSecrets.unprotect(user, UUID.randomUUID(), before));
+    String[] parts = before.split(":");
+    byte[] damaged = Base64.getDecoder().decode(parts[2]);
+    damaged[damaged.length - 1] ^= 1;
+    String tampered = parts[0] + ":" + parts[1] + ":" + Base64.getEncoder().encodeToString(damaged);
+    var failure =
+        assertThrows(
+            MfaSecretProtector.Unavailable.class,
+            () -> mfaSecrets.unprotect(user, factor, tampered));
+    assertEquals("MFA secret protection is unavailable.", failure.getMessage());
+    assertNull(failure.getCause());
+    admin("transit/keys/securegate-mfa/rotate", Map.of());
+    String after = mfaSecrets.protect(user, factor, secret);
+    assertTrue(after.startsWith("vault:v2:"));
+    assertEquals(secret.encoded(), mfaSecrets.unprotect(user, factor, after).encoded());
+    assertEquals(secret.encoded(), mfaSecrets.unprotect(user, factor, before).encoded());
+    assertEquals(2, JWKSet.parse(get("/oauth2/jwks").body()).getKeys().size());
+    JsonNode metadata = admin("transit/keys/securegate-mfa", null).path("data");
+    assertEquals("aes256-gcm96", metadata.path("type").asText());
+    assertFalse(metadata.path("exportable").asBoolean(true));
+    assertFalse(metadata.path("allow_plaintext_backup").asBoolean(true));
+  }
+
+  @Test
+  @Order(4)
+  void rejectsUnboundedAndUnboundEncryptionInputs() {
+    byte[] binding = {1};
+    byte[] input = {2};
+    for (byte[] invalid : new byte[][] {null, new byte[0], new byte[1025]}) {
+      assertThrows(IllegalArgumentException.class, () -> encryption.encrypt(invalid, binding));
+    }
+    for (byte[] invalid : new byte[][] {null, new byte[0], new byte[257]}) {
+      assertThrows(IllegalArgumentException.class, () -> encryption.encrypt(input, invalid));
+      assertThrows(
+          IllegalArgumentException.class, () -> encryption.decrypt("vault:v1:AAAA", invalid));
+    }
+    for (String invalid :
+        new String[] {null, "", "vault:v0:AAAA", "vault:v1:@@@", "A".repeat(2049)}) {
+      assertThrows(IllegalArgumentException.class, () -> encryption.decrypt(invalid, binding));
+    }
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> mfaSecrets.protect(null, UUID.randomUUID(), TotpSecret.generate()));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> mfaSecrets.protect(UUID.randomUUID(), null, TotpSecret.generate()));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> mfaSecrets.protect(UUID.randomUUID(), UUID.randomUUID(), null));
+    assertThrows(
+        MfaSecretProtector.Unavailable.class,
+        () -> mfaSecrets.unprotect(UUID.randomUUID(), UUID.randomUUID(), "bad"));
+    UUID user = UUID.randomUUID();
+    UUID factor = UUID.randomUUID();
+    String aad = "securegate:mfa:totp:v1:" + user + ":" + factor;
+    String malformed =
+        encryption.encrypt(
+            "not-a-seed".getBytes(StandardCharsets.US_ASCII),
+            aad.getBytes(StandardCharsets.US_ASCII));
+    assertThrows(
+        MfaSecretProtector.Unavailable.class, () -> mfaSecrets.unprotect(user, factor, malformed));
+  }
+
+  @Test
+  @Order(4)
+  void enforcerPolicyCannotAccessMfaEncryptionOrDecryption() throws Exception {
+    admin(
+        "sys/policies/acl/securegate-policy-enforcer",
+        Map.of("policy", Files.readString(Path.of("../infra/vault/policy-enforcer.hcl"))));
+    String token =
+        admin(
+                "auth/token/create",
+                Map.of(
+                    "policies",
+                    List.of("securegate-policy-enforcer"),
+                    "no_default_policy",
+                    true,
+                    "ttl",
+                    "1m"))
+            .path("auth")
+            .path("client_token")
+            .asText();
+    assertEquals(
+        403,
+        vaultRequest(
+                "transit/encrypt/securegate-mfa", Map.of("plaintext", "c2VlZA=="), token, "POST")
+            .statusCode());
+    assertEquals(
+        403,
+        vaultRequest(
+                "transit/decrypt/securegate-mfa",
+                Map.of("ciphertext", "vault:v1:AAAA"),
+                token,
+                "POST")
+            .statusCode());
+    assertEquals(403, vaultRequest("transit/keys/securegate-mfa", null, token, "GET").statusCode());
+  }
+
+  @Test
+  @Order(4)
   void appRoleCannotRotateExportOrDeleteAndCannotSubstituteARootToken() throws Exception {
     String role = Files.readString(credentials.resolve("role"));
     String secret = Files.readString(credentials.resolve("secret"));
@@ -254,7 +376,10 @@ class TransitSigningIT {
         List.of(
             "transit/keys/securegate-jwt/rotate",
             "transit/export/signing-key/securegate-jwt",
-            "transit/keys/securegate-jwt")) {
+            "transit/keys/securegate-jwt",
+            "transit/keys/securegate-mfa/rotate",
+            "transit/export/encryption-key/securegate-mfa",
+            "transit/keys/securegate-mfa")) {
       String method = path.contains("rotate") ? "POST" : path.contains("export") ? "GET" : "DELETE";
       assertEquals(
           403,
@@ -290,7 +415,19 @@ class TransitSigningIT {
       throws Exception {
     Jwt existing = issue(Instant.now().plusSeconds(120));
     JWKSet publicKeys = JWKSet.parse(get("/oauth2/jwks").body());
+    UUID user = UUID.randomUUID();
+    UUID factor = UUID.randomUUID();
+    String ciphertext = mfaSecrets.protect(user, factor, TotpSecret.generate());
     VAULT.stop();
+    var failure =
+        assertThrows(
+            MfaSecretProtector.Unavailable.class,
+            () -> mfaSecrets.unprotect(user, factor, ciphertext));
+    assertEquals("MFA secret protection is unavailable.", failure.getMessage());
+    assertNull(failure.getCause());
+    assertThrows(
+        MfaSecretProtector.Unavailable.class,
+        () -> mfaSecrets.protect(user, factor, TotpSecret.generate()));
     assertThrows(JwtEncodingException.class, () -> issue(Instant.now().plusSeconds(120)));
     verifyWithJca(existing.getTokenValue(), publicKeys);
     Thread.sleep(1100);

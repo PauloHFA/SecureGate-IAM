@@ -20,7 +20,7 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d --wait --wait-t
 
 O script usa `.env` para definir `IAM_DATABASE_URL`, `IAM_DATABASE_USERNAME`, `IAM_DATABASE_PASSWORD`, `IAM_PORT` e `IAM_BIND_ADDRESS` somente no processo. Ele executa Java em primeiro plano e restaura os valores anteriores ao terminar. Para outra porta, usar `Start-IamCore.ps1 -Port 18080`.
 
-O Flyway aplica V1 para criar os seis schemas, V2 para Identity/Access e auditoria básica, V3 para clientes/autorizações/consentimentos OAuth, V4 para famílias/histórico de refresh e V5 para políticas JSONB versionadas. O histórico fica em `public.flyway_schema_history`.
+O Flyway aplica V1 para criar os seis schemas, V2 para Identity/Access e auditoria básica, V3 para clientes/autorizações/consentimentos OAuth, V4 para famílias/histórico de refresh, V5 para políticas JSONB, V6 para ABAC v2 e V7 para sinais de risco (falhas, navegador/contexto, redes e perfis de recurso). O histórico fica em `public.flyway_schema_history`.
 
 Migrações aplicadas não devem ser alteradas; criar um próximo arquivo `V2__...sql` para evoluções. `validate-on-migrate` está ativo e `clean` do Flyway está desabilitado. O usuário atual é o bootstrap local do PostgreSQL; separar papéis de migração/aplicação é trabalho posterior.
 

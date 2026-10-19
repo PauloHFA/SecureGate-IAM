@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.securegate.iam.authorization.application.SigningUnavailableException;
 import com.securegate.iam.authorization.application.port.SigningKeys;
+import com.securegate.iam.authorization.application.port.TransitEncryption;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -20,7 +21,9 @@ import java.util.Map;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
-public final class VaultTransitSigningKeys implements SigningKeys, AutoCloseable {
+public final class VaultTransitSigningKeys
+    implements SigningKeys, TransitEncryption, AutoCloseable {
+  private static final String MFA_KEY = "securegate-mfa";
   private final VaultTransitSettings settings;
   private final ObjectMapper json;
   private final HttpClient http;
@@ -131,6 +134,75 @@ public final class VaultTransitSigningKeys implements SigningKeys, AutoCloseable
     }
   }
 
+  @Override
+  public String encrypt(byte[] plaintext, byte[] associatedData) {
+    if (plaintext == null || plaintext.length == 0 || plaintext.length > 1024) {
+      throw new IllegalArgumentException("Invalid encryption input.");
+    }
+    validateAssociatedData(associatedData);
+    try {
+      String ciphertext =
+          request(
+                  "transit/encrypt/" + MFA_KEY,
+                  Map.of(
+                      "plaintext", Base64.getEncoder().encodeToString(plaintext),
+                      "associated_data", Base64.getEncoder().encodeToString(associatedData)),
+                  token())
+              .path("data")
+              .path("ciphertext")
+              .asText();
+      if (!validCiphertext(ciphertext)) {
+        throw new TransitEncryption.Unavailable();
+      }
+      return ciphertext;
+    } catch (Exception exception) {
+      throw new TransitEncryption.Unavailable();
+    }
+  }
+
+  @Override
+  public byte[] decrypt(String ciphertext, byte[] associatedData) {
+    if (!validCiphertext(ciphertext)) {
+      throw new IllegalArgumentException("Invalid ciphertext.");
+    }
+    validateAssociatedData(associatedData);
+    try {
+      JsonNode value =
+          request(
+                  "transit/decrypt/" + MFA_KEY,
+                  Map.of(
+                      "ciphertext",
+                      ciphertext,
+                      "associated_data",
+                      Base64.getEncoder().encodeToString(associatedData)),
+                  token())
+              .path("data")
+              .path("plaintext");
+      if (!value.isTextual() || value.asText().length() > 1368) {
+        throw new TransitEncryption.Unavailable();
+      }
+      byte[] plaintext = Base64.getDecoder().decode(value.asText());
+      if (plaintext.length == 0 || plaintext.length > 1024) {
+        throw new TransitEncryption.Unavailable();
+      }
+      return plaintext;
+    } catch (Exception exception) {
+      throw new TransitEncryption.Unavailable();
+    }
+  }
+
+  private static boolean validCiphertext(String ciphertext) {
+    return ciphertext != null
+        && ciphertext.length() <= 2048
+        && ciphertext.matches("vault:v[1-9][0-9]{0,8}:[A-Za-z0-9+/]+={0,2}");
+  }
+
+  private static void validateAssociatedData(byte[] associatedData) {
+    if (associatedData == null || associatedData.length == 0 || associatedData.length > 256) {
+      throw new IllegalArgumentException("Invalid encryption binding.");
+    }
+  }
+
   private synchronized String token() {
     Session current = session;
     if (current != null && Instant.now().isBefore(current.expires())) {
@@ -159,7 +231,16 @@ public final class VaultTransitSigningKeys implements SigningKeys, AutoCloseable
   }
 
   private JsonNode request(String path, Object body, String token) {
-    String operation = path.startsWith("transit/sign/") ? "sign" : token == null ? "login" : "keys";
+    String operation;
+    if (path.startsWith("transit/sign/")) {
+      operation = "sign";
+    } else if (path.startsWith("transit/encrypt/")) {
+      operation = "encrypt";
+    } else if (path.startsWith("transit/decrypt/")) {
+      operation = "decrypt";
+    } else {
+      operation = token == null ? "login" : "keys";
+    }
     if (!requests.tryAcquire()) {
       metrics.counter("iam.transit.rejected", "operation", operation).increment();
       throw new SigningUnavailableException();

@@ -38,6 +38,7 @@ iam:
     token: ${IAM_BOOTSTRAP_TOKEN:}
 
 server:
+  forward-headers-strategy: none
   servlet:
     session:
       timeout: 15m

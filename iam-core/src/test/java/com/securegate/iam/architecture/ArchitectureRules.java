@@ -21,7 +21,8 @@ final class ArchitectureRules {
           .resideInAPackage("..domain..")
           .should()
           .onlyDependOnClassesThat()
-          .resideInAnyPackage("java..", "com.securegate.iam..domain..", "com.securegate.events..")
+          .resideInAnyPackage(
+              "java..", "javax.crypto..", "com.securegate.iam..domain..", "com.securegate.events..")
           .allowEmptyShould(true);
 
   static final ArchRule APPLICATION_DEPENDS_INWARD =

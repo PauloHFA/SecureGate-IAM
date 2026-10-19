@@ -1,6 +1,6 @@
 # SecureGate IAM — Roteiro de implementação
 
-Atualizado em 18/10/2026. Base: documento de arquitetura e plano v0.1, outubro de 2026.
+Atualizado em 19/10/2026. Base: documento de arquitetura e plano v0.1, outubro de 2026.
 
 Decisões aprovadas: Java 21, Spring Boot, Maven e Vault Transit desde a etapa de autenticação. Consulte [ADR-001](adr/001-stack-e-organizacao.md) e [ADR-002](adr/002-assinatura-jwt-vault-transit.md).
 
@@ -64,9 +64,9 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 0 | Fundação e build Maven | Decisões aprovadas | Concluída; ver evidências |
 | 1 | Infraestrutura local | 0 | Concluída localmente; ver evidências |
 | 2 | Esqueleto e CI | 0–1 | Concluída; validação local e CI GitHub aprovadas |
-| 3 | Identity e Access | 2 | Implementada e validada localmente; publicação pendente |
-| 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | 4A–4D2 implementadas e validadas localmente; publicação/revisão pendentes |
-| 5 | Políticas, risco e MFA | 3–4 | Em andamento; 5A implementada localmente, 5B–5D pendentes |
+| 3 | Identity e Access | 2 | Incluída na base publicada 5A, com CI aprovada; revisão/merge pendentes |
+| 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | 4A–4D2 publicadas na base 5A, com CI aprovada; revisão/merge pendentes |
+| 5 | Políticas, risco e MFA | 3–4 | Funcionalidade local implementada até 5D3; publicação/CI, revisão e merge pendentes |
 | 6 | Eventos e Outbox | 2–5 | Pendente |
 | 7 | Enforcer e revogação | 4–6 | Pendente |
 | 8 | Auditoria e desempenho | 6–7 | Pendente |
@@ -167,7 +167,7 @@ Subdivisão da etapa:
 - **4D1 — Ciclo dos tokens:** refresh opcional com rotação, prazo absoluto de 30 minutos, histórico de hashes, detecção de reuso transacional, introspecção e revogação pelo cliente proprietário. Implementada e validada localmente com 190 testes. Ver [ADR-008](adr/008-refresh-rotacao-e-revogacao.md), [runbook](runbooks/oauth-refresh-local.md) e [evidências](evidencias/etapa-04d1.md).
 - **4D2 — OIDC:** discovery OAuth/OIDC, ID token Transit com audiência do cliente, nonce obrigatório, auth_time/sid e userinfo condicionado a escopos/estado atual da identidade. Cadastro web opta por `oidc: true`, adicionando `openid` automaticamente; `offline_access` continua indisponível. Ver [ADR-009](adr/009-oidc-discovery-e-userinfo.md), [runbook](runbooks/oidc-local.md) e [evidências](evidencias/etapa-04d2.md).
 
-As entregas 4A–4D2 cobrem o escopo funcional local da etapa 4; publicação, revisão e CI remota continuam pendentes. Client Credentials e Authorization Code com PKCE emitem tokens RS256; clientes web podem optar por refresh rotativo e OIDC. Consentimento interativo está implementado. Access tokens de usuário recebem papéis recalculados na renovação e sid; ID tokens têm audiência do cliente e não recebem papéis de API. Client Credentials não recebe claims de usuário. Nome/e-mail exigem escopos aprovados, sem afirmar email_verified. Remoção de versões antigas exige política de retenção considerando o maior TTL de todos os fluxos futuros, além dos cinco minutos atuais. Sessão de navegador ainda é local à instância. Introspecção e userinfo já refletem revogação no servidor; propagação para recursos com verificação offline permanece na etapa 7. A implementação não declara certificação OpenID nem suporte a clientes públicos, registro dinâmico ou logout OIDC.
+As entregas 4A–4D2 cobrem o escopo funcional da etapa 4 e estão incluídas na base publicada até a 5A, com CI aprovada; revisão e merge continuam pendentes. Client Credentials e Authorization Code com PKCE emitem tokens RS256; clientes web podem optar por refresh rotativo e OIDC. Consentimento interativo está implementado. Access tokens de usuário recebem papéis recalculados na renovação e sid; ID tokens têm audiência do cliente e não recebem papéis de API. Client Credentials não recebe claims de usuário. Nome/e-mail exigem escopos aprovados, sem afirmar email_verified. Remoção de versões antigas exige política de retenção considerando o maior TTL de todos os fluxos futuros, além dos cinco minutos atuais. Sessão de navegador ainda é local à instância. Introspecção e userinfo já refletem revogação no servidor; propagação para recursos com verificação offline permanece na etapa 7. A implementação não declara certificação OpenID nem suporte a clientes públicos, registro dinâmico ou logout OIDC.
 
 ## Etapa 5 — Políticas, risco e MFA
 
@@ -175,22 +175,26 @@ As entregas 4A–4D2 cobrem o escopo funcional local da etapa 4; publicação, r
 - [x] Implementar default deny e precedência de DENY explícito no motor de avaliação.
 - [x] Definir combinação dos demais efeitos em tabela de decisão.
 - [x] Retornar ALLOW, ALLOW_WITH_MFA, ALLOW_LIMITED ou DENY com motivos e IDs/versões das políticas aplicadas na avaliação administrativa.
-- [ ] Implementar RBAC e DSL JSON restrita para ABAC, sem execução arbitrária de código.
-- [ ] Coletar sinais confiáveis de identidade, dispositivo, rede, comportamento e recurso.
-- [ ] Calcular risco determinístico de 0 a 100 e tratar sinais ausentes/inválidos.
-- [ ] Implementar TOTP, códigos de recuperação com hash e step-up.
-- [ ] Aplicar decisões no login, emissão de token e autorização de recursos.
+- [x] Implementar RBAC e DSL JSON restrita para ABAC, sem execução arbitrária de código, no motor administrativo.
+- [x] Coletar sinais de identidade, navegador lembrado/aprovado, conexão observada, falhas reais e perfil administrado de recurso no modelo local documentado.
+- [x] Calcular risco determinístico de 0 a 100 e tratar sinais ausentes/inválidos, com coleta real local na 5B2.
+- [x] Implementar TOTP, códigos de recuperação com hash e prova de step-up vinculada à sessão.
+- [x] Aplicar decisões na navegação de autenticação/autorização, emissão/refresh e recurso local por operação (5D1–5D3). A senha isolada não recebe bloqueio global por política; propagação para recursos externos permanece na etapa 7.
 
 **Aceite:** testes parametrizados cobrem tabela de decisão, conflitos, ausência de política, MFA incompleto e redução de escopo/TTL.
 
 Subdivisão da etapa:
 
 - **5A — Fundação de políticas:** JSONB com gramática fechada v1, target exato/`*`, condição por papéis atuais, prioridade, estado, versão otimista, auditoria transacional, tabela de decisão e simulação administrativa. DENY prevalece; limites são intersectados, com menor TTL; MFA permanece um requisito pendente. Ver [ADR-010](adr/010-politicas-e-tabela-de-decisao.md), [runbook](runbooks/politicas-local.md) e [evidências](evidencias/etapa-05a.md).
-- **5B — ABAC e risco:** evoluir a gramática de forma versionada, definir sinais confiáveis e comportamento para sinais ausentes/inválidos, com score determinístico. Pendente.
-- **5C — MFA e step-up:** TOTP, recuperação com hash e comprovação do fator associada à sessão/operação. Pendente.
-- **5D — Aplicação das decisões:** integrar políticas/risco/MFA ao login, emissão e recursos, respeitando escopos consentidos e limites de TTL. Pendente.
+- **5B1 — Motor ABAC/risco e cenários:** gramática v2 com condições tipadas ALL, score determinístico de 0–100, tratamento conservador de ausência/expiração e endpoint de cenários administrativos identificado como simulação. V1 preservada e V6 amplia a restrição JSONB sem reescrever dados. Implementada e validada localmente com 311 testes. Ver [ADR-011](adr/011-abac-e-risco-deterministico.md), [runbook](runbooks/abac-risco-local.md) e [evidências](evidencias/etapa-05b1.md).
+- **5B2 — Coleta confiável:** produtor interno do navegador autenticado, contexto vinculado a identidade/versão/sid, cookie emitido no servidor com aprovação administrativa expiráveis, classificação CIDR da conexão, contador de falhas com janela/aquecimento e sensibilidade de recurso versionada. Logout/reautenticação fecham contexto anterior; IDs não renovam observações. V7 adiciona persistência; origem encaminhada não é confiada. Ver [ADR-012](adr/012-coleta-confiavel-de-risco.md), [runbook](runbooks/coleta-risco-local.md) e [evidências](evidencias/etapa-05b2.md).
+- **5C1 — Base TOTP e cifra:** sementes de 160 bits, TOTP SHA1/6 dígitos/30 segundos, contador de correspondência e cifra AES-256-GCM pelo Vault com vínculo ao usuário/inscrição. Ver [ADR-013](adr/013-base-totp-e-cifra-transit.md), [guia](runbooks/mfa-base-local.md) e [evidências](evidencias/etapa-05c1.md).
+- **5C2 — Cadastro, recuperação e step-up:** formulários autenticados/CSRF, senha e login recentes, V8 com fator cifrado/recuperação em hash, consumo transacional por conta, bloqueio de tentativas, auditoria e prova de cinco minutos vinculada à sessão e à versão da identidade. Logout/reautenticação encerram o sid sem reabertura por requisições em andamento. Ver [ADR-014](adr/014-cadastro-mfa-recuperacao-e-step-up.md), [guia](runbooks/mfa-local.md) e [evidências](evidencias/etapa-05c2.md).
+- **5D1 — Emissão e renovação:** default deny obrigatório em Authorization Code/refresh de usuário, alvo `oauth:<client_id>` / `issue`, avaliação real de papéis/risco, prova MFA do sid original, redução coerente de escopo/TTL em JWT/resposta/JDBC, claims OIDC filtradas e auditoria transacional. Ver [ADR-015](adr/015-politicas-na-emissao-de-tokens.md), [guia](runbooks/politicas-tokens-local.md) e [evidências](evidencias/etapa-05d1.md).
+- **5D2 — Navegação e desafio:** orientação real antes de consentimento e nova checagem ao aprová-lo, desafio local, retorno de cinco minutos vinculado a usuário/versão/sid, uso único por POST/CSRF, parâmetros normalizados e revalidação. Ativação preserva exibição de recuperação; prompt=none não inicia interação. Ver [ADR-016](adr/016-desafio-mfa-na-autorizacao.md), [guia](runbooks/desafio-mfa-local.md) e [evidências](evidencias/etapa-05d2.md).
+- **5D3 — Recursos:** API Bearer stateless `GET /api/resources/account`, alvo/ação/escopo fixos, JWT e grant atual, identidade/versão, política real por chamada, prova do sid original, interseção e TTL contado desde iat, auditoria antes da resposta e contrato interno com o enforcer. Ver [ADR-017](adr/017-autorizacao-por-operacao-nos-recursos.md), [guia](runbooks/recursos-local.md) e [evidências](evidencias/etapa-05d3.md).
 
-A 5A não encerra a etapa 5: sua avaliação é uma recomendação administrativa e não altera OAuth. Papéis vêm do banco, incluindo grupos, sem entrada confiável de papéis/MFA/risco fornecida pelo solicitante. O resultado ALLOW_WITH_MFA indica exigência não satisfeita; nunca comprova fator. RBAC inicial está disponível, mas a tarefa conjunta de RBAC/DSL ABAC permanece aberta até a 5B. O aceite de MFA incompleto e aplicação efetiva de limites será completado nas entregas 5C/5D. Publicação, revisão e CI remota continuam pendentes.
+A 5D3 conclui o escopo funcional local da etapa 5; aceite remoto, revisão e merge continuam pendentes. Evaluate/simulate continuam prévias administrativas; navegação e emissão usam avaliação real, papéis atuais, sid do servidor e `MfaProofs` quando exigido. Não há ALLOW automático nem prova sintética. O desafio orienta a autorização, sem bloquear toda verificação de senha ou substituir a barreira final dos tokens da 5D1. O recurso local aplica decisões por operação; recursos externos e revogação distribuída dependem da etapa 7. Client Credentials não recebe política de identidade humana. Remoção/substituição de fator ativo e regeneração de códigos permanecem fora do escopo atual. Confiança de navegador não é atestação de hardware; rede corresponde ao par conectado, sem confiar em forwarded headers. O contador de falhas de login tem aquecimento/cobertura local; tentativas MFA são persistidas por conta. Sessões e retornos de navegação continuam locais à instância. Operação multi-instância, revogação distribuída e retenção/expurgo precisam das entregas operacionais. A base até a 5A foi publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831), com 243 testes; entregas posteriores ainda aguardam publicação/CI remota. Revisão/merge continuam pendentes.
 
 ## Etapa 6 — Eventos e Outbox
 
@@ -203,6 +207,8 @@ A 5A não encerra a etapa 5: sua avaliação é uma recomendação administrativ
 - [ ] Definir limpeza, retenção e métricas da Outbox.
 
 **Aceite:** rollback não publica mudança não confirmada; queda do broker não perde evento persistido; recuperação publica pendências; produtor e consumidores respeitam o contrato.
+
+Subdivisão prevista: **6A** — envelope versionado, testes de contrato e gravação transacional na Outbox; **6B** — publicação RabbitMQ com confirmação, retry e mensagens não roteadas; **6C** — retenção, métricas e cenários de indisponibilidade/recuperação. As três entregas continuam pendentes.
 
 ## Etapa 7 — Enforcer, Redis e revogação
 
@@ -323,4 +329,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a 5B: condições ABAC e risco determinístico, evoluindo a gramática com sinais confiáveis. A 4D2 está no commit `9f924f3`; a 5A está na branch `feat/policy-foundation`, com commit consultável no histórico. Publicação, revisão e CI remota do código posterior à etapa 2 continuam pendentes.
+Seguir para a 6A: envelope versionado em `security-events`, contratos e Outbox gravada na mesma transação da mudança. A publicação RabbitMQ com confirmação/retry será a 6B; retenção/métricas e testes de recuperação, a 6C. A 5D3 está na branch `feat/resource-operation-authorization`; a 5D2 está no commit local `df0d1c9`; a 5D1 está no commit local `31984bd`; a 5C2, em `9039107`; a 5C1, em `90282bb`. A 5A (`8f5666d`) foi publicada em `feat/policy-foundation` e passou na CI. A 5B1 está no commit local `738c660`; a 5B2 está no commit local `3e6b136`; push e CI remota dessas entregas pendentes. Revisão e merge continuam pendentes.

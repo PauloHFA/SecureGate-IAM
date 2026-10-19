@@ -1,5 +1,6 @@
 package com.securegate.iam.policy.domain;
 
+import java.util.List;
 import java.util.Set;
 
 /** Versioned, closed grammar: exact target (or *), and an optional any-role condition. */
@@ -10,9 +11,33 @@ public record PolicyRule(
     PolicyEffect effect,
     Set<String> rolesAnyOf,
     Set<String> allowedScopes,
-    Integer maxAccessTokenTtlSeconds) {
+    Integer maxAccessTokenTtlSeconds,
+    List<AttributeCondition> conditions) {
+  public PolicyRule(
+      int schemaVersion,
+      String resource,
+      String action,
+      PolicyEffect effect,
+      Set<String> rolesAnyOf,
+      Set<String> allowedScopes,
+      Integer maxAccessTokenTtlSeconds) {
+    this(
+        schemaVersion,
+        resource,
+        action,
+        effect,
+        rolesAnyOf,
+        allowedScopes,
+        maxAccessTokenTtlSeconds,
+        List.of());
+  }
+
   public PolicyRule {
-    if (schemaVersion != 1
+    if ((schemaVersion != 1 && schemaVersion != 2)
+        || conditions == null
+        || conditions.size() > 10
+        || conditions.stream().anyMatch(java.util.Objects::isNull)
+        || (schemaVersion == 1 && !conditions.isEmpty())
         || !target(resource)
         || !target(action)
         || effect == null
@@ -36,12 +61,28 @@ public record PolicyRule(
     }
     rolesAnyOf = Set.copyOf(rolesAnyOf);
     allowedScopes = Set.copyOf(allowedScopes);
+    conditions = List.copyOf(conditions);
   }
 
   public boolean matches(EvaluationContext context) {
     return (resource.equals("*") || resource.equals(context.resource()))
         && (action.equals("*") || action.equals(context.action()))
         && (rolesAnyOf.isEmpty() || rolesAnyOf.stream().anyMatch(context.roles()::contains));
+  }
+
+  public AttributeCondition.Match match(EvaluationContext context) {
+    if (!matches(context)) {
+      return AttributeCondition.Match.NO_MATCH;
+    }
+    boolean missing = false;
+    for (var condition : conditions) {
+      var match = condition.evaluate(context.risk());
+      if (match == AttributeCondition.Match.NO_MATCH) {
+        return match;
+      }
+      missing |= match == AttributeCondition.Match.INDETERMINATE;
+    }
+    return missing ? AttributeCondition.Match.INDETERMINATE : AttributeCondition.Match.MATCH;
   }
 
   static boolean target(String value) {

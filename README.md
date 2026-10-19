@@ -4,11 +4,21 @@ Plataforma de identidade e acesso baseada em Zero Trust, com provisionamento, OA
 
 ## Estado atual
 
-Fundação, infraestrutura e API administrativa de Identity/Access implementadas. O core gerencia usuários, credenciais Argon2id, grupos, papéis, permissões e auditoria transacional. Administração fica desabilitada por padrão e exige ativação explícita com token bootstrap temporário. A etapa 3 foi validada localmente com 106 testes; sua publicação ainda está pendente. Consulte as [evidências](docs/evidencias/etapa-03.md).
+Fundação, infraestrutura e API administrativa de Identity/Access implementadas. O core gerencia usuários, credenciais Argon2id, grupos, papéis, permissões e auditoria transacional. Administração fica desabilitada por padrão e exige ativação explícita com token bootstrap temporário. A etapa 3 teve 106 testes no aceite original e está incluída na base publicada até a 5A. Consulte as [evidências históricas](docs/evidencias/etapa-03.md).
 
 A entrega 4A acrescenta assinatura RS256 via Vault Transit e JWKS; a 4B integra Client Credentials/JDBC. A 4C acrescenta login, clientes web confidenciais e Authorization Code com PKCE S256 e consentimento protegido. A 4D1 implementa refresh opcional com rotação, janela absoluta de 30 minutos, detecção de reuso, introspecção e revogação pelo cliente proprietário. A 4D2 adiciona discovery, ID token Transit e userinfo com claims limitadas aos escopos aprovados. Access tokens e ID tokens duram cinco minutos. Consulte os guias [PKCE](docs/runbooks/oauth-pkce-local.md), [refresh](docs/runbooks/oauth-refresh-local.md) e [OIDC](docs/runbooks/oidc-local.md), com validação registrada nas [evidências 4D2](docs/evidencias/etapa-04d2.md).
 
-A 5A acrescenta políticas JSONB versionadas e auditadas e uma avaliação administrativa por papéis atuais. O motor nega por padrão, faz DENY prevalecer e combina exigência de MFA com limites de escopo/TTL. Essa avaliação é uma simulação: a integração ao login e aos tokens ficará na 5D. Consulte o [guia de políticas](docs/runbooks/politicas-local.md) e as [evidências 5A](docs/evidencias/etapa-05a.md).
+A 5A acrescenta políticas JSONB versionadas e auditadas e uma avaliação administrativa por papéis atuais. O motor nega por padrão, faz DENY prevalecer e combina exigência de MFA com limites de escopo/TTL. A prévia administrativa permanece separada da aplicação à emissão de tokens da 5D1. Consulte o [guia de políticas](docs/runbooks/politicas-local.md) e as [evidências 5A](docs/evidencias/etapa-05a.md).
+
+A 5B1 adiciona condições ABAC tipadas na gramática v2, risco determinístico de 0–100 e cenários administrativos separados da avaliação normal. Documentos v1 permanecem compatíveis. Consulte o [guia ABAC/risco](docs/runbooks/abac-risco-local.md) e as [evidências 5B1](docs/evidencias/etapa-05b1.md).
+
+A 5B2 coleta contexto de navegador autenticado, rede da conexão, falhas reais de login e sensibilidade administrada de recursos. Aprovação de navegador tem prazo e versão; contextos de outro usuário, antigos ou fechados não fornecem confiança. Há cinco minutos de aquecimento do contador após iniciar o processo. Consulte o [guia de coleta](docs/runbooks/coleta-risco-local.md) e as [evidências 5B2](docs/evidencias/etapa-05b2.md).
+
+A 5C1 inicia MFA com TOTP e proteção da semente por uma chave AES-256-GCM separada no Vault Transit, vinculada ao usuário e à inscrição. A 5C2 acrescenta cadastro/ativação em `/mfa`, recuperação de uso único, limite de tentativas por conta e prova de step-up de cinco minutos vinculada à sessão. Consulte o [guia MFA](docs/runbooks/mfa-local.md), as [evidências 5C2](docs/evidencias/etapa-05c2.md) e a [base criptográfica](docs/runbooks/mfa-base-local.md).
+
+A 5D1 exige política para emissão e renovação de tokens de usuário: alvo `oauth:<client_id>`, ação `issue`. Sem permissão correspondente, a troca é negada; limites reduzem escopos/TTL e MFA exige prova no sid original. Isso vale também para clientes existentes, sem ALLOW automático. Consulte o [guia de políticas na emissão](docs/runbooks/politicas-tokens-local.md) e as [evidências 5D1](docs/evidencias/etapa-05d1.md).
+
+A 5D2 integra o desafio MFA à navegação de autorização, antes do consentimento e novamente na aprovação. O retorno exige CSRF, ticket de uso único, prazo e a mesma identidade/sessão; preserva state, nonce e PKCE e revalida a autorização. A 5D3 acrescenta a API Bearer por operação, descrita abaixo. Consulte o [guia do desafio MFA](docs/runbooks/desafio-mfa-local.md) e as [evidências 5D2](docs/evidencias/etapa-05d2.md).
 
 ## Decisões aprovadas
 
@@ -34,12 +44,18 @@ A 5A acrescenta políticas JSONB versionadas e auditadas e uma avaliação admin
 - [ADR-008 — Refresh, introspecção e revogação](docs/adr/008-refresh-rotacao-e-revogacao.md)
 - [ADR-009 — OIDC, discovery e userinfo](docs/adr/009-oidc-discovery-e-userinfo.md)
 - [ADR-010 — Políticas e tabela de decisão](docs/adr/010-politicas-e-tabela-de-decisao.md)
+- [ADR-011 — ABAC e risco determinístico](docs/adr/011-abac-e-risco-deterministico.md)
+- [ADR-012 — Coleta confiável de sinais de risco](docs/adr/012-coleta-confiavel-de-risco.md)
+- [ADR-013 — Base TOTP e cifra de segredos pelo Transit](docs/adr/013-base-totp-e-cifra-transit.md)
+- [ADR-014 — Cadastro MFA, recuperação e prova de step-up](docs/adr/014-cadastro-mfa-recuperacao-e-step-up.md)
+- [ADR-015 — Políticas na emissão e renovação de tokens](docs/adr/015-politicas-na-emissao-de-tokens.md)
+- [ADR-016 — Desafio MFA na navegação da autorização](docs/adr/016-desafio-mfa-na-autorizacao.md)
 
 O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Implementação**, versão 0.1, outubro de 2026, disponível em PDF na pasta local do projeto.
 
 ## Próximo passo
 
-Seguir para a 5B: condições ABAC e risco determinístico com sinais confiáveis. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A branch `feat/policy-foundation` parte do commit `9f924f3` da 4D2 e contém a implementação local da 5A. Publicação e CI remota do código posterior à etapa 2 continuam pendentes.
+Seguir para a 6A: contrato versionado dos eventos e gravação transacional na Outbox. A 5D3 implementa o recurso local e o contrato com o enforcer; consumo/Redis e propagação distribuída continuam na etapa 7. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A base até a 5A (`8f5666d`) foi publicada em `feat/policy-foundation`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831). As entregas 5B/5C/5D1 estão em commits locais, incluindo a 5D1 (`31984bd`); a 5D2 está no commit `df0d1c9` e a 5D3 na branch `feat/resource-operation-authorization`. Essas entregas aguardam publicação/CI remota. Revisão e merge continuam pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
@@ -117,7 +133,9 @@ Os mesmos parâmetros habilitam o fluxo de navegador. Cadastre o cliente em `/ap
 
 Para autenticação OIDC, cadastre o cliente web com `oidc: true`, que adiciona `openid` automaticamente, e siga o [guia OIDC](docs/runbooks/oidc-local.md). Discovery fica em `/.well-known/openid-configuration`; userinfo exige Bearer access token do fluxo OIDC. O ID token tem audiência do cliente, e o access token, da API. O cliente deve validar assinatura, issuer, audiência, expiração e nonce antes de concluir seu login.
 
-Para administrar políticas, basta `-EnableBootstrap`; OAuth/Transit são independentes. Use `/api/admin/policies` e `POST /api/admin/policies/evaluate`, conforme o [guia de políticas](docs/runbooks/politicas-local.md). Não há endpoint público de autorização de recursos nesta entrega. A política e sua auditoria são gravadas na mesma transação; edições exigem a versão atual.
+Para administrar políticas, basta `-EnableBootstrap`; OAuth/Transit são independentes. Use `/api/admin/policies` e `POST /api/admin/policies/evaluate`, conforme o [guia de políticas](docs/runbooks/politicas-local.md). `/api/admin/policies/simulate` testa cenários sintéticos com `simulation: true`, conforme o [guia ABAC/risco](docs/runbooks/abac-risco-local.md). A API protegida `GET /api/resources/account` exige Bearer de usuário, audiência configurada e política `account:self` / `read`; consulte o [guia de recursos](docs/runbooks/recursos-local.md), a [ADR-017](docs/adr/017-autorizacao-por-operacao-nos-recursos.md) e as [evidências 5D3](docs/evidencias/etapa-05d3.md). A política e sua auditoria são gravadas na mesma transação; edições exigem a versão atual.
+
+Para coletar contexto real, habilite Authorization e faça login no navegador. A administração lista contextos em `/api/admin/risk/users/{userId}/contexts`; informe o `contextId` correspondente em evaluate. Redes, sensibilidade e aprovação de navegador ficam sob `/api/admin/risk/**`, conforme o [guia de coleta](docs/runbooks/coleta-risco-local.md). Headers de encaminhamento não definem a origem observada. A 5D usa esses sinais na navegação, emissão/refresh e recurso local; evaluate/simulate permanecem ferramentas administrativas.
 
 ## Arquivos locais
 

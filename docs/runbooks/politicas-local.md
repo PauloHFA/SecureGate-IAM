@@ -1,6 +1,6 @@
 # Políticas locais — entrega 5A
 
-Esta entrega permite administrar políticas e simular decisões. A simulação não concede acesso, não altera tokens e não comprova MFA. A integração ao login/emissão/recursos será feita na 5D.
+Este guia permite administrar políticas e simular decisões. A simulação não concede acesso, não altera tokens e não comprova MFA. A [5D1](politicas-tokens-local.md) aplica decisões na emissão/renovação de tokens de usuário; a [5D2](desafio-mfa-local.md) integra o desafio à navegação e a [5D3](recursos-local.md) protege o recurso local por operação. Recursos externos continuam na etapa 7.
 
 ## Preparar
 
@@ -50,7 +50,7 @@ $policy | Select-Object id, name, priority, enabled, version
 
 O documento é um objeto JSON na API e JSONB no banco. Criação retorna 201 e versão 0. Nomes são únicos, de 3–64 caracteres minúsculos, dígitos, `_` ou `-`, começando com letra. Prioridade vai de 0 a 1000. `resource`/`action` usam até 128 caracteres `[a-z][a-z0-9:_./-]*`, ou `*` para o campo inteiro. A avaliação exige valores concretos e não aceita `*` como pedido.
 
-`rolesAnyOf` exige pelo menos um dos até 20 papéis informados; lista vazia aplica a qualquer usuário ACTIVE. Campos desconhecidos e expressões são rejeitados, assim como versão de esquema inválida. Use números JSON para schemaVersion/TTL. A gramática ABAC e o score de risco ainda não estão disponíveis.
+`rolesAnyOf` exige pelo menos um dos até 20 papéis informados; lista vazia aplica a qualquer usuário ACTIVE. Campos desconhecidos e expressões são rejeitados, assim como versão de esquema inválida. Use números JSON para schemaVersion/TTL. O exemplo permanece v1; condições ABAC v2 e score de risco estão no [guia da 5B1](abac-risco-local.md).
 
 ## Simular
 
