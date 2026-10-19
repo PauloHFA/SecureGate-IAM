@@ -53,9 +53,11 @@ Vhost padrão: `securegate`. Os recursos são duráveis. O usuário administrati
 
 | Fila de trabalho | Bindings em `security.events` |
 | --- | --- |
-| `enforcer.block-policy` | `auth.login.suspicious`, `user.locked`, `policy.changed` |
+| `enforcer.block-policy` | `auth.login.suspicious`, `auth.login.failed`, `user.locked`, `policy.changed`, `identity.user.*` |
 | `enforcer.revocation` | `token.revoked`, `session.terminated` |
 | `audit.persist` | `#` |
+
+O [publicador da 6B](../docs/runbooks/publicacao-outbox-local.md) empacota essa mesma definição sem credenciais e declara a topologia ao conectar para enviar. Os dois bindings novos de falha de login/evolução de identidade preparam o consumidor da etapa 7.
 
 Cada fila tem uma `.dlq` e uma `.retry`:
 

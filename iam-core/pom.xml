@@ -13,6 +13,10 @@
   <name>SecureGate IAM Core</name>
   <dependencies>
     <dependency>
+      <groupId>com.rabbitmq</groupId>
+      <artifactId>amqp-client</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
     </dependency>
@@ -87,6 +91,14 @@
     </dependency>
   </dependencies>
   <build>
+    <resources>
+      <resource><directory>src/main/resources</directory></resource>
+      <resource>
+        <directory>${project.basedir}/../infra/rabbitmq</directory>
+        <targetPath>rabbitmq</targetPath>
+        <includes><include>definitions.json</include></includes>
+      </resource>
+    </resources>
     <plugins>
       <plugin>
         <groupId>org.jacoco</groupId>
@@ -94,6 +106,7 @@
         <version>${jacoco.version}</version>
         <configuration>
           <includes>
+            <include>com/securegate/iam/audit/application/**</include>
             <include>com/securegate/iam/identity/domain/**</include>
             <include>com/securegate/iam/identity/application/**</include>
             <include>com/securegate/iam/access/domain/**</include>

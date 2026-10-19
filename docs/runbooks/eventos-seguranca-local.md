@@ -1,6 +1,6 @@
 # Produtores de eventos de segurança — 6A2
 
-Inicie o novo JAR conforme o [guia da Outbox](outbox-local.md), com Authorization/Transit e bootstrap habilitados para testar todos os fluxos. Flyway aplica a V10 automaticamente. Não limpe volumes nem recrie credenciais. Ainda não há publicação no RabbitMQ.
+Inicie o novo JAR conforme o [guia da Outbox](outbox-local.md), com Authorization/Transit e bootstrap habilitados para testar todos os fluxos. Flyway aplica a V10 automaticamente. Não limpe volumes nem recrie credenciais. A publicação opcional é descrita no [guia da 6B](publicacao-outbox-local.md).
 
 ## Exercitar os produtores
 
@@ -34,7 +34,7 @@ ORDER BY occurred_at DESC, event_id
 LIMIT 30;
 ```
 
-Todos permanecem com `published_at` nulo nesta etapa. Não altere esse campo para simular entrega. O [schema dos dados](../../libs/security-events/src/main/resources/contracts/security-integration-event-v1.schema.json) e `SecurityEventData` definem os campos esperados. Eles complementam o envelope da 6A1; eventos legados não devem ser interpretados automaticamente como comandos de bloqueio.
+Com o publicador desabilitado, permanecem com `published_at` nulo. A [6B](publicacao-outbox-local.md) registra a confirmação do broker nesse campo. Não altere esse campo para simular entrega. O [schema dos dados](../../libs/security-events/src/main/resources/contracts/security-integration-event-v1.schema.json) e `SecurityEventData` definem os campos esperados. Eles complementam o envelope da 6A1; eventos legados não devem ser interpretados automaticamente como comandos de bloqueio.
 
 Se usar um motor JSON Schema, registre os dois artefatos pelos seus `$id` URN antes da validação; a referência entre eles é interna, sem download de schema pela rede. Os testes conferem os campos e a referência; não executam um motor completo de JSON Schema.
 
@@ -55,4 +55,4 @@ O alvo de classificação do login é `auth:login`. Pode ser administrado em `/a
 - Um sid encerrado é terminal. Não use um TTL arbitrário curto: não há expiresAt inventado no evento de sessão. A etapa 7 precisa manter tombstone ou calcular uma janela segura para todos os grants associados.
 - Deduplicate por eventId e não marque a entrega concluída antes de aplicar seu efeito. Não deduza uma ordem global pelo relógio.
 
-Confirmação/retry do broker serão a próxima entrega, 6B. Consulte [ADR-019](../adr/019-produtores-de-eventos-de-seguranca.md), [evidências](../evidencias/etapa-06a2.md) e [plano](../PLANO-DE-IMPLEMENTACAO.md).
+A [6B](publicacao-outbox-local.md) implementa confirmação/retry do broker; a próxima entrega é a 6C, retenção e operação. Consulte [ADR-019](../adr/019-produtores-de-eventos-de-seguranca.md), [evidências](../evidencias/etapa-06a2.md) e [plano](../PLANO-DE-IMPLEMENTACAO.md).

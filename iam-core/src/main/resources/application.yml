@@ -21,6 +21,14 @@ spring:
       enabled: true
 
 iam:
+  outbox:
+    publisher:
+      enabled: ${IAM_OUTBOX_PUBLISHER_ENABLED:false}
+      host: ${IAM_RABBITMQ_HOST:127.0.0.1}
+      port: ${IAM_RABBITMQ_PORT:5672}
+      virtual-host: ${IAM_RABBITMQ_VHOST:securegate}
+      username: ${IAM_RABBITMQ_USERNAME:}
+      password: ${IAM_RABBITMQ_PASSWORD:}
   authorization:
     enabled: ${IAM_AUTHORIZATION_ENABLED:false}
     issuer: ${IAM_ISSUER:http://127.0.0.1:8080}

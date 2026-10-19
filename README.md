@@ -20,9 +20,11 @@ A 5D1 exige política para emissão e renovação de tokens de usuário: alvo `o
 
 A 5D2 integra o desafio MFA à navegação de autorização, antes do consentimento e novamente na aprovação. O retorno exige CSRF, ticket de uso único, prazo e a mesma identidade/sessão; preserva state, nonce e PKCE e revalida a autorização. A 5D3 acrescenta a API Bearer por operação, descrita abaixo. Consulte o [guia do desafio MFA](docs/runbooks/desafio-mfa-local.md) e as [evidências 5D2](docs/evidencias/etapa-05d2.md).
 
-A 6A1 adiciona o envelope de eventos v1 e a Outbox PostgreSQL: cada nova auditoria produz um evento na mesma transação, com ID/horário compartilhados e rollback conjunto. Os eventos ficam pendentes; ainda não há envio RabbitMQ. Consulte o [guia da Outbox](docs/runbooks/outbox-local.md), a [ADR-018](docs/adr/018-envelope-e-outbox-transacional.md) e as [evidências 6A1](docs/evidencias/etapa-06a1.md).
+A 6A1 adiciona o envelope de eventos v1 e a Outbox PostgreSQL: cada nova auditoria produz um evento na mesma transação, com ID/horário compartilhados e rollback conjunto. Os eventos persistidos são a entrada do publicador da 6B. Consulte o [guia da Outbox](docs/runbooks/outbox-local.md), a [ADR-018](docs/adr/018-envelope-e-outbox-transacional.md) e as [evidências 6A1](docs/evidencias/etapa-06a1.md).
 
 A 6A2 integra os seis produtores de segurança, preserva a auditoria legada e valida seus dados: tentativa/suspeita de login, mudança de política, bloqueio administrativo, revogação e encerramento de sessão. Access tokens novos de usuário recebem `authorization_id` estável entre refreshes. Consulte o [guia de eventos](docs/runbooks/eventos-seguranca-local.md), a [ADR-019](docs/adr/019-produtores-de-eventos-de-seguranca.md) e as [evidências 6A2](docs/evidencias/etapa-06a2.md).
+
+A 6B acrescenta publicação opcional no RabbitMQ com mensagens persistentes, confirmação/mandatory return, leases concorrentes e retry na Outbox. Use `-EnableOutboxPublisher` para ativar. A entrega preserva eventId/payload nas tentativas e cobre falha/recuperação com broker real. Consulte o [guia de publicação](docs/runbooks/publicacao-outbox-local.md), a [ADR-020](docs/adr/020-publicacao-outbox-rabbitmq.md) e as [evidências 6B](docs/evidencias/etapa-06b.md).
 
 ## Decisões aprovadas
 
@@ -59,7 +61,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **6B**, publicação RabbitMQ com confirmação, retry e mensagens não roteadas; depois, operação/recuperação na 6C. A base até a 5D3 (`7713a94`) está publicada em `feat/resource-operation-authorization`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). A 6A1 está no commit local `2e34a88` e a 6A2 na branch `feat/security-event-producers`, ainda sem commit. Publicação/CI remota da 6A e revisão/merge continuam pendentes.
+Próxima entrega: **6C**, retenção, métricas e recuperação operacional da Outbox. A 6A1 (`2e34a88`) e a 6A2 (`3159d3f`) estão em commits locais. A 6B está em `feat/outbox-rabbitmq-publisher`, ainda sem commit/publicação/CI remota. A base até a 5D3 (`7713a94`) está publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). Revisão e merge continuam pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
@@ -95,7 +97,7 @@ Para corrigir formatação Java, execute `.\mvnw.cmd spotless:apply` no Windows 
 | `iam-core` | Identity/Access, políticas e simulação administrativa, auditoria básica, OAuth/OIDC com refresh, Transit/JWKS, Actuator e Flyway |
 | `policy-enforcer` | Módulo reservado para o consumidor; implementação na etapa 7 |
 
-O contrato inicial `SecurityEventType` aceita segmentos minúsculos separados por ponto, até 128 caracteres, e rejeita curingas de binding (`*` e `#`). O envelope v1 e a persistência transacional estão na 6A1; os seis produtores foram integrados na 6A2; publicação no broker continua na 6B. Relatórios de teste ficam em `libs/security-events/target/surefire-reports/`.
+O contrato inicial `SecurityEventType` aceita segmentos minúsculos separados por ponto, até 128 caracteres, e rejeita curingas de binding (`*` e `#`). O envelope v1 e a persistência transacional estão na 6A1; os seis produtores foram integrados na 6A2; a 6B publica no broker quando habilitada; consumidores continuam na etapa 7. Relatórios de teste ficam em `libs/security-events/target/surefire-reports/`.
 
 ## Infraestrutura local
 

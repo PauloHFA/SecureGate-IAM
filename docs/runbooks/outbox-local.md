@@ -1,6 +1,6 @@
 # Envelope e Outbox local — 6A1
 
-Esta entrega persiste eventos junto da auditoria. Ainda não envia mensagens ao RabbitMQ. A [6A2](eventos-seguranca-local.md) integra os seis produtores de segurança. O próximo passo é a 6B, publicação com confirmação e retry.
+A base da Outbox persiste eventos junto da auditoria. A [6A2](eventos-seguranca-local.md) integra os seis produtores e a [6B](publicacao-outbox-local.md) permite ativar a publicação com confirmação e retry. O próximo passo é a 6C, operação e retenção.
 
 ## Executar
 
@@ -36,7 +36,7 @@ ORDER BY a.occurred_at DESC, a.id
 LIMIT 20;
 ```
 
-Nesta etapa, `published_at` é sempre nulo para eventos produzidos pela aplicação. Isso é esperado: nenhum publicador foi implementado. Não preencha esse campo manualmente para simular entrega. O payload original é imutável e `eventId` é único. Publicadores futuros precisam usar o conteúdo persistido, inclusive o mesmo ID, nas tentativas de envio.
+Com o publicador desabilitado, `published_at` permanece nulo. Ao ativar a [6B](publicacao-outbox-local.md), ele é preenchido depois da confirmação do broker sem retorno mandatory. Não preencha esse campo manualmente para simular entrega. O payload original é imutável e `eventId` é único. O publicador usa o conteúdo persistido, inclusive o mesmo ID, nas tentativas de envio.
 
 ## Contrato
 
@@ -50,7 +50,7 @@ Ator, correlação e dados vêm da auditoria interna; não existe endpoint para 
 - Rollback externo também remove a auditoria/Outbox; conexões independentes não veem o evento antes do commit.
 - Chamar o adaptador da Outbox sem transação é recusado. Escritas SQL diretas não substituem o fluxo transacional da aplicação.
 - Versão desconhecida, metadados inválidos ou payload acima de 64 KiB impedem a gravação; não há fallback que descarte o evento e confirme o estado.
-- RabbitMQ indisponível não participa desta etapa: nenhum envio ocorre. Testes de confirmação, retry e recuperação do broker serão feitos na 6B/6C.
+- Com RabbitMQ indisponível, o estado e a Outbox podem confirmar no PostgreSQL. O [publicador da 6B](publicacao-outbox-local.md) reagenda o envio; métricas e procedimentos operacionais continuam na 6C.
 
 O build usa PostgreSQL/Vault temporários e verifica contratos JSON, rollback, visibilidade, duplicação de ID, integridade dos cabeçalhos e imutabilidade do payload. Não há alteração de topologia RabbitMQ nesta entrega.
 
