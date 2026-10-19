@@ -67,4 +67,4 @@ Eventos mais de 60 s no futuro são rejeitados: verifique relógios e conteúdo 
 
 Contadores internos: `iam.enforcer.block-policy.messages` (ACK/REJECT/RETRY) e `iam.enforcer.block-policy.connection.errors`. Não existe endpoint HTTP de métricas no enforcer. Métricas da Outbox continuam no [IAM](operacao-outbox-local.md).
 
-Validação: [evidências 7B](../evidencias/etapa-07b.md). Decisões: [ADR-023](../adr/023-consumidor-bloqueio-politica.md). A [7C1](recurso-enforcement-redis-local.md) consulta essas projeções no recurso; login/emissão continuam na 7C2.
+Validação: [evidências 7B](../evidencias/etapa-07b.md). Decisões: [ADR-023](../adr/023-consumidor-bloqueio-politica.md). A [7C1](recurso-enforcement-redis-local.md) consulta essas projeções no recurso; a [7C2](autenticacao-enforcement-redis-local.md) inclui login/emissão/refresh.

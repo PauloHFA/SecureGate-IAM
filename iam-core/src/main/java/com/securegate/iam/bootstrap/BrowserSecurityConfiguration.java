@@ -61,6 +61,7 @@ public class BrowserSecurityConfiguration {
       TokenAccessService access,
       AuthorizationContinuation continuations,
       UnitOfWork transactions,
+      com.securegate.iam.authorization.application.port.AuthenticationEnforcement enforcement,
       org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService
           authorizations)
       throws Exception {
@@ -75,6 +76,30 @@ public class BrowserSecurityConfiguration {
         user -> {
           if (!user.isEnabled()) {
             throw new BadCredentialsException("Bad credentials");
+          }
+          try {
+            if (!(user
+                instanceof
+                com.securegate.iam.identity.application.port.AuthenticatedIdentity identity)) {
+              throw new IllegalStateException();
+            }
+            var attributes =
+                org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+            String remote =
+                attributes
+                        instanceof
+                        org.springframework.web.context.request.ServletRequestAttributes servlet
+                    ? servlet.getRequest().getRemoteAddr()
+                    : null;
+            if (!enforcement.loginAllowed(
+                UUID.fromString(identity.getName()), identity.version(), remote)) {
+              throw new BadCredentialsException("Bad credentials");
+            }
+          } catch (BadCredentialsException denied) {
+            throw denied;
+          } catch (RuntimeException unavailable) {
+            throw new org.springframework.security.authentication
+                .InternalAuthenticationServiceException("Login unavailable");
           }
         });
     var cache = new HttpSessionRequestCache();
@@ -138,6 +163,14 @@ public class BrowserSecurityConfiguration {
                 form.loginPage("/login")
                     .failureHandler(
                         (request, response, failure) -> {
+                          if (failure
+                              instanceof
+                              org.springframework.security.authentication
+                                  .AuthenticationServiceException) {
+                            com.securegate.iam.authorization.infrastructure.DistributedLoginFilter
+                                .unavailable(response);
+                            return;
+                          }
                           failures.recordFailure(
                               request.getParameter("username"), request.getRemoteAddr());
                           new org.springframework.security.web.authentication
@@ -197,6 +230,10 @@ public class BrowserSecurityConfiguration {
                           }
                           response.sendRedirect(destination);
                         }))
+        .addFilterBefore(
+            new com.securegate.iam.authorization.infrastructure.DistributedLoginFilter(enforcement),
+            org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter
+                .class)
         .logout(
             logout ->
                 logout

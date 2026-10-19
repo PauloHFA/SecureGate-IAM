@@ -1,6 +1,7 @@
 package com.securegate.iam.authorization.infrastructure;
 
 import com.securegate.events.SecurityEventData;
+import com.securegate.iam.authorization.application.port.AuthenticationEnforcement;
 import com.securegate.iam.authorization.application.port.ResourceEnforcement;
 import com.securegate.iam.policy.application.port.PolicyDecisions;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -11,7 +12,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 /** Read-only checks against the 7A/7B protocol. All failures escape as unavailable, never ALLOW. */
-public final class RedisResourceEnforcement implements ResourceEnforcement {
+public final class RedisResourceEnforcement
+    implements ResourceEnforcement, AuthenticationEnforcement {
   private final StringRedisTemplate redis;
   private final MeterRegistry meters;
   private final DefaultRedisScript<List> read =
@@ -22,6 +24,84 @@ public final class RedisResourceEnforcement implements ResourceEnforcement {
   public RedisResourceEnforcement(StringRedisTemplate redis, MeterRegistry meters) {
     this.redis = redis;
     this.meters = meters;
+  }
+
+  @Override
+  public boolean ipAllowed(String remoteAddress) {
+    return measured(
+        "login_ip",
+        () -> {
+          String address = SecurityEventData.numericAddress(remoteAddress);
+          return !marked(key("block-policy", "blocked:ip", address), false);
+        });
+  }
+
+  @Override
+  public boolean loginAllowed(UUID user, long version, String remoteAddress) {
+    return measured(
+        "login",
+        () -> identityAllowed(user, version) && requestAllowed(user, version, remoteAddress));
+  }
+
+  @Override
+  public boolean sessionAllowed(UUID user, long version, UUID sid) {
+    return measured(
+        "session",
+        () -> {
+          if (user == null || version < 0 || sid == null) {
+            return false;
+          }
+          return identityAllowed(user, version)
+              && !marked(key("revocation", "sid", sid.toString()), true)
+              && !marked(key("block-policy", "blocked:account", user + ":" + version), false);
+        });
+  }
+
+  @Override
+  public boolean authorizationAllowed(String authorizationId) {
+    return measured(
+        "authorization",
+        () ->
+            authorizationId != null
+                && !authorizationId.isBlank()
+                && !marked(key("revocation", "authorization", authorizationId), false));
+  }
+
+  @Override
+  public boolean riskObserved(UUID sid) {
+    return measured(
+        "risk",
+        () -> {
+          if (sid == null) {
+            throw new IllegalStateException();
+          }
+          return marked(key("block-policy", "risk", sid.toString()), false);
+        });
+  }
+
+  private boolean marked(String key, boolean permanentAllowed) {
+    String marker = value(values(List.of(key)).getFirst());
+    if (marker == null) {
+      return false;
+    }
+    deadline(marker, permanentAllowed);
+    return true;
+  }
+
+  private boolean identityAllowed(UUID user, long version) {
+    if (user == null || version < 0) {
+      return false;
+    }
+    String identity =
+        value(values(List.of(key("block-policy", "identity", user.toString()))).getFirst());
+    if (identity == null) {
+      return true;
+    }
+    if (!identity.matches("[0-9]{19}\\|(ACTIVE|LOCKED|DISABLED)")) {
+      throw new IllegalStateException();
+    }
+    long current = Long.parseLong(identity.substring(0, 19));
+    return current < version || (current == version && identity.endsWith("|ACTIVE"));
   }
 
   @Override
@@ -172,7 +252,9 @@ public final class RedisResourceEnforcement implements ResourceEnforcement {
             "operation",
             operation,
             "result",
-            allowed ? "allowed" : "denied")
+            operation.equals("risk")
+                ? (allowed ? "present" : "absent")
+                : (allowed ? "allowed" : "denied"))
         .increment();
     return allowed;
   }

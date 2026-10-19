@@ -33,7 +33,7 @@ Publicador, consumidor e leitor do recurso são ativações diferentes. Confira 
 
 A política é reavaliada no banco para cada operação. Versão antiga Redis não desfaz estado local mais novo. Marca enabled ou ausência de chave nunca substitui decisão positiva, escopo, prazo e MFA. Não remova uma marca para forçar acesso: altere a origem administrativa e acompanhe a projeção nova.
 
-Nesta 7C1, login, emissão/refresh e introspecção continuam com suas verificações locais anteriores; não consultam esta porta de recurso. Os contadores de falha continuam sendo alimentados pelos eventos 7B, sem incrementar por GET. Risco Redis por sid não cria aprovação/MFA nem altera a avaliação local. A próxima 7C2 integrará esses fluxos explicitamente.
+Nesta 7C1, login, emissão/refresh e introspecção continuam com suas verificações locais anteriores; não consultam esta porta de recurso. Os contadores de falha continuam sendo alimentados pelos eventos 7B, sem incrementar por GET. Risco Redis por sid não cria aprovação/MFA nem altera a avaliação local. A [7C2](autenticacao-enforcement-redis-local.md) estende o mesmo modo ao login/emissão/refresh e ao risco por sid; introspecção permanece com verificações locais.
 
 ## Configuração
 

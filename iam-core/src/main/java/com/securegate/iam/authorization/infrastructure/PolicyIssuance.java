@@ -20,9 +20,20 @@ public final class PolicyIssuance {
       org.slf4j.LoggerFactory.getLogger(PolicyIssuance.class);
   private final ThreadLocal<State> current = new ThreadLocal<>();
   private final TokenAccessService access;
+  private final com.securegate.iam.authorization.application.port.AuthenticationEnforcement
+      enforcement;
 
   public PolicyIssuance(TokenAccessService access) {
+    this(
+        access,
+        com.securegate.iam.authorization.application.port.AuthenticationEnforcement.DISABLED);
+  }
+
+  public PolicyIssuance(
+      TokenAccessService access,
+      com.securegate.iam.authorization.application.port.AuthenticationEnforcement enforcement) {
     this.access = access;
+    this.enforcement = enforcement;
   }
 
   public void open() {
@@ -56,6 +67,18 @@ public final class PolicyIssuance {
           throw new TokenAccessService.Denied();
         }
         String sid = context.getAuthorization().getAttribute(ConsentRequests.SESSION_ID);
+        var attributes =
+            org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        String remote =
+            attributes
+                    instanceof
+                    org.springframework.web.context.request.ServletRequestAttributes servlet
+                ? servlet.getRequest().getRemoteAddr()
+                : null;
+        if (!enforcement.authorizationAllowed(context.getAuthorization().getId())
+            || !enforcement.ipAllowed(remote)) {
+          throw new TokenAccessService.Denied();
+        }
         state.permit =
             access.authorize(
                 UUID.fromString(identity.getName()),

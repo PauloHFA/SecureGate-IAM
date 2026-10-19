@@ -21,6 +21,46 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 @EnableConfigurationProperties(ResourceEnforcementProperties.class)
 public class ResourceEnforcementConfiguration {
   @Bean
+  @org.springframework.context.annotation.Primary
+  com.securegate.iam.authorization.application.port.AuthenticationEnforcement
+      authenticationEnforcement(ResourceEnforcement enforcement) {
+    var delegate =
+        enforcement
+                instanceof
+                com.securegate.iam.authorization.application.port.AuthenticationEnforcement
+                    authentication
+            ? authentication
+            : com.securegate.iam.authorization.application.port.AuthenticationEnforcement.DISABLED;
+    return new com.securegate.iam.authorization.application.port.AuthenticationEnforcement() {
+      public boolean ipAllowed(String remoteAddress) {
+        return delegate.ipAllowed(remoteAddress);
+      }
+
+      public boolean loginAllowed(java.util.UUID user, long version, String remoteAddress) {
+        return delegate.loginAllowed(user, version, remoteAddress);
+      }
+
+      public boolean sessionAllowed(java.util.UUID user, long version, java.util.UUID sid) {
+        return delegate.sessionAllowed(user, version, sid);
+      }
+
+      public boolean authorizationAllowed(String authorizationId) {
+        return delegate.authorizationAllowed(authorizationId);
+      }
+
+      public boolean riskObserved(java.util.UUID sid) {
+        return delegate.riskObserved(sid);
+      }
+
+      public boolean policiesCurrent(
+          java.util.List<com.securegate.iam.policy.application.port.PolicyDecisions.Applied>
+              policies) {
+        return delegate.policiesCurrent(policies);
+      }
+    };
+  }
+
+  @Bean
   ResourceEnforcement resourceEnforcement(
       ResourceEnforcementProperties settings,
       @Qualifier("enforcementRedisTemplate") ObjectProvider<StringRedisTemplate> templates,

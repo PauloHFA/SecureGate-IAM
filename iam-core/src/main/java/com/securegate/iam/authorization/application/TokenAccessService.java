@@ -1,5 +1,6 @@
 package com.securegate.iam.authorization.application;
 
+import com.securegate.iam.authorization.application.port.AuthenticationEnforcement;
 import com.securegate.iam.identity.application.port.IdentityLookup;
 import com.securegate.iam.identity.application.port.MfaProofs;
 import com.securegate.iam.policy.application.port.PolicyDecisions;
@@ -13,11 +14,21 @@ public final class TokenAccessService {
   private final PolicyDecisions policies;
   private final IdentityLookup identities;
   private final MfaProofs proofs;
+  private final AuthenticationEnforcement enforcement;
 
   public TokenAccessService(PolicyDecisions policies, IdentityLookup identities, MfaProofs proofs) {
+    this(policies, identities, proofs, AuthenticationEnforcement.DISABLED);
+  }
+
+  public TokenAccessService(
+      PolicyDecisions policies,
+      IdentityLookup identities,
+      MfaProofs proofs,
+      AuthenticationEnforcement enforcement) {
     this.policies = policies;
     this.identities = identities;
     this.proofs = proofs;
+    this.enforcement = enforcement;
   }
 
   public Permit authorize(
@@ -61,6 +72,9 @@ public final class TokenAccessService {
       throw new Denied();
     }
     String resource = "oauth:" + clientId;
+    if (!enforcement.sessionAllowed(userId, version, sid)) {
+      throw new Denied();
+    }
     var decision = policies.decide(userId, resource, "issue", grantedScopes, sid);
     var scopes = new HashSet<>(grantedScopes);
     scopes.retainAll(decision.scopes());
@@ -70,6 +84,19 @@ public final class TokenAccessService {
         || decision.ttlSeconds() > 300
         || (grantedScopes.contains("openid") && !scopes.contains("openid"))) {
       throw new Denied();
+    }
+    if (!enforcement.policiesCurrent(decision.policies())) {
+      throw new Denied();
+    }
+    if (enforcement.riskObserved(sid) && !decision.mfaRequired()) {
+      decision =
+          new PolicyDecisions.Decision(
+              decision.denied(),
+              decision.scopes(),
+              decision.ttlSeconds(),
+              true,
+              decision.policies(),
+              decision.riskScore());
     }
     return new Permit(userId, resource, Set.copyOf(scopes), decision.ttlSeconds(), null, decision);
   }

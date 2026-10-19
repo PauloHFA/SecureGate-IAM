@@ -15,6 +15,51 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class TokenAccessServiceTest {
+  @Test
+  void distributedSessionPolicyAndRiskCannotBypassRealMfaOrExpandScopes() {
+    var enforcement =
+        mock(com.securegate.iam.authorization.application.port.AuthenticationEnforcement.class);
+    var guarded = new TokenAccessService(policies, identities, proofs, enforcement);
+    decision(false, Set.of("api:read"), 60, false);
+    assertThrows(
+        TokenAccessService.Denied.class,
+        () -> guarded.authorize(user, 0, sid, "web-test", Set.of("api:read")));
+    when(enforcement.sessionAllowed(user, 0, sid)).thenReturn(true);
+    assertThrows(
+        TokenAccessService.Denied.class,
+        () -> guarded.authorize(user, 0, sid, "web-test", Set.of("api:read")));
+    when(enforcement.policiesCurrent(anyList())).thenReturn(true);
+    when(enforcement.riskObserved(sid)).thenReturn(true);
+    assertEquals(
+        TokenAccessService.Navigation.MFA_REQUIRED,
+        guarded.navigation(user, 0, sid, "web-test", Set.of("api:read")));
+    assertThrows(
+        TokenAccessService.Denied.class,
+        () -> guarded.authorize(user, 0, sid, "web-test", Set.of("api:read")));
+    var expiry = Instant.now().plusSeconds(30);
+    when(proofs.current(user, 0, sid))
+        .thenReturn(Optional.of(new MfaProofs.Proof("TOTP", Instant.now(), expiry)));
+    var permit = guarded.authorize(user, 0, sid, "web-test", Set.of("api:read", "api:write"));
+    assertEquals(expiry, permit.mfaDeadline());
+    assertEquals(Set.of("api:read"), permit.scopes());
+    assertTrue(permit.decision().mfaRequired());
+    assertEquals(40, permit.decision().riskScore());
+  }
+
+  @Test
+  void distributedDependencyFailureEscapesInsteadOfCreatingPermitOrMfaProof() {
+    var enforcement =
+        mock(com.securegate.iam.authorization.application.port.AuthenticationEnforcement.class);
+    decision(false, Set.of("api:read"), 300, false);
+    when(enforcement.sessionAllowed(user, 0, sid))
+        .thenThrow(new IllegalStateException("synthetic outage"));
+    var guarded = new TokenAccessService(policies, identities, proofs, enforcement);
+    assertThrows(
+        IllegalStateException.class,
+        () -> guarded.authorize(user, 0, sid, "web-test", Set.of("api:read")));
+    verifyNoInteractions(proofs);
+  }
+
   private final PolicyDecisions policies = mock(PolicyDecisions.class);
   private final IdentityLookup identities = mock(IdentityLookup.class);
   private final MfaProofs proofs = mock(MfaProofs.class);
