@@ -1,6 +1,9 @@
 spring:
   autoconfigure:
     exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisReactiveAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
       - org.springframework.boot.autoconfigure.security.oauth2.server.servlet.OAuth2AuthorizationServerAutoConfiguration
       - org.springframework.boot.autoconfigure.security.oauth2.server.servlet.OAuth2AuthorizationServerJwtAutoConfiguration
   application:
@@ -21,6 +24,12 @@ spring:
       enabled: true
 
 iam:
+  resources:
+    enforcement:
+      enabled: ${IAM_RESOURCE_ENFORCEMENT_ENABLED:false}
+      host: ${IAM_ENFORCEMENT_REDIS_HOST:127.0.0.1}
+      port: ${IAM_ENFORCEMENT_REDIS_PORT:6379}
+      password: ${IAM_ENFORCEMENT_REDIS_PASSWORD:}
   outbox:
     operations:
       retention-enabled: ${IAM_OUTBOX_RETENTION_ENABLED:false}

@@ -12,6 +12,7 @@
   <artifactId>iam-core</artifactId>
   <name>SecureGate IAM Core</name>
   <dependencies>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-redis</artifactId></dependency>
     <dependency>
       <groupId>com.rabbitmq</groupId>
       <artifactId>amqp-client</artifactId>

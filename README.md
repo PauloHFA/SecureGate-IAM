@@ -28,9 +28,11 @@ A 6B acrescenta publicação opcional no RabbitMQ com mensagens persistentes, co
 
 A 6C acrescenta métricas administrativas de backlog, quarentena com histórico e limpeza opcional de publicações confirmadas. Use `-EnableOutboxRetention` para ativar a retenção de sete dias; pendências e auditoria são preservadas. Consulte o [guia operacional](docs/runbooks/operacao-outbox-local.md), a [ADR-021](docs/adr/021-operacao-da-outbox.md) e as [evidências 6C](docs/evidencias/etapa-06c.md).
 
-A 7A inicia o `policy-enforcer` com consumo opcional da fila de revogação, ACK manual após efeito Redis e deduplicação atômica. Projeta jti, família de autorização e sid encerrado, sem reduzir prazos em eventos fora de ordem. O recurso do IAM ainda não consulta essas marcas. Consulte o [guia do consumidor](docs/runbooks/enforcer-revogacao-local.md), a [ADR-022](docs/adr/022-consumidor-de-revogacao.md) e as [evidências 7A](docs/evidencias/etapa-07a.md).
+A 7A inicia o `policy-enforcer` com consumo opcional da fila de revogação, ACK manual após efeito Redis e deduplicação atômica. Projeta jti, família de autorização e sid encerrado, sem reduzir prazos em eventos fora de ordem. A consulta no recurso passa a ser opcional na 7C1, descrita abaixo. Consulte o [guia do consumidor](docs/runbooks/enforcer-revogacao-local.md), a [ADR-022](docs/adr/022-consumidor-de-revogacao.md) e as [evidências 7A](docs/evidencias/etapa-07a.md).
 
 A 7B acrescenta a fila de bloqueio/política ao mesmo processo: status e versões exatas de identidade/política, contadores limitados por conta/versão e IP e sinais temporários de risco. Eventos antigos não revertem desbloqueio nem ressuscitam sinais expirados. Consulte o [guia de bloqueio/política](docs/runbooks/enforcer-bloqueio-politica-local.md), a [ADR-023](docs/adr/023-consumidor-bloqueio-politica.md) e as [evidências 7B](docs/evidencias/etapa-07b.md).
+
+A 7C1 adiciona `-EnableResourceEnforcement`: o recurso humano consulta revogação, identidade, bloqueios e versões de política no Redis, preservando verificações locais. Falha de consulta impede acesso com 503; bloqueio temporário usa 429. Login/emissão continuam na próxima 7C2. Consulte o [guia](docs/runbooks/recurso-enforcement-redis-local.md), a [ADR-024](docs/adr/024-consulta-redis-no-recurso.md) e as [evidências 7C1](docs/evidencias/etapa-07c1.md).
 
 ## Decisões aprovadas
 
@@ -67,7 +69,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **7C**, consulta das projeções no IAM, comportamento com Redis indisponível e integração de rate limiting. A 7D fará a medição de propagação. A 6A1 (`2e34a88`), a 6A2 (`3159d3f`), a 6B (`08dd420`), a 6C (`323d06e`) e a 7A (`3a0c348`) estão em commits locais. A 7B está em `feat/enforcer-block-policy-consumer`, ainda sem commit. Publicação/CI remota das etapas 6/7 continuam pendentes. A base até a 5D3 (`7713a94`) está publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). Revisão e merge continuam pendentes.
+Próxima entrega: **7C2**, login/emissão/refresh com integração dos sinais distribuídos e rate limiting nos fluxos apropriados. A 7D fará a medição ponta a ponta. A 6A1 (`2e34a88`), a 6A2 (`3159d3f`), a 6B (`08dd420`), a 6C (`323d06e`), a 7A (`3a0c348`) e a 7B (`5bd4c8f`) estão em commits locais. A 7C1 está em `feat/resource-redis-enforcement`, ainda sem commit. Publicação/CI remota das etapas 6/7 continuam pendentes. A base até a 5D3 (`7713a94`) está publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). Revisão e merge continuam pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
@@ -101,7 +103,7 @@ Para corrigir formatação Java, execute `.\mvnw.cmd spotless:apply` no Windows 
 | --- | --- |
 | `libs/security-events` | Biblioteca Java sem Spring, com validação inicial dos tipos de evento |
 | `iam-core` | Identity/Access, políticas e simulação administrativa, auditoria básica, OAuth/OIDC com refresh, Transit/JWKS, Actuator e Flyway |
-| `policy-enforcer` | Consumidores de revogação e bloqueio/política com projeções Redis; consulta distribuída no IAM ainda pendente |
+| `policy-enforcer` | Consumidores de revogação e bloqueio/política com projeções Redis, consultadas opcionalmente pelo recurso do IAM |
 
 O contrato inicial `SecurityEventType` aceita segmentos minúsculos separados por ponto, até 128 caracteres, e rejeita curingas de binding (`*` e `#`). O envelope v1 e a persistência transacional estão na 6A1; os seis produtores foram integrados na 6A2; a 6B publica no broker quando habilitada; consumidores continuam na etapa 7. Relatórios de teste ficam em `libs/security-events/target/surefire-reports/`.
 

@@ -2,7 +2,6 @@ package com.securegate.enforcer.infrastructure;
 
 import com.securegate.enforcer.application.port.RevocationStore;
 import com.securegate.enforcer.domain.Revocation;
-import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -46,10 +45,8 @@ public final class RedisRevocationStore implements RevocationStore {
   }
 
   public static String key(Revocation.Kind kind, String target) {
-    return "securegate:{revocation}:"
-        + kind.name().toLowerCase(java.util.Locale.ROOT)
-        + ":"
-        + fingerprint(target.getBytes(StandardCharsets.UTF_8));
+    return com.securegate.events.SecurityProjectionKeys.key(
+        "revocation", kind.name().toLowerCase(java.util.Locale.ROOT), target);
   }
 
   public static String fingerprint(byte[] body) {

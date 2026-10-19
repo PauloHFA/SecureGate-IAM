@@ -24,7 +24,7 @@ O mesmo switch agora habilita as filas `enforcer.revocation` e `enforcer.block-p
 - Faça tentativas reais de login recusadas: conta conhecida gera contagem por userId/versão; IP numérico observado gera contagem por IP, inclusive para conta desconhecida.
 - Login suspeito real produz sinal temporário por sid. Isso não cria bloqueio administrativo nem bloqueia IP por si só.
 
-Confira no painel RabbitMQ o vhost configurado, a fila principal e `enforcer.block-policy.dlq`. `audit.persist` ainda não tem consumidor. Publicação confirmada e consumo são estados diferentes; o recurso do IAM ainda não consulta as marcas Redis desta entrega. Não há nova garantia de rejeição distribuída ou latência menor que dois segundos.
+Confira no painel RabbitMQ o vhost configurado, a fila principal e `enforcer.block-policy.dlq`. `audit.persist` ainda não tem consumidor. Publicação confirmada e consumo são estados diferentes. O recurso pode consultar marcas com a ativação opcional da [7C1](recurso-enforcement-redis-local.md); não há medição de latência menor que dois segundos.
 
 ## Configuração
 
@@ -67,4 +67,4 @@ Eventos mais de 60 s no futuro são rejeitados: verifique relógios e conteúdo 
 
 Contadores internos: `iam.enforcer.block-policy.messages` (ACK/REJECT/RETRY) e `iam.enforcer.block-policy.connection.errors`. Não existe endpoint HTTP de métricas no enforcer. Métricas da Outbox continuam no [IAM](operacao-outbox-local.md).
 
-Validação: [evidências 7B](../evidencias/etapa-07b.md). Decisões: [ADR-023](../adr/023-consumidor-bloqueio-politica.md). Próxima entrega: 7C, consulta dessas projeções no IAM e comportamento com Redis indisponível.
+Validação: [evidências 7B](../evidencias/etapa-07b.md). Decisões: [ADR-023](../adr/023-consumidor-bloqueio-politica.md). A [7C1](recurso-enforcement-redis-local.md) consulta essas projeções no recurso; login/emissão continuam na 7C2.

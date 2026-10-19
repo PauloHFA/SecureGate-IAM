@@ -91,7 +91,7 @@ public final class RedisBlockPolicyStore implements BlockPolicyStore {
   }
 
   public static String key(String kind, String subject) {
-    return "securegate:{block-policy}:" + kind + ":" + hash(subject);
+    return com.securegate.events.SecurityProjectionKeys.key("block-policy", kind, subject);
   }
 
   private static String hash(String value) {

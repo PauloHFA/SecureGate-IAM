@@ -4,6 +4,7 @@ import com.securegate.events.SecurityEventType;
 import com.securegate.iam.audit.application.port.AuditRecord;
 import com.securegate.iam.audit.application.port.AuditTrail;
 import com.securegate.iam.authorization.application.ResourceAccessService;
+import com.securegate.iam.authorization.application.port.ResourceEnforcement;
 import com.securegate.iam.authorization.application.port.ResourceTokens;
 import com.securegate.iam.authorization.infrastructure.LocalResourceTokens;
 import com.securegate.iam.authorization.infrastructure.RefreshTokenLedger;
@@ -39,8 +40,11 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 public class ResourceSecurityConfiguration {
   @Bean
   ResourceTokens resourceTokens(
-      JwtDecoder decoder, OAuth2AuthorizationService authorizations, RefreshTokenLedger ledger) {
-    return new LocalResourceTokens(decoder, authorizations, ledger);
+      JwtDecoder decoder,
+      OAuth2AuthorizationService authorizations,
+      RefreshTokenLedger ledger,
+      ResourceEnforcement enforcement) {
+    return new LocalResourceTokens(decoder, authorizations, ledger, enforcement);
   }
 
   @Bean
@@ -50,11 +54,13 @@ public class ResourceSecurityConfiguration {
       PolicyDecisions policies,
       MfaProofs proofs,
       Clock clock,
+      ResourceEnforcement enforcement,
       @Value("${iam.resources.audience:securegate-api}") String audience) {
     if (!audience.matches("[a-zA-Z0-9][a-zA-Z0-9:._/-]{2,127}")) {
       throw new IllegalArgumentException("Invalid resource audience.");
     }
-    return new ResourceAccessService(tokens, identities, policies, proofs, clock, audience);
+    return new ResourceAccessService(
+        tokens, identities, policies, proofs, clock, audience, enforcement);
   }
 
   @Bean
@@ -89,7 +95,9 @@ public class ResourceSecurityConfiguration {
                                     }
                                     var permit =
                                         access.authorize(
-                                            token, ResourceAccessService.Operation.ACCOUNT_READ);
+                                            token,
+                                            ResourceAccessService.Operation.ACCOUNT_READ,
+                                            current.getRequest().getRemoteAddr());
                                     Object correlation =
                                         attributes instanceof ServletRequestAttributes servlet
                                             ? servlet
@@ -146,13 +154,14 @@ public class ResourceSecurityConfiguration {
                           int status =
                               switch (code) {
                                 case "temporarily_unavailable" -> 503;
+                                case "rate_limited" -> 429;
                                 case "mfa_required", "insufficient_scope" -> 403;
                                 default -> 401;
                               };
                           response.setStatus(status);
                           response.setContentType("application/json");
                           response.setHeader("Cache-Control", "no-store");
-                          if (status == 503) {
+                          if (status == 503 || status == 429) {
                             response.setHeader("Retry-After", "5");
                           } else {
                             response.setHeader(

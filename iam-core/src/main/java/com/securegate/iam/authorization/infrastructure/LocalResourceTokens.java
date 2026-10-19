@@ -1,6 +1,7 @@
 package com.securegate.iam.authorization.infrastructure;
 
 import com.securegate.iam.authorization.application.port.ConsentRequests;
+import com.securegate.iam.authorization.application.port.ResourceEnforcement;
 import com.securegate.iam.authorization.application.port.ResourceTokens;
 import com.securegate.iam.identity.application.port.AuthenticatedIdentity;
 import java.security.Principal;
@@ -19,12 +20,22 @@ public final class LocalResourceTokens implements ResourceTokens {
   private final JwtDecoder decoder;
   private final OAuth2AuthorizationService authorizations;
   private final RefreshTokenLedger ledger;
+  private final ResourceEnforcement enforcement;
 
   public LocalResourceTokens(
       JwtDecoder decoder, OAuth2AuthorizationService authorizations, RefreshTokenLedger ledger) {
+    this(decoder, authorizations, ledger, ResourceEnforcement.DISABLED);
+  }
+
+  public LocalResourceTokens(
+      JwtDecoder decoder,
+      OAuth2AuthorizationService authorizations,
+      RefreshTokenLedger ledger,
+      ResourceEnforcement enforcement) {
     this.decoder = decoder;
     this.authorizations = authorizations;
     this.ledger = ledger;
+    this.enforcement = enforcement;
   }
 
   @Override
@@ -60,6 +71,14 @@ public final class LocalResourceTokens implements ResourceTokens {
       return Optional.empty();
     }
     try {
+      if (!enforcement.tokenAllowed(
+          UUID.fromString(identity.getName()),
+          identity.version(),
+          UUID.fromString(sid),
+          jwt.getId(),
+          authorization.getId())) {
+        return Optional.empty();
+      }
       // Persisted scopes are authoritative and bound to the exact token value above.
       return Optional.of(
           new Subject(

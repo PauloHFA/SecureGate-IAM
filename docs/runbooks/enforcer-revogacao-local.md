@@ -26,7 +26,7 @@ Siga o [guia de refresh/revogação](oauth-refresh-local.md) para revogar access
 
 O painel RabbitMQ fica em `http://127.0.0.1:15672`, no vhost configurado. Observe fila principal, redeliveries e `enforcer.revocation.dlq`. `enforcer.block-policy` é consumida pela 7B no mesmo processo; `audit.persist` continua acumulando até implementar seu consumidor.
 
-As marcas Redis desta entrega **ainda não são consultadas pelo recurso protegido no iam-core**. Revogação/introspecção locais existentes continuam funcionando, mas não há comprovação nova de revogação distribuída ou latência abaixo de dois segundos.
+As marcas Redis podem ser consultadas pelo recurso com a ativação opcional da [7C1](recurso-enforcement-redis-local.md). Revogação/introspecção locais existentes continuam funcionando; medição da cadeia completa e latência abaixo de dois segundos permanecem pendentes.
 
 ## Configuração
 

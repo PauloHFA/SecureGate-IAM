@@ -60,6 +60,12 @@ class BrowserAuthorizationIT {
   private static Path credentials;
 
   @Container
+  static final GenericContainer<?> REDIS =
+      new GenericContainer<>(DockerImageName.parse("redis:7.4.11-alpine"))
+          .withCommand("redis-server", "--requirepass", ROOT)
+          .withExposedPorts(6379);
+
+  @Container
   static final GenericContainer<?> VAULT =
       new GenericContainer<>(DockerImageName.parse("hashicorp/vault:1.21.4"))
           .withEnv("VAULT_DEV_ROOT_TOKEN_ID", ROOT)
@@ -104,6 +110,10 @@ class BrowserAuthorizationIT {
     registry.add("spring.datasource.url", DATABASE::getJdbcUrl);
     registry.add("spring.datasource.username", DATABASE::getUsername);
     registry.add("spring.datasource.password", DATABASE::getPassword);
+    registry.add("iam.resources.enforcement.enabled", () -> true);
+    registry.add("iam.resources.enforcement.host", REDIS::getHost);
+    registry.add("iam.resources.enforcement.port", () -> REDIS.getMappedPort(6379));
+    registry.add("iam.resources.enforcement.password", () -> ROOT);
     registry.add("iam.transit.enabled", () -> true);
     registry.add("iam.transit.address", BrowserAuthorizationIT::vaultAddress);
     registry.add("iam.transit.role-id-file", () -> credentials.resolve("role").toString());
@@ -129,6 +139,10 @@ class BrowserAuthorizationIT {
   @Autowired com.securegate.iam.identity.application.port.LoginRiskHistory loginHistory;
   @Autowired com.securegate.iam.identity.application.MfaService mfa;
   @Autowired com.securegate.iam.authorization.application.port.ResourceTokens resourceTokens;
+
+  @Autowired
+  @org.springframework.beans.factory.annotation.Qualifier("enforcementRedisTemplate")
+  org.springframework.data.redis.core.StringRedisTemplate redisEnforcement;
 
   private List<com.securegate.events.SecurityEvent> facts(String type, String key, String value) {
     return jdbc.query(
@@ -405,6 +419,179 @@ class BrowserAuthorizationIT {
   @org.junit.jupiter.api.AfterEach
   void removeResourcePolicies() {
     jdbc.update("DELETE FROM iam_policy.policies WHERE document->>'resource'='account:self'");
+    redisEnforcement.execute(
+        (org.springframework.data.redis.core.RedisCallback<Void>)
+            connection -> {
+              connection.serverCommands().flushDb();
+              return null;
+            });
+  }
+
+  private String enforcementKey(String group, String kind, String subject) {
+    return com.securegate.iam.authorization.infrastructure.RedisResourceEnforcement.key(
+        group, kind, subject);
+  }
+
+  private void markEnforcement(String key, String value) {
+    redisEnforcement.opsForValue().set(key, value, Duration.ofSeconds(120));
+  }
+
+  @Test
+  void distributedRevocationsDenyValidLocalTokensByJtiSidAndStoredAuthorizationId()
+      throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    resourcePolicy("ALLOW", List.of(), null);
+    var claims = com.nimbusds.jwt.SignedJWT.parse(tokens.access()).getJWTClaimsSet();
+    String deadline = Long.toString(System.currentTimeMillis() + 120000);
+    var marks =
+        Map.of(
+            "jti",
+            claims.getJWTID(),
+            "sid",
+            claims.getStringClaim("sid"),
+            "authorization",
+            authorizationId(tokens.access()));
+    for (var mark : marks.entrySet()) {
+      assertEquals(200, resource(tokens.access()).statusCode());
+      String key = enforcementKey("revocation", mark.getKey(), mark.getValue());
+      markEnforcement(key, mark.getKey().equals("sid") ? "0" : deadline);
+      var response = resource(tokens.access());
+      assertEquals(401, response.statusCode(), response.body());
+      assertEquals("{\"error\":\"invalid_token\"}", response.body());
+      redisEnforcement.delete(key);
+    }
+    assertEquals(200, resource(tokens.access()).statusCode());
+  }
+
+  @Test
+  void distributedIdentityWatermarkCannotBeBypassedAndOlderProjectionDoesNotOverrideFreshDatabase()
+      throws Exception {
+    Flow flow = flow(true);
+    jdbc.update("UPDATE iam_identity.users SET version=version+1 WHERE id=?", flow.userId());
+    Pair tokens = initialTokens(flow);
+    resourcePolicy("ALLOW", List.of(), null);
+    long version =
+        jdbc.queryForObject(
+            "SELECT version FROM iam_identity.users WHERE id=?", Long.class, flow.userId());
+    String key = enforcementKey("block-policy", "identity", flow.userId().toString());
+    assertEquals(200, resource(tokens.access()).statusCode());
+    markEnforcement(key, String.format(java.util.Locale.ROOT, "%019d|LOCKED", version));
+    assertEquals(401, resource(tokens.access()).statusCode());
+    markEnforcement(key, String.format(java.util.Locale.ROOT, "%019d|ACTIVE", version + 1));
+    assertEquals(401, resource(tokens.access()).statusCode());
+    markEnforcement(key, String.format(java.util.Locale.ROOT, "%019d|ACTIVE", version));
+    assertEquals(200, resource(tokens.access()).statusCode());
+    if (version > 0) {
+      markEnforcement(key, String.format(java.util.Locale.ROOT, "%019d|LOCKED", version - 1));
+      assertEquals(200, resource(tokens.access()).statusCode());
+    }
+  }
+
+  @Test
+  void resourceRateLimitsAccountAndActualPeerIpWithoutTrustingForwardedHeaders() throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    resourcePolicy("ALLOW", List.of(), null);
+    long version =
+        jdbc.queryForObject(
+            "SELECT version FROM iam_identity.users WHERE id=?", Long.class, flow.userId());
+    String account =
+        enforcementKey("block-policy", "blocked:account", flow.userId() + ":" + version);
+    markEnforcement(account, Long.toString(System.currentTimeMillis() + 120000));
+    var denied = resource(tokens.access());
+    assertEquals(429, denied.statusCode());
+    assertEquals("{\"error\":\"rate_limited\"}", denied.body());
+    assertEquals("5", denied.headers().firstValue("Retry-After").orElseThrow());
+    assertTrue(denied.headers().allValues("WWW-Authenticate").isEmpty());
+    redisEnforcement.delete(account);
+    String ip = enforcementKey("block-policy", "blocked:ip", "127.0.0.1");
+    markEnforcement(ip, Long.toString(System.currentTimeMillis() + 120000));
+    var response =
+        HTTP.send(
+            HttpRequest.newBuilder(uri("/api/resources/account"))
+                .header("Authorization", "Bearer " + tokens.access())
+                .header("X-Forwarded-For", "203.0.113.99")
+                .header("Forwarded", "for=203.0.113.99")
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(429, response.statusCode(), response.body());
+    redisEnforcement.delete(ip);
+    assertEquals(200, resource(tokens.access()).statusCode());
+    markEnforcement(account, "123");
+    redisEnforcement.expire(account, Duration.ofSeconds(1));
+    assertEquals(429, resource(tokens.access()).statusCode());
+    long timeout = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+    while (Boolean.TRUE.equals(redisEnforcement.hasKey(account)) && System.nanoTime() < timeout) {
+      Thread.sleep(25);
+    }
+    assertEquals(200, resource(tokens.access()).statusCode());
+  }
+
+  @Test
+  void policyWatermarkRejectsNewerOrContradictoryProjectionButNeverGrantsAccessByItself()
+      throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    resourcePolicy("ALLOW", List.of(), null);
+    var row =
+        jdbc.queryForMap(
+            "SELECT id,version FROM iam_policy.policies WHERE document->>'resource'='account:self'");
+    long version = ((Number) row.get("version")).longValue();
+    String key = enforcementKey("block-policy", "policy", row.get("id").toString());
+    String digest = "a".repeat(64);
+    markEnforcement(
+        key, String.format(java.util.Locale.ROOT, "%019d|true|%s", version + 1, digest));
+    assertEquals(403, resource(tokens.access()).statusCode());
+    markEnforcement(key, String.format(java.util.Locale.ROOT, "%019d|false|%s", version, digest));
+    assertEquals(403, resource(tokens.access()).statusCode());
+    markEnforcement(key, String.format(java.util.Locale.ROOT, "%019d|true|%s", version, digest));
+    assertEquals(200, resource(tokens.access()).statusCode());
+    resourcePolicy("DENY", List.of(), null);
+    assertEquals(403, resource(tokens.access()).statusCode());
+  }
+
+  @Test
+  void malformedAndWrongTypeRedisStateReturns503InsteadOfTreatingItAsMissing() throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    resourcePolicy("ALLOW", List.of(), null);
+    String key = enforcementKey("block-policy", "identity", flow.userId().toString());
+    markEnforcement(key, "not-a-watermark-synthetic");
+    var unavailable = resource(tokens.access());
+    assertEquals(503, unavailable.statusCode());
+    assertEquals("{\"error\":\"temporarily_unavailable\"}", unavailable.body());
+    assertFalse(unavailable.body().contains("synthetic"));
+    redisEnforcement.delete(key);
+    redisEnforcement.opsForList().leftPush(key, "synthetic");
+    assertEquals(503, resource(tokens.access()).statusCode());
+    redisEnforcement.delete(key);
+    assertEquals(200, resource(tokens.access()).statusCode());
+  }
+
+  @Test
+  void actualRedisTimeoutNeverFallsBackToSuccessfulLocalAuthorizationAndLaterRecovers()
+      throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    resourcePolicy("ALLOW", List.of(), null);
+    assertEquals(200, resource(tokens.access()).statusCode());
+    assertEquals(
+        0,
+        REDIS
+            .execInContainer("redis-cli", "-a", ROOT, "CLIENT", "PAUSE", "1500", "ALL")
+            .getExitCode());
+    var unavailable = resource(tokens.access());
+    assertEquals(503, unavailable.statusCode(), unavailable.body());
+    assertEquals("5", unavailable.headers().firstValue("Retry-After").orElseThrow());
+    long timeout = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+    HttpResponse<String> recovered;
+    do {
+      Thread.sleep(100);
+      recovered = resource(tokens.access());
+    } while (recovered.statusCode() == 503 && System.nanoTime() < timeout);
+    assertEquals(200, recovered.statusCode());
   }
 
   private HttpResponse<String> resource(String token) throws Exception {
