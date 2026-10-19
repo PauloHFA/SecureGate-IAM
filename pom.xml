@@ -22,6 +22,7 @@
     <module>libs/security-events</module>
     <module>iam-core</module>
     <module>policy-enforcer</module>
+    <module>integration-tests</module>
   </modules>
 
   <properties>

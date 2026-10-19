@@ -36,6 +36,8 @@ A 7C1 adiciona `-EnableResourceEnforcement`: o recurso humano consulta revogaç�
 
 A 7C2 aplica sinais Redis no login e na emissão/refresh, preserva códigos e refresh tokens após recusa transitória e exige prova MFA real diante de risco. Consulte o [guia de autenticação](docs/runbooks/autenticacao-enforcement-redis-local.md), a [ADR-025](docs/adr/025-enforcement-login-emissao.md) e as [evidências 7C2](docs/evidencias/etapa-07c2.md).
 
+A 7D1 acrescenta o módulo de testes ponta a ponta, executando IAM/enforcer empacotados com infraestrutura descartável. Mede revogação por jti, família após refresh e logout, correlacionando Outbox, Redis e rejeição HTTP. Consulte o [guia](docs/runbooks/propagacao-ponta-a-ponta-local.md), a [ADR-026](docs/adr/026-medicao-ponta-a-ponta.md) e as [evidências 7D1](docs/evidencias/etapa-07d1.md).
+
 ## Decisões aprovadas
 
 - Java 21, Spring Boot e Spring Authorization Server.
@@ -71,13 +73,13 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **7D**, validação ponta a ponta e medição da propagação. A 7C2 implementa login/emissão/refresh com sinais distribuídos e aplicação dos bloqueios projetados. A 6A1 (`2e34a88`), a 6A2 (`3159d3f`), a 6B (`08dd420`), a 6C (`323d06e`), a 7A (`3a0c348`) e a 7B (`5bd4c8f`) estão em commits locais. A 7C1 está no commit local `45926c0`. A 7C2 está implementada localmente em `feat/authentication-redis-enforcement`. Publicação/CI remota das etapas 6/7 continuam pendentes. A base até a 5D3 (`7713a94`) está publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). Revisão e merge continuam pendentes.
+Próxima entrega: **7D2**, falhas, duplicação, reordenação e bloqueios por limiar na cadeia completa. A 7D1 está implementada localmente em `feat/end-to-end-propagation`. A 7C2 (`15dfbf8`) e seus commits ancestrais foram publicados em `feat/authentication-redis-enforcement`; CI remota, revisão e merge das etapas 6/7 continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
 ## Build local
 
-Pré-requisitos: JDK 21, `JAVA_HOME` apontando para esse JDK, Docker Engine disponível e internet na primeira execução. O Wrapper baixa Maven 3.9.11. Testcontainers inicia PostgreSQL e Vault temporários; não é necessário subir o Compose para executar `verify`.
+Pré-requisitos: JDK 21, `JAVA_HOME` apontando para esse JDK, Docker Engine disponível e internet na primeira execução. O Wrapper baixa Maven 3.9.11. Testcontainers inicia PostgreSQL, Vault, RabbitMQ e Redis temporários; não é necessário subir o Compose para executar `verify`.
 
 Windows PowerShell:
 
@@ -106,6 +108,7 @@ Para corrigir formatação Java, execute `.\mvnw.cmd spotless:apply` no Windows 
 | `libs/security-events` | Biblioteca Java sem Spring, com validação inicial dos tipos de evento |
 | `iam-core` | Identity/Access, políticas e simulação administrativa, auditoria básica, OAuth/OIDC com refresh, Transit/JWKS, Actuator e Flyway |
 | `policy-enforcer` | Consumidores de revogação e bloqueio/política com projeções Redis, consultadas opcionalmente pelo recurso do IAM |
+| `integration-tests` | Testes ponta a ponta dos JARs com infraestrutura descartável e medição da propagação |
 
 O contrato inicial `SecurityEventType` aceita segmentos minúsculos separados por ponto, até 128 caracteres, e rejeita curingas de binding (`*` e `#`). O envelope v1 e a persistência transacional estão na 6A1; os seis produtores foram integrados na 6A2; a 6B publica no broker quando habilitada; consumidores continuam na etapa 7. Relatórios de teste ficam em `libs/security-events/target/surefire-reports/`.
 

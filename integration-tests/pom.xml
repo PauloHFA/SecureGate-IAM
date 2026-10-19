@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent><groupId>com.securegate</groupId><artifactId>securegate-iam</artifactId><version>0.1.0-SNAPSHOT</version><relativePath>../pom.xml</relativePath></parent>
+  <artifactId>integration-tests</artifactId>
+  <name>SecureGate End-to-end Tests</name>
+  <dependencies>
+    <!-- Reactor ordering only: applications run as packaged processes, never on the test classpath. -->
+    <dependency><groupId>com.securegate</groupId><artifactId>iam-core</artifactId><version>${project.version}</version><type>pom</type><scope>test</scope></dependency>
+    <dependency><groupId>com.securegate</groupId><artifactId>policy-enforcer</artifactId><version>${project.version}</version><type>pom</type><scope>test</scope></dependency>
+    <dependency><groupId>com.securegate</groupId><artifactId>security-events</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-redis</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.springframework</groupId><artifactId>spring-jdbc</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>com.rabbitmq</groupId><artifactId>amqp-client</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.testcontainers</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.testcontainers</groupId><artifactId>postgresql</artifactId><scope>test</scope></dependency>
+  </dependencies>
+  <build><plugins><plugin>
+    <groupId>org.apache.maven.plugins</groupId><artifactId>maven-failsafe-plugin</artifactId>
+    <configuration><systemPropertyVariables><securegate.version>${project.version}</securegate.version></systemPropertyVariables></configuration>
+  </plugin></plugins></build>
+</project>
