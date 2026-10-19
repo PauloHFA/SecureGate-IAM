@@ -1,5 +1,6 @@
 package com.securegate.iam.authorization.application;
 
+import com.securegate.iam.authorization.application.port.ResourceEnforcement;
 import com.securegate.iam.authorization.application.port.ResourceTokens;
 import com.securegate.iam.identity.application.port.IdentityLookup;
 import com.securegate.iam.identity.application.port.MfaProofs;
@@ -18,6 +19,7 @@ public final class ResourceAccessService {
   private final MfaProofs proofs;
   private final Clock clock;
   private final String audience;
+  private final ResourceEnforcement enforcement;
 
   public ResourceAccessService(
       ResourceTokens tokens,
@@ -26,15 +28,31 @@ public final class ResourceAccessService {
       MfaProofs proofs,
       Clock clock,
       String audience) {
+    this(tokens, identities, policies, proofs, clock, audience, ResourceEnforcement.DISABLED);
+  }
+
+  public ResourceAccessService(
+      ResourceTokens tokens,
+      IdentityLookup identities,
+      PolicyDecisions policies,
+      MfaProofs proofs,
+      Clock clock,
+      String audience,
+      ResourceEnforcement enforcement) {
     this.tokens = tokens;
     this.identities = identities;
     this.policies = policies;
     this.proofs = proofs;
     this.clock = clock;
     this.audience = audience;
+    this.enforcement = enforcement;
   }
 
   public Permit authorize(String token, Operation operation) {
+    return authorize(token, operation, null);
+  }
+
+  public Permit authorize(String token, Operation operation, String remoteAddress) {
     if (token == null || token.isBlank() || token.length() > 16384) {
       throw new Rejected("invalid_token");
     }
@@ -51,6 +69,9 @@ public final class ResourceAccessService {
         || !identities.isCurrent(subject.userId(), subject.version())) {
       throw new Rejected("invalid_token");
     }
+    if (!enforcement.requestAllowed(subject.userId(), subject.version(), remoteAddress)) {
+      throw new Rejected("rate_limited");
+    }
     var decision =
         policies.decide(
             subject.userId(),
@@ -64,6 +85,9 @@ public final class ResourceAccessService {
         || !scopes.contains(operation.scope)
         || decision.ttlSeconds() < 30
         || decision.ttlSeconds() > 300) {
+      throw new Rejected("insufficient_scope");
+    }
+    if (!enforcement.policiesCurrent(decision.policies())) {
       throw new Rejected("insufficient_scope");
     }
     Instant deadline = subject.issuedAt().plusSeconds(decision.ttlSeconds());

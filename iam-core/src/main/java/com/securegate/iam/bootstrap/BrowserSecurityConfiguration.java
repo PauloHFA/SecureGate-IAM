@@ -13,6 +13,7 @@ import com.securegate.iam.identity.application.port.LoginRiskHistory;
 import com.securegate.iam.identity.application.port.MfaProofs;
 import com.securegate.iam.identity.infrastructure.JdbcLoginUsers;
 import com.securegate.iam.policy.application.port.RiskContextSink;
+import com.securegate.iam.shared.application.port.UnitOfWork;
 import com.securegate.iam.shared.presentation.ProblemResponses;
 import java.net.URI;
 import java.util.UUID;
@@ -59,6 +60,8 @@ public class BrowserSecurityConfiguration {
       MfaProofs mfaProofs,
       TokenAccessService access,
       AuthorizationContinuation continuations,
+      UnitOfWork transactions,
+      com.securegate.iam.authorization.application.port.AuthenticationEnforcement enforcement,
       org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService
           authorizations)
       throws Exception {
@@ -73,6 +76,30 @@ public class BrowserSecurityConfiguration {
         user -> {
           if (!user.isEnabled()) {
             throw new BadCredentialsException("Bad credentials");
+          }
+          try {
+            if (!(user
+                instanceof
+                com.securegate.iam.identity.application.port.AuthenticatedIdentity identity)) {
+              throw new IllegalStateException();
+            }
+            var attributes =
+                org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+            String remote =
+                attributes
+                        instanceof
+                        org.springframework.web.context.request.ServletRequestAttributes servlet
+                    ? servlet.getRequest().getRemoteAddr()
+                    : null;
+            if (!enforcement.loginAllowed(
+                UUID.fromString(identity.getName()), identity.version(), remote)) {
+              throw new BadCredentialsException("Bad credentials");
+            }
+          } catch (BadCredentialsException denied) {
+            throw denied;
+          } catch (RuntimeException unavailable) {
+            throw new org.springframework.security.authentication
+                .InternalAuthenticationServiceException("Login unavailable");
           }
         });
     var cache = new HttpSessionRequestCache();
@@ -136,33 +163,61 @@ public class BrowserSecurityConfiguration {
                 form.loginPage("/login")
                     .failureHandler(
                         (request, response, failure) -> {
-                          failures.recordFailure(request.getParameter("username"));
+                          if (failure
+                              instanceof
+                              org.springframework.security.authentication
+                                  .AuthenticationServiceException) {
+                            com.securegate.iam.authorization.infrastructure.DistributedLoginFilter
+                                .unavailable(response);
+                            return;
+                          }
+                          failures.recordFailure(
+                              request.getParameter("username"), request.getRemoteAddr());
                           new org.springframework.security.web.authentication
                                   .SimpleUrlAuthenticationFailureHandler("/login?error")
                               .onAuthenticationFailure(request, response, failure);
                         })
                     .successHandler(
                         (request, response, authentication) -> {
-                          continuations.clear();
-                          revokeMfa(request, mfaProofs);
-                          observer.closePrevious(request);
-                          if (authentication
-                              instanceof
-                              org.springframework.security.authentication
-                                      .AbstractAuthenticationToken
-                                  token) {
-                            token.setDetails(null);
+                          try {
+                            transactions.execute(
+                                () -> {
+                                  continuations.clear();
+                                  revokeMfa(request, mfaProofs);
+                                  observer.closePrevious(request);
+                                  if (authentication
+                                      instanceof
+                                      org.springframework.security.authentication
+                                              .AbstractAuthenticationToken
+                                          token) {
+                                    token.setDetails(null);
+                                  }
+                                  request
+                                      .getSession()
+                                      .setAttribute(
+                                          ConsentRequests.SESSION_ID, UUID.randomUUID().toString());
+                                  request
+                                      .getSession()
+                                      .setAttribute(
+                                          OidcIdentityClaims.AUTH_TIME,
+                                          java.time.Instant.now().toString());
+                                  observer.capture(request, response, authentication);
+                                  return null;
+                                });
+                          } catch (RuntimeException unavailable) {
+                            org.springframework.security.core.context.SecurityContextHolder
+                                .clearContext();
+                            var failedSession = request.getSession(false);
+                            if (failedSession != null) {
+                              failedSession.invalidate();
+                            }
+                            response.setStatus(503);
+                            response.setContentType("application/json");
+                            response.setHeader("Cache-Control", "no-store");
+                            response.getWriter().write("{\"error\":\"temporarily_unavailable\"}");
+                            return;
                           }
-                          request
-                              .getSession()
-                              .setAttribute(
-                                  ConsentRequests.SESSION_ID, UUID.randomUUID().toString());
-                          request
-                              .getSession()
-                              .setAttribute(
-                                  OidcIdentityClaims.AUTH_TIME, java.time.Instant.now().toString());
                           var saved = cache.getRequest(request, response);
-                          observer.capture(request, response, authentication);
                           cache.removeRequest(request, response);
                           String destination = "/login?authenticated";
                           if (saved != null) {
@@ -175,14 +230,22 @@ public class BrowserSecurityConfiguration {
                           }
                           response.sendRedirect(destination);
                         }))
+        .addFilterBefore(
+            new com.securegate.iam.authorization.infrastructure.DistributedLoginFilter(enforcement),
+            org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter
+                .class)
         .logout(
             logout ->
                 logout
                     .addLogoutHandler(
                         (request, response, authentication) -> {
-                          continuations.clear();
-                          revokeMfa(request, mfaProofs);
-                          observer.close(request, authentication);
+                          transactions.execute(
+                              () -> {
+                                continuations.clear();
+                                revokeMfa(request, mfaProofs);
+                                observer.close(request, authentication);
+                                return null;
+                              });
                         })
                     .logoutSuccessUrl("/login?logout"))
         .headers(

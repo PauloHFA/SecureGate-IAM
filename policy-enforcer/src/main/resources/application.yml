@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: policy-enforcer
+  main:
+    web-application-type: none
+  data:
+    redis:
+      host: ${ENFORCER_REDIS_HOST:127.0.0.1}
+      port: ${ENFORCER_REDIS_PORT:6379}
+      password: ${ENFORCER_REDIS_PASSWORD:}
+      timeout: 2s
+      connect-timeout: 2s
+      repositories:
+        enabled: false
+enforcer:
+  consumer:
+    enabled: ${ENFORCER_CONSUMER_ENABLED:false}
+    host: ${ENFORCER_RABBITMQ_HOST:127.0.0.1}
+    port: ${ENFORCER_RABBITMQ_PORT:5672}
+    virtual-host: ${ENFORCER_RABBITMQ_VHOST:securegate}
+    username: ${ENFORCER_RABBITMQ_USERNAME:}
+    password: ${ENFORCER_RABBITMQ_PASSWORD:}

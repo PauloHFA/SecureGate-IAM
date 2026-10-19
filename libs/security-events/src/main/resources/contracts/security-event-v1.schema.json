@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:securegate:security-event:1",
+  "title": "SecureGate security event envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventId", "eventType", "schemaVersion", "occurredAt", "producer", "correlationId", "actor", "context", "data"],
+  "properties": {
+    "eventId": {"type": "string", "format": "uuid"},
+    "eventType": {"type": "string", "maxLength": 128, "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)+$"},
+    "schemaVersion": {"const": 1},
+    "occurredAt": {"type": "string", "format": "date-time", "description": "UTC instant at or after Unix epoch"},
+    "producer": {"type": "string", "maxLength": 64, "pattern": "^[a-z][a-z0-9-]*$"},
+    "correlationId": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f]*$"},
+    "actor": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f]*$"},
+    "context": {
+      "allOf": [{"$ref": "#/$defs/metadata"}],
+      "required": ["resource"],
+      "properties": {"resource": {"type": "string", "minLength": 1, "maxLength": 100}}
+    },
+    "data": {"$ref": "#/$defs/metadata"}
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "maxProperties": 32,
+      "propertyNames": {"pattern": "^[a-zA-Z][a-zA-Z0-9_]{0,63}$"},
+      "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f]*$"}
+    }
+  }
+}

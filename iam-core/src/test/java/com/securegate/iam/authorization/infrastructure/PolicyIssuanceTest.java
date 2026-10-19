@@ -27,6 +27,45 @@ import org.springframework.security.oauth2.server.authorization.client.Registere
 import org.springframework.security.oauth2.server.authorization.token.DefaultOAuth2TokenContext;
 
 class PolicyIssuanceTest {
+  @Test
+  void machineGrantsNeverConsultHumanDistributedSignals() {
+    var enforcement =
+        mock(com.securegate.iam.authorization.application.port.AuthenticationEnforcement.class);
+    var guarded = new PolicyIssuance(access, enforcement);
+    var context = context(AuthorizationGrantType.CLIENT_CREDENTIALS);
+    assertSame(context, guarded.constrain(context));
+    verifyNoInteractions(enforcement, access);
+  }
+
+  @Test
+  void distributedGrantDenialAndOutageUseOauthErrorsWithoutCallingPermit() {
+    var enforcement =
+        mock(com.securegate.iam.authorization.application.port.AuthenticationEnforcement.class);
+    var guarded = new PolicyIssuance(access, enforcement);
+    guarded.open();
+    try {
+      assertEquals(
+          "invalid_grant",
+          assertThrows(
+                  PolicyGrantException.class,
+                  () -> guarded.constrain(context(AuthorizationGrantType.AUTHORIZATION_CODE)))
+              .getError()
+              .getErrorCode());
+      when(enforcement.authorizationAllowed(anyString()))
+          .thenThrow(new IllegalStateException("synthetic outage"));
+      assertEquals(
+          "temporarily_unavailable",
+          assertThrows(
+                  PolicyGrantException.class,
+                  () -> guarded.constrain(context(AuthorizationGrantType.REFRESH_TOKEN)))
+              .getError()
+              .getErrorCode());
+      verifyNoInteractions(access);
+    } finally {
+      guarded.close();
+    }
+  }
+
   private final TokenAccessService access = mock(TokenAccessService.class);
   private final PolicyIssuance issuance = new PolicyIssuance(access);
   private final UUID user = UUID.randomUUID();

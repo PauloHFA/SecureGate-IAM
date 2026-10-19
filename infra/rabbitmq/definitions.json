@@ -134,6 +134,22 @@
       "vhost": "securegate",
       "destination": "enforcer.block-policy",
       "destination_type": "queue",
+      "routing_key": "auth.login.failed",
+      "arguments": {}
+    },
+    {
+      "source": "security.events",
+      "vhost": "securegate",
+      "destination": "enforcer.block-policy",
+      "destination_type": "queue",
+      "routing_key": "identity.user.*",
+      "arguments": {}
+    },
+    {
+      "source": "security.events",
+      "vhost": "securegate",
+      "destination": "enforcer.block-policy",
+      "destination_type": "queue",
       "routing_key": "auth.login.suspicious",
       "arguments": {}
     },

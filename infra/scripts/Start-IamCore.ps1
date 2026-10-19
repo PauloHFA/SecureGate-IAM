@@ -1,10 +1,11 @@
 [CmdletBinding()]
-param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization)
+param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LocalEnvironment.ps1')
 $projectPath = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $settings = Read-LocalEnvironment (Join-Path $projectPath '.env')
+if ($EnableResourceEnforcement) { $EnableAuthorization = $true }
 if ($EnableAuthorization) { $EnableTransit = $true }
 if ($EnableBootstrap -and (-not $settings.ContainsKey('IAM_BOOTSTRAP_TOKEN') -or $settings.IAM_BOOTSTRAP_TOKEN.Length -lt 32)) {
   throw 'Token bootstrap ausente ou invalido. Execute Initialize-Local.ps1 antes de ativar a administracao.'
@@ -24,6 +25,10 @@ $applicationEnvironment = @{
   IAM_DATABASE_PASSWORD = $settings.POSTGRES_PASSWORD
   IAM_PORT = [string]$Port
   IAM_BIND_ADDRESS = '127.0.0.1'
+  IAM_RESOURCE_ENFORCEMENT_ENABLED = $(if ($EnableResourceEnforcement) { 'true' } else { 'false' })
+  IAM_ENFORCEMENT_REDIS_HOST = '127.0.0.1'
+  IAM_ENFORCEMENT_REDIS_PORT = $settings.REDIS_PORT
+  IAM_ENFORCEMENT_REDIS_PASSWORD = $(if ($EnableResourceEnforcement) { $settings.REDIS_PASSWORD } else { '' })
   IAM_TRANSIT_ENABLED = $(if ($EnableTransit) { 'true' } else { 'false' })
   IAM_AUTHORIZATION_ENABLED = $(if ($EnableAuthorization) { 'true' } else { 'false' })
   IAM_ISSUER = 'http://127.0.0.1:' + $Port
@@ -32,6 +37,13 @@ $applicationEnvironment = @{
   IAM_VAULT_SECRET_ID_FILE = $secretIdPath
   IAM_BOOTSTRAP_ENABLED = $(if ($EnableBootstrap) { 'true' } else { 'false' })
   IAM_BOOTSTRAP_TOKEN = $(if ($EnableBootstrap) { $settings.IAM_BOOTSTRAP_TOKEN } else { '' })
+  IAM_OUTBOX_PUBLISHER_ENABLED = $(if ($EnableOutboxPublisher) { 'true' } else { 'false' })
+  IAM_OUTBOX_RETENTION_ENABLED = $(if ($EnableOutboxRetention) { 'true' } else { 'false' })
+  IAM_RABBITMQ_HOST = '127.0.0.1'
+  IAM_RABBITMQ_PORT = $settings.RABBITMQ_PORT
+  IAM_RABBITMQ_VHOST = $settings.RABBITMQ_VHOST
+  IAM_RABBITMQ_USERNAME = $(if ($EnableOutboxPublisher) { $settings.RABBITMQ_USER } else { '' })
+  IAM_RABBITMQ_PASSWORD = $(if ($EnableOutboxPublisher) { $settings.RABBITMQ_PASSWORD } else { '' })
 }
 $previousValues = @{}
 try {

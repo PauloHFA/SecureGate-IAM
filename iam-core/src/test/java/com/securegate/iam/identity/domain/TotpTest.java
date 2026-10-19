@@ -8,7 +8,9 @@ import java.util.HashSet;
 import org.junit.jupiter.api.Test;
 
 class TotpTest {
-  // RFC 6238 Appendix B SHA1 seed (the six-digit profile takes the last six digits).
+  // Public RFC 6238 Appendix B SHA1 test vector, never a production credential.
+  // https://www.rfc-editor.org/rfc/rfc6238.html#appendix-B
+  // The six-digit profile takes the last six digits. See docs/runbooks/gitguardian.md.
   private static final TotpSecret SECRET = TotpSecret.parse("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ");
 
   @Test

@@ -74,7 +74,7 @@ class IamCoreIT {
   @Test
   void startsWithPostgresAndAppliesTheVersionedMigrationOnlyOnce() {
     assertEquals(1, jdbc.queryForObject("SELECT 1", Integer.class));
-    assertEquals("8", flyway.info().current().getVersion().getVersion());
+    assertEquals("12", flyway.info().current().getVersion().getVersion());
     var schemas =
         jdbc.queryForList(
             "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'iam_%'",
@@ -95,6 +95,10 @@ class IamCoreIT {
 
   @Test
   void disabledOAuthDoesNotCreateInMemoryClientsOrAnyLocalSigner() {
+    assertEquals(
+        0,
+        context.getBeanNamesForType(com.securegate.iam.audit.application.OutboxPublisher.class)
+            .length);
     assertEquals(
         0,
         context.getBeanNamesForType(
@@ -158,6 +162,8 @@ class IamCoreIT {
             "/api/admin/policies",
             "/oauth2/jwks",
             "/actuator/env",
+            "/actuator/metrics",
+            "/actuator/metrics/iam.outbox.pending",
             "/actuator",
             "/actuator/health/db")) {
       var response = get(path, "denied-123");

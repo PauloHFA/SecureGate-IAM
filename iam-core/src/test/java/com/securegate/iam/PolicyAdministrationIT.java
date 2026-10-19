@@ -33,6 +33,48 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class PolicyAdministrationIT {
+  @Test
+  void canonicalPolicyChangeCarriesTargetAndVersionAndFailureRollsBackBothEvents()
+      throws Exception {
+    String resource = target();
+    var created = create(resource, "ALLOW", 100, true, Set.of(), Set.of(), null);
+    String id = created.path("id").asText();
+    var payload =
+        jdbc.queryForObject(
+            "SELECT payload::text FROM iam_audit.outbox_events WHERE event_type='policy.changed' AND payload->'data'->>'policyId'=?",
+            String.class,
+            id);
+    var fact = json.readValue(payload, com.securegate.events.SecurityEvent.class);
+    assertEquals(resource, fact.data().get("resource"));
+    assertEquals("CREATED", fact.data().get("operation"));
+    assertEquals("0", fact.data().get("version"));
+    doThrow(new IllegalStateException("synthetic canonical policy failure"))
+        .when(audit)
+        .record(argThat(event -> event.type().value().equals("policy.changed")));
+    var replacement = updateBody(created);
+    replacement.put("enabled", false);
+    assertEquals(500, call("PUT", "/policies/" + id, replacement).statusCode());
+    assertEquals(
+        0L,
+        jdbc.queryForObject(
+            "SELECT version FROM iam_policy.policies WHERE id=?::uuid", Long.class, id));
+    assertEquals(
+        1,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.outbox_events WHERE event_type='policy.changed' AND payload->'data'->>'policyId'=?",
+            Integer.class,
+            id));
+    org.mockito.Mockito.reset(audit);
+    var updated = success(call("PUT", "/policies/" + id, replacement), 200);
+    assertEquals(1, updated.path("version").asInt());
+    assertEquals(
+        2,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.outbox_events WHERE event_type='policy.changed' AND payload->'data'->>'policyId'=?",
+            Integer.class,
+            id));
+  }
+
   private static final String TOKEN = UUID.randomUUID().toString() + UUID.randomUUID();
   private static final HttpClient HTTP = HttpClient.newHttpClient();
 
@@ -403,7 +445,7 @@ class PolicyAdministrationIT {
     assertEquals(1, updated.path("version").asLong());
     var events =
         jdbc.queryForList(
-            "SELECT event_type,details::text,correlation_id FROM iam_audit.security_events WHERE resource=? ORDER BY occurred_at",
+            "SELECT event_type,details::text,correlation_id FROM iam_audit.security_events WHERE resource=? AND event_type IN ('policy.created','policy.updated') ORDER BY occurred_at",
             id);
     assertEquals(2, events.size());
     assertEquals("policy.created", events.getFirst().get("event_type"));
@@ -701,6 +743,7 @@ class PolicyAdministrationIT {
             .target("5")
             .load();
     flywayV5.migrate();
+    UUID legacyAudit = UUID.randomUUID();
     try (var connection =
             java.sql.DriverManager.getConnection(
                 url, DATABASE.getUsername(), DATABASE.getPassword());
@@ -711,13 +754,32 @@ class PolicyAdministrationIT {
       insert.setString(
           2, json.writeValueAsString(document("invoices", "ALLOW", Set.of(), Set.of(), null)));
       insert.executeUpdate();
+      try (var auditInsert =
+          connection.prepareStatement(
+              "INSERT INTO iam_audit.security_events(id,actor,event_type,resource,correlation_id,details) VALUES (?,'test','policy.created','legacy-policy','legacy-test','{}')")) {
+        auditInsert.setObject(1, legacyAudit);
+        auditInsert.executeUpdate();
+      }
     }
     var upgraded =
         org.flywaydb.core.Flyway.configure()
             .dataSource(url, DATABASE.getUsername(), DATABASE.getPassword())
             .load();
-    assertEquals(3, upgraded.migrate().migrationsExecuted);
+    assertEquals(7, upgraded.migrate().migrationsExecuted);
     upgraded.validate();
+    try (var connection =
+            java.sql.DriverManager.getConnection(
+                url, DATABASE.getUsername(), DATABASE.getPassword());
+        var statement =
+            connection.prepareStatement(
+                "SELECT (SELECT count(*) FROM iam_audit.security_events WHERE id=?), (SELECT count(*) FROM iam_audit.outbox_events)")) {
+      statement.setObject(1, legacyAudit);
+      try (var row = statement.executeQuery()) {
+        assertTrue(row.next());
+        assertEquals(1, row.getInt(1));
+        assertEquals(0, row.getInt(2));
+      }
+    }
     try (var connection =
             java.sql.DriverManager.getConnection(
                 url, DATABASE.getUsername(), DATABASE.getPassword());

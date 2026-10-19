@@ -47,6 +47,10 @@ import org.testcontainers.utility.DockerImageName;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class BrowserAuthorizationIT {
   private static final ObjectMapper JSON = new ObjectMapper();
+  private static final ObjectMapper EVENTS =
+      new ObjectMapper()
+          .findAndRegisterModules()
+          .disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
   private static final HttpClient HTTP = HttpClient.newHttpClient();
   private static final String ROOT = UUID.randomUUID().toString();
   private static final String ADMIN = UUID.randomUUID().toString();
@@ -54,6 +58,12 @@ class BrowserAuthorizationIT {
   private static final String CALLBACK = "http://127.0.0.1:18090/callback";
   private static final String ISSUER = "https://issuer.example.test";
   private static Path credentials;
+
+  @Container
+  static final GenericContainer<?> REDIS =
+      new GenericContainer<>(DockerImageName.parse("redis:7.4.11-alpine"))
+          .withCommand("redis-server", "--requirepass", ROOT)
+          .withExposedPorts(6379);
 
   @Container
   static final GenericContainer<?> VAULT =
@@ -100,6 +110,10 @@ class BrowserAuthorizationIT {
     registry.add("spring.datasource.url", DATABASE::getJdbcUrl);
     registry.add("spring.datasource.username", DATABASE::getUsername);
     registry.add("spring.datasource.password", DATABASE::getPassword);
+    registry.add("iam.resources.enforcement.enabled", () -> true);
+    registry.add("iam.resources.enforcement.host", REDIS::getHost);
+    registry.add("iam.resources.enforcement.port", () -> REDIS.getMappedPort(6379));
+    registry.add("iam.resources.enforcement.password", () -> ROOT);
     registry.add("iam.transit.enabled", () -> true);
     registry.add("iam.transit.address", BrowserAuthorizationIT::vaultAddress);
     registry.add("iam.transit.role-id-file", () -> credentials.resolve("role").toString());
@@ -126,9 +140,678 @@ class BrowserAuthorizationIT {
   @Autowired com.securegate.iam.identity.application.MfaService mfa;
   @Autowired com.securegate.iam.authorization.application.port.ResourceTokens resourceTokens;
 
+  @Autowired
+  @org.springframework.beans.factory.annotation.Qualifier("enforcementRedisTemplate")
+  org.springframework.data.redis.core.StringRedisTemplate redisEnforcement;
+
+  private List<com.securegate.events.SecurityEvent> facts(String type, String key, String value) {
+    return jdbc.query(
+        "SELECT payload::text FROM iam_audit.outbox_events WHERE event_type=? AND payload->'data'->>?=? ORDER BY occurred_at,event_id",
+        (rs, row) -> {
+          try {
+            return EVENTS.readValue(rs.getString(1), com.securegate.events.SecurityEvent.class);
+          } catch (Exception invalid) {
+            throw new IllegalStateException("Invalid stored event.");
+          }
+        },
+        type,
+        key,
+        value);
+  }
+
+  private HttpResponse<String> loginAttempt(HttpClient browser, String email, String password)
+      throws Exception {
+    var login = get(browser, "/login");
+    return post(
+        browser,
+        "/login",
+        Map.of("username", email, "password", password, "_csrf", hidden(login.body(), "_csrf")));
+  }
+
+  @Test
+  void failedLoginFactsShareTheAttemptWithHistoryAndNeverExposeTheUsername() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = browser();
+    assertEquals(302, loginAttempt(browser, flow.email(), "wrong-password").statusCode());
+    var failed = facts("auth.login.failed", "userId", flow.userId().toString());
+    assertEquals(1, failed.size());
+    var fact = failed.getFirst();
+    assertEquals(
+        1,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_identity.login_failures WHERE id=? AND user_id=?",
+            Integer.class,
+            UUID.fromString(fact.data().get("attemptId")),
+            flow.userId()));
+    assertFalse(EVENTS.writeValueAsString(fact).contains(flow.email()));
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic failed-login event failure"))
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                event -> event.type().value().equals("auth.login.failed")));
+    assertEquals(302, loginAttempt(browser, flow.email(), "wrong-password").statusCode());
+    assertEquals(
+        1,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_identity.login_failures WHERE user_id=?",
+            Integer.class,
+            flow.userId()));
+    assertEquals(1, facts("auth.login.failed", "userId", flow.userId().toString()).size());
+    org.mockito.Mockito.reset(mfaAudit);
+    String correlation = "unknown-" + UUID.randomUUID();
+    var login = get(browser, "/login");
+    var response =
+        browser.send(
+            HttpRequest.newBuilder(uri("/login"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Correlation-ID", correlation)
+                .POST(
+                    HttpRequest.BodyPublishers.ofString(
+                        form(
+                            Map.of(
+                                "username",
+                                "unknown-" + UUID.randomUUID() + "@example.test",
+                                "password",
+                                "wrong-password",
+                                "_csrf",
+                                hidden(login.body(), "_csrf")))))
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(302, response.statusCode());
+    var unknown =
+        JSON.readTree(
+            jdbc.queryForObject(
+                "SELECT payload::text FROM iam_audit.outbox_events WHERE payload->>'correlationId'=?",
+                String.class,
+                correlation));
+    assertFalse(unknown.path("data").has("userId"));
+    assertEquals(3, unknown.path("data").size());
+    assertEquals("127.0.0.1", unknown.path("data").path("remoteAddress").asText());
+  }
+
+  @Test
+  void suspiciousLoginIsAssessedOncePerSidAndLogoutProducesATerminalFact() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = mfaLogin(flow);
+    var suspicious = facts("auth.login.suspicious", "userId", flow.userId().toString());
+    assertEquals(1, suspicious.size());
+    var fact = suspicious.getFirst();
+    assertTrue(Integer.parseInt(fact.data().get("riskScore")) >= 70);
+    assertTrue(fact.data().get("reasons").contains("DEVICE_UNTRUSTED"));
+    get(browser, "/mfa");
+    get(browser, "/mfa");
+    assertEquals(1, facts("auth.login.suspicious", "userId", flow.userId().toString()).size());
+    var page = get(browser, "/mfa");
+    assertEquals(
+        302, post(browser, "/logout", Map.of("_csrf", hidden(page.body(), "_csrf"))).statusCode());
+    var closed = facts("session.terminated", "sid", fact.data().get("sid"));
+    assertEquals(1, closed.size());
+    assertEquals(flow.userId().toString(), closed.getFirst().data().get("userId"));
+    assertNotNull(
+        jdbc.queryForObject(
+            "SELECT closed_at FROM iam_policy.browser_contexts WHERE id=?",
+            java.sql.Timestamp.class,
+            UUID.fromString(fact.data().get("sid"))));
+    assertEquals(302, get(browser, "/mfa").statusCode());
+  }
+
+  @Test
+  void suspiciousEventFailureCannotLeaveAnAuthenticatedBrowserOrCommittedContext()
+      throws Exception {
+    Flow flow = flow();
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic suspicious event failure"))
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                event -> event.type().value().equals("auth.login.suspicious")));
+    HttpClient browser = browser();
+    var response = loginAttempt(browser, flow.email(), PASSWORD);
+    assertEquals(503, response.statusCode(), response.body());
+    assertEquals(302, get(browser, "/mfa").statusCode());
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_policy.browser_contexts WHERE user_id=?",
+            Integer.class,
+            flow.userId()));
+    assertTrue(facts("auth.login.suspicious", "userId", flow.userId().toString()).isEmpty());
+  }
+
+  @Test
+  void lowRiskReauthenticationDoesNotEmitSuspicionAndTerminatesTheOldSid() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = mfaLogin(flow);
+    String oldSid =
+        facts("auth.login.suspicious", "userId", flow.userId().toString())
+            .getFirst()
+            .data()
+            .get("sid");
+    var now = java.time.Instant.now().plusSeconds(600);
+    org.mockito.Mockito.doReturn(now).when(riskClock).instant();
+    UUID network = UUID.randomUUID();
+    jdbc.update(
+        "INSERT INTO iam_policy.trusted_networks(id,network,enabled) VALUES (?,'127.0.0.0/24',true)",
+        network);
+    jdbc.update(
+        "INSERT INTO iam_policy.resource_profiles(resource,sensitivity) VALUES ('auth:login','PUBLIC')");
+    jdbc.update(
+        "UPDATE iam_policy.browser_devices SET trusted_until=? WHERE user_id=?",
+        java.sql.Timestamp.from(now.plusSeconds(3600)),
+        flow.userId());
+    try {
+      assertEquals(302, loginAttempt(browser, flow.email(), PASSWORD).statusCode());
+      assertEquals(1, facts("auth.login.suspicious", "userId", flow.userId().toString()).size());
+      assertEquals(1, facts("session.terminated", "sid", oldSid).size());
+    } finally {
+      jdbc.update("DELETE FROM iam_policy.trusted_networks WHERE id=?", network);
+      jdbc.update("DELETE FROM iam_policy.resource_profiles WHERE resource='auth:login'");
+    }
+  }
+
+  @Test
+  void sessionEventFailureRollsBackContextAndMfaClosureAndAllowsRetry() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = mfaLogin(flow);
+    String sid =
+        facts("auth.login.suspicious", "userId", flow.userId().toString())
+            .getFirst()
+            .data()
+            .get("sid");
+    String seed = mfaSeed(mfaPost(browser, "/mfa/enroll", Map.of("password", PASSWORD)));
+    mfaRecovery(mfaPost(browser, "/mfa/confirm", Map.of("code", mfaCode(seed))));
+    assertTrue(mfaProofs.current(flow.userId(), 0, UUID.fromString(sid)).isPresent());
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic session event failure"))
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                event -> event.type().value().equals("session.terminated")));
+    var page = get(browser, "/mfa");
+    assertEquals(
+        500, post(browser, "/logout", Map.of("_csrf", hidden(page.body(), "_csrf"))).statusCode());
+    assertTrue(mfaProofs.current(flow.userId(), 0, UUID.fromString(sid)).isPresent());
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_policy.browser_contexts WHERE id=? AND closed_at IS NOT NULL",
+            Integer.class,
+            UUID.fromString(sid)));
+    assertTrue(facts("session.terminated", "sid", sid).isEmpty());
+    org.mockito.Mockito.reset(mfaAudit);
+    page = get(browser, "/mfa");
+    assertEquals(200, page.statusCode());
+    assertEquals(
+        302, post(browser, "/logout", Map.of("_csrf", hidden(page.body(), "_csrf"))).statusCode());
+    assertTrue(mfaProofs.current(flow.userId(), 0, UUID.fromString(sid)).isEmpty());
+    assertEquals(1, facts("session.terminated", "sid", sid).size());
+  }
+
+  @Test
+  void revocationFactsTargetFamilyAcrossRefreshAndSingleAccessTokenWithoutRefresh()
+      throws Exception {
+    Flow family = flow(true);
+    Pair initial = initialTokens(family);
+    String authorizationId = authorizationId(initial.access());
+    var renewed = pair(refresh(family, initial.refresh(), null));
+    assertEquals(
+        authorizationId,
+        com.nimbusds.jwt.SignedJWT.parse(initial.access())
+            .getJWTClaimsSet()
+            .getStringClaim("authorization_id"));
+    assertEquals(
+        authorizationId,
+        com.nimbusds.jwt.SignedJWT.parse(renewed.access())
+            .getJWTClaimsSet()
+            .getStringClaim("authorization_id"));
+    assertEquals(
+        200, oauthPost("/oauth2/revoke", family, Map.of("token", initial.refresh())).statusCode());
+    var revoked = facts("token.revoked", "authorizationId", authorizationId);
+    assertEquals(1, revoked.size());
+    assertEquals("AUTHORIZATION", revoked.getFirst().data().get("target"));
+    assertEquals(family.userId().toString(), revoked.getFirst().data().get("userId"));
+    assertTrue(
+        java.time.Instant.parse(revoked.getFirst().data().get("expiresAt"))
+            .isAfter(java.time.Instant.now()));
+    assertEquals(
+        200, oauthPost("/oauth2/revoke", family, Map.of("token", renewed.access())).statusCode());
+    assertEquals(1, facts("token.revoked", "authorizationId", authorizationId).size());
+    Flow single = flow(false);
+    var browser = browser();
+    String code = approve(browser, single, pending(browser, single));
+    String access =
+        JSON.readTree(exchange(single, code, single.verifier(), CALLBACK).body())
+            .path("access_token")
+            .asText();
+    String singleId = authorizationId(access);
+    assertEquals(200, oauthPost("/oauth2/revoke", single, Map.of("token", access)).statusCode());
+    var singleFact = facts("token.revoked", "authorizationId", singleId).getFirst();
+    assertEquals("ACCESS_TOKEN", singleFact.data().get("target"));
+    assertEquals(
+        com.nimbusds.jwt.SignedJWT.parse(access).getJWTClaimsSet().getJWTID(),
+        singleFact.data().get("jti"));
+    assertFalse(EVENTS.writeValueAsString(singleFact).contains(access));
+  }
+
+  @Test
+  void refreshReuseFactAndFamilyInvalidationRollbackTogetherWhenPersistenceFails()
+      throws Exception {
+    Flow flow = flow(true);
+    Pair first = initialTokens(flow);
+    Pair second = pair(refresh(flow, first.refresh(), null));
+    String id = authorizationId(second.access());
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic revocation event failure"))
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                event -> event.type().value().equals("token.revoked")));
+    assertEquals(500, refresh(flow, first.refresh(), null).statusCode());
+    assertActive(flow, second.access(), true);
+    assertTrue(facts("token.revoked", "authorizationId", id).isEmpty());
+    org.mockito.Mockito.reset(mfaAudit);
+    assertError(refresh(flow, first.refresh(), null), "invalid_grant");
+    var fact = facts("token.revoked", "authorizationId", id).getFirst();
+    assertEquals("REFRESH_REUSE", fact.data().get("reason"));
+    assertEquals("AUTHORIZATION", fact.data().get("target"));
+    assertActive(flow, second.access(), false);
+    assertError(refresh(flow, first.refresh(), null), "invalid_grant");
+    assertEquals(1, facts("token.revoked", "authorizationId", id).size());
+  }
+
   @org.junit.jupiter.api.AfterEach
   void removeResourcePolicies() {
     jdbc.update("DELETE FROM iam_policy.policies WHERE document->>'resource'='account:self'");
+    redisEnforcement.execute(
+        (org.springframework.data.redis.core.RedisCallback<Void>)
+            connection -> {
+              connection.serverCommands().flushDb();
+              return null;
+            });
+  }
+
+  private String enforcementKey(String group, String kind, String subject) {
+    return com.securegate.iam.authorization.infrastructure.RedisResourceEnforcement.key(
+        group, kind, subject);
+  }
+
+  @Test
+  void loginIpBlockIsUniformAfterCsrfAndDoesNotRecordFakeCredentialFailures() throws Exception {
+    Flow flow = flow(true);
+    var browser = browser();
+    int before =
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.outbox_events WHERE event_type='auth.login.failed'",
+            Integer.class);
+    String ip = enforcementKey("block-policy", "blocked:ip", "127.0.0.1");
+    markEnforcement(ip, Long.toString(System.currentTimeMillis() + 120000));
+    for (String email : List.of(flow.email(), "unknown-" + UUID.randomUUID() + "@example.test")) {
+      var response = loginAttempt(browser, email, PASSWORD);
+      assertEquals(429, response.statusCode(), response.body());
+      assertEquals("{\"error\":\"rate_limited\"}", response.body());
+    }
+    var noCsrf = post(browser, "/login", Map.of("username", flow.email(), "password", PASSWORD));
+    assertEquals(403, noCsrf.statusCode());
+    assertEquals(
+        before,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.outbox_events WHERE event_type='auth.login.failed'",
+            Integer.class));
+    redisEnforcement.delete(ip);
+    assertEquals(302, loginAttempt(browser, flow.email(), PASSWORD).statusCode());
+    assertEquals(200, get(browser, "/mfa").statusCode());
+  }
+
+  @Test
+  void accountAndIdentityLoginDenialsStayGenericAndMalformedStateIs503WithoutFailureFact()
+      throws Exception {
+    Flow flow = flow(true);
+    var browser = browser();
+    long version =
+        jdbc.queryForObject(
+            "SELECT version FROM iam_identity.users WHERE id=?", Long.class, flow.userId());
+    String account =
+        enforcementKey("block-policy", "blocked:account", flow.userId() + ":" + version);
+    markEnforcement(account, Long.toString(System.currentTimeMillis() + 120000));
+    assertEquals(
+        uri("/login?error").toString(), location(loginAttempt(browser, flow.email(), PASSWORD)));
+    assertEquals(
+        uri("/login?error").toString(),
+        location(loginAttempt(browser, flow.email(), "wrong-synthetic-password")));
+    assertEquals(302, get(browser, "/mfa").statusCode());
+    redisEnforcement.delete(account);
+    String identity = enforcementKey("block-policy", "identity", flow.userId().toString());
+    markEnforcement(identity, String.format(java.util.Locale.ROOT, "%019d|LOCKED", version));
+    assertEquals(
+        uri("/login?error").toString(), location(loginAttempt(browser, flow.email(), PASSWORD)));
+    int before =
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.outbox_events WHERE event_type='auth.login.failed'",
+            Integer.class);
+    markEnforcement(identity, "synthetic-invalid-state");
+    var unavailable = loginAttempt(browser, flow.email(), PASSWORD);
+    assertEquals(503, unavailable.statusCode());
+    assertFalse(unavailable.body().contains("synthetic"));
+    assertEquals(
+        before,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.outbox_events WHERE event_type='auth.login.failed'",
+            Integer.class));
+    redisEnforcement.delete(identity);
+    assertEquals(302, loginAttempt(browser, flow.email(), PASSWORD).statusCode());
+    assertEquals(200, get(browser, "/mfa").statusCode());
+  }
+
+  @Test
+  void distributedRefreshDenialsPreserveOriginalRefreshUntilCauseIsRemoved() throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    var claims = com.nimbusds.jwt.SignedJWT.parse(tokens.access()).getJWTClaimsSet();
+    long version =
+        jdbc.queryForObject(
+            "SELECT version FROM iam_identity.users WHERE id=?", Long.class, flow.userId());
+    String deadline = Long.toString(System.currentTimeMillis() + 120000);
+    var marks = new java.util.LinkedHashMap<String, String>();
+    marks.put(enforcementKey("revocation", "sid", claims.getStringClaim("sid")), "0");
+    marks.put(
+        enforcementKey("revocation", "authorization", authorizationId(tokens.access())), deadline);
+    marks.put(
+        enforcementKey("block-policy", "blocked:account", flow.userId() + ":" + version), deadline);
+    marks.put(enforcementKey("block-policy", "blocked:ip", "127.0.0.1"), deadline);
+    marks.put(
+        enforcementKey("block-policy", "identity", flow.userId().toString()),
+        String.format(java.util.Locale.ROOT, "%019d|LOCKED", version));
+    for (var mark : marks.entrySet()) {
+      markEnforcement(mark.getKey(), mark.getValue());
+      assertError(refresh(flow, tokens.refresh(), null), "invalid_grant");
+      redisEnforcement.delete(mark.getKey());
+      tokens = pair(refresh(flow, tokens.refresh(), null));
+    }
+  }
+
+  @Test
+  void distributedPolicyWatermarkIsCheckedAgainAtRefresh() throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    var row =
+        jdbc.queryForMap(
+            "SELECT id,version FROM iam_policy.policies WHERE document->>'resource'=?",
+            "oauth:" + flow.clientId());
+    String key = enforcementKey("block-policy", "policy", row.get("id").toString());
+    markEnforcement(
+        key,
+        String.format(
+            java.util.Locale.ROOT,
+            "%019d|true|%s",
+            ((Number) row.get("version")).longValue() + 1,
+            "a".repeat(64)));
+    assertError(refresh(flow, tokens.refresh(), null), "invalid_grant");
+    redisEnforcement.delete(key);
+    assertEquals(200, refresh(flow, tokens.refresh(), null).statusCode());
+  }
+
+  @Test
+  void redisRiskRequiresRealMfaForRefreshAndBoundsTokenToOriginalSessionProof() throws Exception {
+    Flow flow = flow(true);
+    HttpClient browser = mfaLogin(flow);
+    String code = approve(browser, flow, get(browser, location(get(browser, authorize(flow)))));
+    Pair tokens = pair(exchange(flow, code, flow.verifier(), CALLBACK));
+    String sid =
+        com.nimbusds.jwt.SignedJWT.parse(tokens.access()).getJWTClaimsSet().getStringClaim("sid");
+    markEnforcement(
+        enforcementKey("block-policy", "risk", sid),
+        Long.toString(System.currentTimeMillis() + 120000));
+    assertError(refresh(flow, tokens.refresh(), null), "invalid_grant");
+    String seed = mfaSeed(mfaPost(browser, "/mfa/enroll", Map.of("password", PASSWORD)));
+    var activation = mfaPost(browser, "/mfa/confirm", Map.of("code", mfaCode(seed)));
+    var codes = mfaRecovery(activation);
+    assertEquals(
+        200,
+        mfaPost(browser, "/mfa/verify", Map.of("method", "RECOVERY", "code", codes.getFirst()))
+            .statusCode());
+    var renewed = pair(refresh(flow, tokens.refresh(), null));
+    var proof = mfaProofs.current(flow.userId(), 0, UUID.fromString(sid)).orElseThrow();
+    var expires =
+        com.nimbusds.jwt.SignedJWT.parse(renewed.access())
+            .getJWTClaimsSet()
+            .getExpirationTime()
+            .toInstant();
+    assertFalse(expires.isAfter(proof.expiresAt()));
+  }
+
+  @Test
+  void redisOutageOnLoginAndRefreshFailsClosedAndRefreshRecoversWithoutRotationLoss()
+      throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    resourcePolicy("ALLOW", List.of(), null);
+    var browser = browser();
+    var page = get(browser, "/login");
+    int before =
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.outbox_events WHERE event_type='auth.login.failed'",
+            Integer.class);
+    assertEquals(
+        0,
+        REDIS
+            .execInContainer("redis-cli", "-a", ROOT, "CLIENT", "PAUSE", "1500", "ALL")
+            .getExitCode());
+    var denied =
+        post(
+            browser,
+            "/login",
+            Map.of(
+                "username",
+                flow.email(),
+                "password",
+                PASSWORD,
+                "_csrf",
+                hidden(page.body(), "_csrf")));
+    assertEquals(503, denied.statusCode());
+    assertEquals("5", denied.headers().firstValue("Retry-After").orElseThrow());
+    assertEquals(
+        before,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.outbox_events WHERE event_type='auth.login.failed'",
+            Integer.class));
+    long timeout = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+    HttpResponse<String> response;
+    do {
+      Thread.sleep(100);
+      response = resource(tokens.access());
+    } while (response.statusCode() == 503 && System.nanoTime() < timeout);
+    assertEquals(200, response.statusCode());
+    assertEquals(
+        0,
+        REDIS
+            .execInContainer("redis-cli", "-a", ROOT, "CLIENT", "PAUSE", "1500", "ALL")
+            .getExitCode());
+    var unavailable = refresh(flow, tokens.refresh(), null);
+    assertEquals(503, unavailable.statusCode());
+    timeout = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+    do {
+      Thread.sleep(100);
+      response = refresh(flow, tokens.refresh(), null);
+    } while (response.statusCode() == 503 && System.nanoTime() < timeout);
+    assertEquals(200, response.statusCode(), response.body());
+  }
+
+  @Test
+  void distributedCodeRedemptionDenialRollsBackAndDoesNotConsumeCode() throws Exception {
+    Flow flow = flow(false);
+    var browser = browser();
+    String code = approve(browser, flow, pending(browser, flow));
+    var authorization =
+        authorizations.findByToken(
+            code,
+            new org.springframework.security.oauth2.server.authorization.OAuth2TokenType("code"));
+    String sid =
+        authorization.getAttribute(
+            com.securegate.iam.authorization.application.port.ConsentRequests.SESSION_ID);
+    String key = enforcementKey("revocation", "sid", sid);
+    markEnforcement(key, "0");
+    assertError(exchange(flow, code, flow.verifier(), CALLBACK), "invalid_grant");
+    redisEnforcement.delete(key);
+    assertEquals(200, exchange(flow, code, flow.verifier(), CALLBACK).statusCode());
+  }
+
+  private void markEnforcement(String key, String value) {
+    redisEnforcement.opsForValue().set(key, value, Duration.ofSeconds(120));
+  }
+
+  @Test
+  void distributedRevocationsDenyValidLocalTokensByJtiSidAndStoredAuthorizationId()
+      throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    resourcePolicy("ALLOW", List.of(), null);
+    var claims = com.nimbusds.jwt.SignedJWT.parse(tokens.access()).getJWTClaimsSet();
+    String deadline = Long.toString(System.currentTimeMillis() + 120000);
+    var marks =
+        Map.of(
+            "jti",
+            claims.getJWTID(),
+            "sid",
+            claims.getStringClaim("sid"),
+            "authorization",
+            authorizationId(tokens.access()));
+    for (var mark : marks.entrySet()) {
+      assertEquals(200, resource(tokens.access()).statusCode());
+      String key = enforcementKey("revocation", mark.getKey(), mark.getValue());
+      markEnforcement(key, mark.getKey().equals("sid") ? "0" : deadline);
+      var response = resource(tokens.access());
+      assertEquals(401, response.statusCode(), response.body());
+      assertEquals("{\"error\":\"invalid_token\"}", response.body());
+      redisEnforcement.delete(key);
+    }
+    assertEquals(200, resource(tokens.access()).statusCode());
+  }
+
+  @Test
+  void distributedIdentityWatermarkCannotBeBypassedAndOlderProjectionDoesNotOverrideFreshDatabase()
+      throws Exception {
+    Flow flow = flow(true);
+    jdbc.update("UPDATE iam_identity.users SET version=version+1 WHERE id=?", flow.userId());
+    Pair tokens = initialTokens(flow);
+    resourcePolicy("ALLOW", List.of(), null);
+    long version =
+        jdbc.queryForObject(
+            "SELECT version FROM iam_identity.users WHERE id=?", Long.class, flow.userId());
+    String key = enforcementKey("block-policy", "identity", flow.userId().toString());
+    assertEquals(200, resource(tokens.access()).statusCode());
+    markEnforcement(key, String.format(java.util.Locale.ROOT, "%019d|LOCKED", version));
+    assertEquals(401, resource(tokens.access()).statusCode());
+    markEnforcement(key, String.format(java.util.Locale.ROOT, "%019d|ACTIVE", version + 1));
+    assertEquals(401, resource(tokens.access()).statusCode());
+    markEnforcement(key, String.format(java.util.Locale.ROOT, "%019d|ACTIVE", version));
+    assertEquals(200, resource(tokens.access()).statusCode());
+    if (version > 0) {
+      markEnforcement(key, String.format(java.util.Locale.ROOT, "%019d|LOCKED", version - 1));
+      assertEquals(200, resource(tokens.access()).statusCode());
+    }
+  }
+
+  @Test
+  void resourceRateLimitsAccountAndActualPeerIpWithoutTrustingForwardedHeaders() throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    resourcePolicy("ALLOW", List.of(), null);
+    long version =
+        jdbc.queryForObject(
+            "SELECT version FROM iam_identity.users WHERE id=?", Long.class, flow.userId());
+    String account =
+        enforcementKey("block-policy", "blocked:account", flow.userId() + ":" + version);
+    markEnforcement(account, Long.toString(System.currentTimeMillis() + 120000));
+    var denied = resource(tokens.access());
+    assertEquals(429, denied.statusCode());
+    assertEquals("{\"error\":\"rate_limited\"}", denied.body());
+    assertEquals("5", denied.headers().firstValue("Retry-After").orElseThrow());
+    assertTrue(denied.headers().allValues("WWW-Authenticate").isEmpty());
+    redisEnforcement.delete(account);
+    String ip = enforcementKey("block-policy", "blocked:ip", "127.0.0.1");
+    markEnforcement(ip, Long.toString(System.currentTimeMillis() + 120000));
+    var response =
+        HTTP.send(
+            HttpRequest.newBuilder(uri("/api/resources/account"))
+                .header("Authorization", "Bearer " + tokens.access())
+                .header("X-Forwarded-For", "203.0.113.99")
+                .header("Forwarded", "for=203.0.113.99")
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(429, response.statusCode(), response.body());
+    redisEnforcement.delete(ip);
+    assertEquals(200, resource(tokens.access()).statusCode());
+    markEnforcement(account, "123");
+    redisEnforcement.expire(account, Duration.ofSeconds(1));
+    assertEquals(429, resource(tokens.access()).statusCode());
+    long timeout = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+    while (Boolean.TRUE.equals(redisEnforcement.hasKey(account)) && System.nanoTime() < timeout) {
+      Thread.sleep(25);
+    }
+    assertEquals(200, resource(tokens.access()).statusCode());
+  }
+
+  @Test
+  void policyWatermarkRejectsNewerOrContradictoryProjectionButNeverGrantsAccessByItself()
+      throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    resourcePolicy("ALLOW", List.of(), null);
+    var row =
+        jdbc.queryForMap(
+            "SELECT id,version FROM iam_policy.policies WHERE document->>'resource'='account:self'");
+    long version = ((Number) row.get("version")).longValue();
+    String key = enforcementKey("block-policy", "policy", row.get("id").toString());
+    String digest = "a".repeat(64);
+    markEnforcement(
+        key, String.format(java.util.Locale.ROOT, "%019d|true|%s", version + 1, digest));
+    assertEquals(403, resource(tokens.access()).statusCode());
+    markEnforcement(key, String.format(java.util.Locale.ROOT, "%019d|false|%s", version, digest));
+    assertEquals(403, resource(tokens.access()).statusCode());
+    markEnforcement(key, String.format(java.util.Locale.ROOT, "%019d|true|%s", version, digest));
+    assertEquals(200, resource(tokens.access()).statusCode());
+    resourcePolicy("DENY", List.of(), null);
+    assertEquals(403, resource(tokens.access()).statusCode());
+  }
+
+  @Test
+  void malformedAndWrongTypeRedisStateReturns503InsteadOfTreatingItAsMissing() throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    resourcePolicy("ALLOW", List.of(), null);
+    String key = enforcementKey("block-policy", "identity", flow.userId().toString());
+    markEnforcement(key, "not-a-watermark-synthetic");
+    var unavailable = resource(tokens.access());
+    assertEquals(503, unavailable.statusCode());
+    assertEquals("{\"error\":\"temporarily_unavailable\"}", unavailable.body());
+    assertFalse(unavailable.body().contains("synthetic"));
+    redisEnforcement.delete(key);
+    redisEnforcement.opsForList().leftPush(key, "synthetic");
+    assertEquals(503, resource(tokens.access()).statusCode());
+    redisEnforcement.delete(key);
+    assertEquals(200, resource(tokens.access()).statusCode());
+  }
+
+  @Test
+  void actualRedisTimeoutNeverFallsBackToSuccessfulLocalAuthorizationAndLaterRecovers()
+      throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    resourcePolicy("ALLOW", List.of(), null);
+    assertEquals(200, resource(tokens.access()).statusCode());
+    assertEquals(
+        0,
+        REDIS
+            .execInContainer("redis-cli", "-a", ROOT, "CLIENT", "PAUSE", "1500", "ALL")
+            .getExitCode());
+    var unavailable = resource(tokens.access());
+    assertEquals(503, unavailable.statusCode(), unavailable.body());
+    assertEquals("5", unavailable.headers().firstValue("Retry-After").orElseThrow());
+    long timeout = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+    HttpResponse<String> recovered;
+    do {
+      Thread.sleep(100);
+      recovered = resource(tokens.access());
+    } while (recovered.statusCode() == 503 && System.nanoTime() < timeout);
+    assertEquals(200, recovered.statusCode());
   }
 
   private HttpResponse<String> resource(String token) throws Exception {

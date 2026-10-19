@@ -53,16 +53,22 @@ Vhost padrão: `securegate`. Os recursos são duráveis. O usuário administrati
 
 | Fila de trabalho | Bindings em `security.events` |
 | --- | --- |
-| `enforcer.block-policy` | `auth.login.suspicious`, `user.locked`, `policy.changed` |
+| `enforcer.block-policy` | `auth.login.suspicious`, `auth.login.failed`, `user.locked`, `policy.changed`, `identity.user.*` |
 | `enforcer.revocation` | `token.revoked`, `session.terminated` |
 | `audit.persist` | `#` |
+
+O [publicador da 6B](../docs/runbooks/publicacao-outbox-local.md) empacota essa mesma definição sem credenciais e declara a topologia ao conectar para enviar. Os dois bindings novos de falha de login/evolução de identidade preparam o consumidor da etapa 7.
+
+A [operação da Outbox na 6C](../docs/runbooks/operacao-outbox-local.md) inclui métricas autenticadas, quarentena de falhas permanentes e limpeza opcional de publicações antigas (`-EnableOutboxRetention`). Não remove auditoria, pendências ou mensagens do broker.
+
+O [consumidor 7A](../docs/runbooks/enforcer-revogacao-local.md) pode ser iniciado em outro processo com `Start-PolicyEnforcer.ps1 -EnableConsumer`. Consome `enforcer.revocation` e, com a [7B](../docs/runbooks/enforcer-bloqueio-politica-local.md), também `enforcer.block-policy`; grava efeitos/deduplicação no Redis e confirma depois. A [7C1](../docs/runbooks/recurso-enforcement-redis-local.md) permite ao recurso do IAM consultar essas marcas com `Start-IamCore.ps1 -EnableResourceEnforcement`; a [7C2](../docs/runbooks/autenticacao-enforcement-redis-local.md) estende o mesmo modo ao login e à emissão/refresh humanos. Não limpe dados Redis para atualizar o serviço.
 
 Cada fila tem uma `.dlq` e uma `.retry`:
 
 - Rejeição sem requeue envia para `security.events.dlx`, com routing key igual ao nome da fila original, e então para sua `.dlq`.
 - Para erro recuperável, o consumidor futuro publica em `security.events.retry`, usando o nome da fila original como routing key.
 - A fila `.retry` aguarda 5 segundos e envia via `security.events.redelivery` diretamente à fila original. Isso evita replicar cada tentativa para a auditoria ou para outros consumidores.
-- O broker não decide quantas tentativas fazer. Na etapa 6/7, o consumidor deverá limitar tentativas, confirmar a publicação de retry antes de confirmar a mensagem original e encaminhar falhas definitivas à DLQ.
+- A política de tentativas pertence ao consumidor. A 7A mantém revogações em requeue durante falhas transitórias e rejeita mensagens inválidas à DLQ. Consumidores que usarem `.retry` deverão confirmar a nova publicação antes de confirmar a mensagem original e definir seu limite de tentativas.
 
 As filas locais são classic em um único nó; isso não demonstra alta disponibilidade nem garante entrega sem perdas em todas as falhas de dead-lettering. A validação de resiliência da aplicação permanece nas etapas 6/7.
 

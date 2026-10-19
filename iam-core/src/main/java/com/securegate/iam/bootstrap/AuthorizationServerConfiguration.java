@@ -90,13 +90,18 @@ public class AuthorizationServerConfiguration {
 
   @Bean
   TokenAccessService tokenAccessService(
-      PolicyDecisions policies, IdentityLookup identities, MfaProofs proofs) {
-    return new TokenAccessService(policies, identities, proofs);
+      PolicyDecisions policies,
+      IdentityLookup identities,
+      MfaProofs proofs,
+      com.securegate.iam.authorization.application.port.AuthenticationEnforcement enforcement) {
+    return new TokenAccessService(policies, identities, proofs, enforcement);
   }
 
   @Bean
-  PolicyIssuance policyIssuance(TokenAccessService access) {
-    return new PolicyIssuance(access);
+  PolicyIssuance policyIssuance(
+      TokenAccessService access,
+      com.securegate.iam.authorization.application.port.AuthenticationEnforcement enforcement) {
+    return new PolicyIssuance(access, enforcement);
   }
 
   @Bean
@@ -200,6 +205,11 @@ public class AuthorizationServerConfiguration {
             throw new OAuth2AuthenticationException("server_error");
           }
           if (!idToken) {
+            if (context.getAuthorization() != null
+                && !AuthorizationGrantType.CLIENT_CREDENTIALS.equals(
+                    context.getAuthorizationGrantType())) {
+              context.getClaims().claim("authorization_id", context.getAuthorization().getId());
+            }
             issuance.boundExpiry(context.getClaims());
             context
                 .getClaims()

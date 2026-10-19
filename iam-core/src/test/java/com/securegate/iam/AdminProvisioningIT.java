@@ -59,7 +59,222 @@ class AdminProvisioningIT {
   @Autowired JdbcTemplate jdbc;
   @Autowired UserRepository users;
   @MockitoSpyBean AuditTrail audit;
+  @MockitoSpyBean com.securegate.iam.audit.infrastructure.JdbcOutboxEvents outbox;
+  @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
   private final HttpClient client = HttpClient.newHttpClient();
+
+  @Test
+  void userLockedFactCommitsOnceWithVersionAndItsFailureRollsBackTheTransition() throws Exception {
+    var user = createUser();
+    String id = user.path("id").asText();
+    doThrow(new IllegalStateException("synthetic canonical event failure"))
+        .when(outbox)
+        .append(argThat(event -> event.eventType().equals("user.locked")));
+    assertEquals(
+        500,
+        call("PATCH", "/users/" + id + "/status", Map.of("status", "LOCKED", "version", 0))
+            .statusCode());
+    assertEquals("ACTIVE", users.find(UUID.fromString(id)).orElseThrow().status().name());
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.outbox_events WHERE event_type='user.locked' AND payload->'data'->>'userId'=?",
+            Integer.class,
+            id));
+    org.mockito.Mockito.reset(outbox);
+    assertEquals(
+        200,
+        call("PATCH", "/users/" + id + "/status", Map.of("status", "LOCKED", "version", 0))
+            .statusCode());
+    assertEquals(
+        200,
+        call("PATCH", "/users/" + id + "/status", Map.of("status", "LOCKED", "version", 1))
+            .statusCode());
+    var payload =
+        jdbc.queryForObject(
+            "SELECT payload::text FROM iam_audit.outbox_events WHERE event_type='user.locked' AND payload->'data'->>'userId'=?",
+            String.class,
+            id);
+    var fact = json.readValue(payload, com.securegate.events.SecurityEvent.class);
+    assertEquals("1", fact.data().get("version"));
+    assertEquals("ADMINISTRATIVE", fact.data().get("reason"));
+    assertFalse(payload.contains(PASSWORD));
+  }
+
+  @Test
+  void commitsAuditAndCanonicalOutboxTogetherWithMatchingIdsAndTimestamps() throws Exception {
+    var user =
+        successful(
+            call(
+                "POST",
+                "/users",
+                Map.of("email", email(), "displayName", "Outbox", "password", PASSWORD)),
+            201);
+    String id = user.path("id").asText();
+    var row =
+        jdbc.queryForMap(
+            """
+        SELECT a.id,a.occurred_at,a.event_type,a.actor,a.details::text,o.payload::text,o.published_at,
+          o.occurred_at AS event_time FROM iam_audit.security_events a
+        JOIN iam_audit.outbox_events o ON o.event_id=a.id
+        WHERE a.resource=? AND a.event_type='identity.user.created'
+        """,
+            id);
+    var envelope =
+        json.readValue((String) row.get("payload"), com.securegate.events.SecurityEvent.class);
+    assertEquals(row.get("id"), envelope.eventId());
+    assertEquals("identity.user.created", envelope.eventType());
+    assertEquals("iam-core", envelope.producer());
+    assertEquals("admin-it", envelope.correlationId());
+    assertEquals(id, envelope.context().get("resource"));
+    assertEquals(row.get("actor"), envelope.actor());
+    assertEquals(1, envelope.schemaVersion());
+    assertEquals(row.get("occurred_at"), row.get("event_time"));
+    assertEquals(((java.sql.Timestamp) row.get("occurred_at")).toInstant(), envelope.occurredAt());
+    assertNull(row.get("published_at"));
+    assertFalse(((String) row.get("payload")).contains(PASSWORD));
+    assertEquals(Set.of("status", "version"), envelope.data().keySet());
+  }
+
+  @Test
+  void outboxFailureRollsBackUserCredentialsAndAudit() throws Exception {
+    String correlation = "outbox-failure-" + unique();
+    doThrow(new IllegalStateException("synthetic outbox failure"))
+        .when(outbox)
+        .append(argThat(event -> event.correlationId().equals(correlation)));
+    String email = email();
+    var response =
+        client.send(
+            request(
+                "POST",
+                "/users",
+                Map.of("email", email, "displayName", "Rollback outbox", "password", PASSWORD),
+                TOKEN,
+                correlation),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(500, response.statusCode());
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_identity.users WHERE email=?", Integer.class, email));
+    assertNoEvent(correlation);
+  }
+
+  @Test
+  void directAuditStillHasAtomicPairAndRequiresTransactionalOutboxAppend() {
+    String correlation = "standalone-" + unique();
+    var record =
+        new com.securegate.iam.audit.application.port.AuditRecord(
+            new com.securegate.events.SecurityEventType("audit.changed"),
+            "synthetic-policy",
+            new com.securegate.iam.shared.application.port.OperationContext("test", correlation),
+            Map.of("version", "2"));
+    doThrow(new IllegalStateException("synthetic append failure"))
+        .when(outbox)
+        .append(argThat(event -> event.correlationId().equals(correlation)));
+    assertThrows(IllegalStateException.class, () -> audit.record(record));
+    assertNoEvent(correlation);
+    var envelope =
+        new com.securegate.events.SecurityEvent(
+            UUID.randomUUID(),
+            "audit.changed",
+            1,
+            java.time.Instant.now(),
+            "iam-core",
+            "outside-transaction",
+            "test",
+            Map.of("resource", "synthetic"),
+            Map.of());
+    assertThrows(IllegalStateException.class, () -> outbox.append(envelope));
+  }
+
+  @Test
+  void surroundingRollbackAndUncommittedVisibilityPreserveAtomicity() {
+    String correlation = "outer-" + unique();
+    var record =
+        new com.securegate.iam.audit.application.port.AuditRecord(
+            new com.securegate.events.SecurityEventType("audit.changed"),
+            "synthetic-policy",
+            new com.securegate.iam.shared.application.port.OperationContext("test", correlation),
+            Map.of("version", "3"));
+    var transactions =
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+    transactions.executeWithoutResult(
+        status -> {
+          audit.record(record);
+          assertEquals(1, pendingEvents(correlation));
+          assertEquals(0, CompletableFuture.supplyAsync(() -> pendingEvents(correlation)).join());
+          status.setRollbackOnly();
+        });
+    assertNoEvent(correlation);
+    transactions.executeWithoutResult(status -> audit.record(record));
+    assertEquals(1, pendingEvents(correlation));
+  }
+
+  @Test
+  void outboxRejectsDuplicateIdsPayloadMutationAndNullHeaders() throws Exception {
+    String correlation = "immutable-" + unique();
+    audit.record(
+        new com.securegate.iam.audit.application.port.AuditRecord(
+            new com.securegate.events.SecurityEventType("audit.changed"),
+            "synthetic-policy",
+            new com.securegate.iam.shared.application.port.OperationContext("test", correlation),
+            Map.of("version", "1")));
+    UUID id =
+        jdbc.queryForObject(
+            "SELECT event_id FROM iam_audit.outbox_events WHERE payload->>'correlationId'=?",
+            UUID.class,
+            correlation);
+    assertThrows(
+        DataAccessException.class,
+        () ->
+            jdbc.update(
+                "UPDATE iam_audit.outbox_events SET payload=jsonb_set(payload,'{actor}','\"tampered\"') WHERE event_id=?",
+                id));
+    assertThrows(
+        DataAccessException.class,
+        () ->
+            jdbc.update(
+                "INSERT INTO iam_audit.outbox_events SELECT * FROM iam_audit.outbox_events WHERE event_id=?",
+                id));
+    // New audit id, but an explicit JSON null must not evade PostgreSQL CHECK semantics.
+    UUID newId = UUID.randomUUID();
+    jdbc.update(
+        "INSERT INTO iam_audit.security_events(id,actor,event_type,resource,correlation_id,details) VALUES (?,'test','policy.changed','synthetic',?,'{}')",
+        newId,
+        "malformed-" + unique());
+    assertThrows(
+        DataAccessException.class,
+        () ->
+            jdbc.update(
+                """
+        INSERT INTO iam_audit.outbox_events(event_id,event_type,schema_version,occurred_at,payload)
+        SELECT ?,'policy.changed',1,occurred_at,
+          jsonb_set(jsonb_set(payload,'{eventId}',to_jsonb(?::text)),'{eventType}','null')
+        FROM iam_audit.outbox_events WHERE event_id=?
+        """,
+                newId,
+                newId.toString(),
+                id));
+    assertEquals(1, pendingEvents(correlation));
+  }
+
+  private int pendingEvents(String correlation) {
+    return jdbc.queryForObject(
+        "SELECT count(*) FROM iam_audit.outbox_events WHERE payload->>'correlationId'=? AND published_at IS NULL",
+        Integer.class,
+        correlation);
+  }
+
+  private void assertNoEvent(String correlation) {
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.security_events WHERE correlation_id=?",
+            Integer.class,
+            correlation));
+    assertEquals(0, pendingEvents(correlation));
+  }
 
   private String unique() {
     return UUID.randomUUID().toString().replace("-", "");

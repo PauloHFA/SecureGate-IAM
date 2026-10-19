@@ -56,6 +56,9 @@ class MfaServiceTest {
         .save(eq(session.userId()), any());
     when(store.passwordMatches(session.userId(), "correct-password")).thenReturn(true);
     when(secrets.protect(any(), any(), any())).thenReturn("vault:v1:AAAA");
+    // Mock decrypts to the public RFC 6238 Appendix B SHA1 vector, not a user seed.
+    // https://www.rfc-editor.org/rfc/rfc6238.html#appendix-B
+    // See docs/runbooks/gitguardian.md for the reviewed scanner false positive.
     when(secrets.unprotect(any(), any(), any()))
         .thenReturn(TotpSecret.parse("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"));
     when(proofs.current(any(), anyLong(), any())).thenReturn(Optional.empty());

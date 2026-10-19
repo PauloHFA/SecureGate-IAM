@@ -1,2 +1,2 @@
-/** Application boundary for the security event consumer, implemented in stage 7. */
+/** Security event consumers and their distributed enforcement projections. */
 package com.securegate.enforcer;

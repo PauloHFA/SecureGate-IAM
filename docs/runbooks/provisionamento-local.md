@@ -13,7 +13,7 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d --wait --wait-t
 
 `Initialize-Local.ps1` adiciona `IAM_BOOTSTRAP_TOKEN` aleatório a um `.env` antigo sem alterar as credenciais existentes. Reexecuções preservam o token. A administração continua desligada em `.env` por padrão; o switch `-EnableBootstrap` ativa o mecanismo somente no processo iniciado pelo script.
 
-Sem o switch, `/api/admin/**` fica bloqueado com 403. Com bootstrap ativo, essas rotas exigem `Authorization: Bearer <token>` e retornam 401 para token ausente/inválido. Outros caminhos continuam bloqueados, e os três endpoints GET de saúde permanecem públicos. Credenciais não são transmitidas por query string.
+Sem o switch, `/api/admin/**` fica bloqueado com 403. Com bootstrap ativo, essas rotas exigem `Authorization: Bearer <token>` e retornam 401 para token ausente/inválido. A leitura GET de `/actuator/metrics` e seus detalhes usa a mesma proteção, conforme o [guia operacional da Outbox](operacao-outbox-local.md). Os três endpoints GET de saúde permanecem públicos. Credenciais não são transmitidas por query string.
 
 ## Exemplo de provisionamento
 

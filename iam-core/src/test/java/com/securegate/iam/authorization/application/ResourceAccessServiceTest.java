@@ -19,6 +19,50 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class ResourceAccessServiceTest {
+  @Test
+  void distributedRequestAndPolicyDenialsCannotCreatePermitAndFailuresPropagate() {
+    var enforcement =
+        mock(com.securegate.iam.authorization.application.port.ResourceEnforcement.class);
+    var guarded =
+        new ResourceAccessService(
+            tokens,
+            identities,
+            policies,
+            proofs,
+            Clock.fixed(now, ZoneOffset.UTC),
+            "test-api",
+            enforcement);
+    assertEquals(
+        "rate_limited",
+        assertThrows(
+                ResourceAccessService.Rejected.class,
+                () ->
+                    guarded.authorize(
+                        "token", ResourceAccessService.Operation.ACCOUNT_READ, "127.0.0.1"))
+            .code());
+    when(enforcement.requestAllowed(user, 4, "127.0.0.1")).thenReturn(true);
+    assertEquals(
+        "insufficient_scope",
+        assertThrows(
+                ResourceAccessService.Rejected.class,
+                () ->
+                    guarded.authorize(
+                        "token", ResourceAccessService.Operation.ACCOUNT_READ, "127.0.0.1"))
+            .code());
+    when(enforcement.policiesCurrent(anyList())).thenReturn(true);
+    assertEquals(
+        user,
+        guarded
+            .authorize("token", ResourceAccessService.Operation.ACCOUNT_READ, "127.0.0.1")
+            .userId());
+    when(enforcement.requestAllowed(user, 4, "127.0.0.1"))
+        .thenThrow(new IllegalStateException("synthetic unavailable"));
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            guarded.authorize("token", ResourceAccessService.Operation.ACCOUNT_READ, "127.0.0.1"));
+  }
+
   private final ResourceTokens tokens = mock(ResourceTokens.class);
   private final IdentityLookup identities = mock(IdentityLookup.class);
   private final PolicyDecisions policies = mock(PolicyDecisions.class);

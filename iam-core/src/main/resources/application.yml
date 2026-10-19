@@ -1,6 +1,9 @@
 spring:
   autoconfigure:
     exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisReactiveAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
       - org.springframework.boot.autoconfigure.security.oauth2.server.servlet.OAuth2AuthorizationServerAutoConfiguration
       - org.springframework.boot.autoconfigure.security.oauth2.server.servlet.OAuth2AuthorizationServerJwtAutoConfiguration
   application:
@@ -21,6 +24,25 @@ spring:
       enabled: true
 
 iam:
+  resources:
+    enforcement:
+      enabled: ${IAM_RESOURCE_ENFORCEMENT_ENABLED:false}
+      host: ${IAM_ENFORCEMENT_REDIS_HOST:127.0.0.1}
+      port: ${IAM_ENFORCEMENT_REDIS_PORT:6379}
+      password: ${IAM_ENFORCEMENT_REDIS_PASSWORD:}
+  outbox:
+    operations:
+      retention-enabled: ${IAM_OUTBOX_RETENTION_ENABLED:false}
+      retention-days: ${IAM_OUTBOX_RETENTION_DAYS:7}
+      batch-size: ${IAM_OUTBOX_RETENTION_BATCH_SIZE:100}
+      poll-millis: ${IAM_OUTBOX_OPERATIONS_POLL_MILLIS:30000}
+    publisher:
+      enabled: ${IAM_OUTBOX_PUBLISHER_ENABLED:false}
+      host: ${IAM_RABBITMQ_HOST:127.0.0.1}
+      port: ${IAM_RABBITMQ_PORT:5672}
+      virtual-host: ${IAM_RABBITMQ_VHOST:securegate}
+      username: ${IAM_RABBITMQ_USERNAME:}
+      password: ${IAM_RABBITMQ_PASSWORD:}
   authorization:
     enabled: ${IAM_AUTHORIZATION_ENABLED:false}
     issuer: ${IAM_ISSUER:http://127.0.0.1:8080}
@@ -60,7 +82,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,metrics
       discovery:
         enabled: false
   endpoint:

@@ -20,6 +20,22 @@ A 5D1 exige política para emissão e renovação de tokens de usuário: alvo `o
 
 A 5D2 integra o desafio MFA à navegação de autorização, antes do consentimento e novamente na aprovação. O retorno exige CSRF, ticket de uso único, prazo e a mesma identidade/sessão; preserva state, nonce e PKCE e revalida a autorização. A 5D3 acrescenta a API Bearer por operação, descrita abaixo. Consulte o [guia do desafio MFA](docs/runbooks/desafio-mfa-local.md) e as [evidências 5D2](docs/evidencias/etapa-05d2.md).
 
+A 6A1 adiciona o envelope de eventos v1 e a Outbox PostgreSQL: cada nova auditoria produz um evento na mesma transação, com ID/horário compartilhados e rollback conjunto. Os eventos persistidos são a entrada do publicador da 6B. Consulte o [guia da Outbox](docs/runbooks/outbox-local.md), a [ADR-018](docs/adr/018-envelope-e-outbox-transacional.md) e as [evidências 6A1](docs/evidencias/etapa-06a1.md).
+
+A 6A2 integra os seis produtores de segurança, preserva a auditoria legada e valida seus dados: tentativa/suspeita de login, mudança de política, bloqueio administrativo, revogação e encerramento de sessão. Access tokens novos de usuário recebem `authorization_id` estável entre refreshes. Consulte o [guia de eventos](docs/runbooks/eventos-seguranca-local.md), a [ADR-019](docs/adr/019-produtores-de-eventos-de-seguranca.md) e as [evidências 6A2](docs/evidencias/etapa-06a2.md).
+
+A 6B acrescenta publicação opcional no RabbitMQ com mensagens persistentes, confirmação/mandatory return, leases concorrentes e retry na Outbox. Use `-EnableOutboxPublisher` para ativar. A entrega preserva eventId/payload nas tentativas e cobre falha/recuperação com broker real. Consulte o [guia de publicação](docs/runbooks/publicacao-outbox-local.md), a [ADR-020](docs/adr/020-publicacao-outbox-rabbitmq.md) e as [evidências 6B](docs/evidencias/etapa-06b.md).
+
+A 6C acrescenta métricas administrativas de backlog, quarentena com histórico e limpeza opcional de publicações confirmadas. Use `-EnableOutboxRetention` para ativar a retenção de sete dias; pendências e auditoria são preservadas. Consulte o [guia operacional](docs/runbooks/operacao-outbox-local.md), a [ADR-021](docs/adr/021-operacao-da-outbox.md) e as [evidências 6C](docs/evidencias/etapa-06c.md).
+
+A 7A inicia o `policy-enforcer` com consumo opcional da fila de revogação, ACK manual após efeito Redis e deduplicação atômica. Projeta jti, família de autorização e sid encerrado, sem reduzir prazos em eventos fora de ordem. A consulta no recurso passa a ser opcional na 7C1, descrita abaixo. Consulte o [guia do consumidor](docs/runbooks/enforcer-revogacao-local.md), a [ADR-022](docs/adr/022-consumidor-de-revogacao.md) e as [evidências 7A](docs/evidencias/etapa-07a.md).
+
+A 7B acrescenta a fila de bloqueio/política ao mesmo processo: status e versões exatas de identidade/política, contadores limitados por conta/versão e IP e sinais temporários de risco. Eventos antigos não revertem desbloqueio nem ressuscitam sinais expirados. Consulte o [guia de bloqueio/política](docs/runbooks/enforcer-bloqueio-politica-local.md), a [ADR-023](docs/adr/023-consumidor-bloqueio-politica.md) e as [evidências 7B](docs/evidencias/etapa-07b.md).
+
+A 7C1 adiciona `-EnableResourceEnforcement`: o recurso humano consulta revogação, identidade, bloqueios e versões de política no Redis, preservando verificações locais. Falha de consulta impede acesso com 503; bloqueio temporário usa 429. A 7C2 estende o modo ao login e à emissão/refresh humanos. Consulte o [guia](docs/runbooks/recurso-enforcement-redis-local.md), a [ADR-024](docs/adr/024-consulta-redis-no-recurso.md) e as [evidências 7C1](docs/evidencias/etapa-07c1.md).
+
+A 7C2 aplica sinais Redis no login e na emissão/refresh, preserva códigos e refresh tokens após recusa transitória e exige prova MFA real diante de risco. Consulte o [guia de autenticação](docs/runbooks/autenticacao-enforcement-redis-local.md), a [ADR-025](docs/adr/025-enforcement-login-emissao.md) e as [evidências 7C2](docs/evidencias/etapa-07c2.md).
+
 ## Decisões aprovadas
 
 - Java 21, Spring Boot e Spring Authorization Server.
@@ -55,7 +71,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Seguir para a 6A: contrato versionado dos eventos e gravação transacional na Outbox. A 5D3 implementa o recurso local e o contrato com o enforcer; consumo/Redis e propagação distribuída continuam na etapa 7. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A base até a 5A (`8f5666d`) foi publicada em `feat/policy-foundation`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831). As entregas 5B/5C/5D1 estão em commits locais, incluindo a 5D1 (`31984bd`); a 5D2 está no commit `df0d1c9` e a 5D3 na branch `feat/resource-operation-authorization`. Essas entregas aguardam publicação/CI remota. Revisão e merge continuam pendentes.
+Próxima entrega: **7D**, validação ponta a ponta e medição da propagação. A 7C2 implementa login/emissão/refresh com sinais distribuídos e aplicação dos bloqueios projetados. A 6A1 (`2e34a88`), a 6A2 (`3159d3f`), a 6B (`08dd420`), a 6C (`323d06e`), a 7A (`3a0c348`) e a 7B (`5bd4c8f`) estão em commits locais. A 7C1 está no commit local `45926c0`. A 7C2 está implementada localmente em `feat/authentication-redis-enforcement`. Publicação/CI remota das etapas 6/7 continuam pendentes. A base até a 5D3 (`7713a94`) está publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). Revisão e merge continuam pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
@@ -77,7 +93,7 @@ Linux/macOS:
 ./mvnw -B -ntp clean verify
 ```
 
-O build valida JDK/Maven, verifica formatação, executa testes unitários e de integração e gera os JARs. `iam-core/target/iam-core-0.1.0-SNAPSHOT.jar` é executável Spring Boot; `policy-enforcer` ainda não possui bootstrap. Os testes de integração falham se Docker não estiver disponível, sem serem ignorados silenciosamente.
+O build valida JDK/Maven, verifica formatação, executa testes unitários e de integração e gera os JARs. `iam-core/target/iam-core-0.1.0-SNAPSHOT.jar` e `policy-enforcer/target/policy-enforcer-0.1.0-SNAPSHOT.jar` são executáveis Spring Boot. O enforcer não possui servidor HTTP e seu consumidor é opcional. Os testes de integração falham se Docker não estiver disponível, sem serem ignorados silenciosamente.
 
 JaCoCo exige pelo menos 80% de cobertura de linhas por pacote de domínio/aplicação de Identity, Access, Authorization e Policy. O relatório HTML fica em `iam-core/target/site/jacoco/index.html`, e a CI inclui os relatórios de cobertura no artefato de testes.
 
@@ -89,9 +105,9 @@ Para corrigir formatação Java, execute `.\mvnw.cmd spotless:apply` no Windows 
 | --- | --- |
 | `libs/security-events` | Biblioteca Java sem Spring, com validação inicial dos tipos de evento |
 | `iam-core` | Identity/Access, políticas e simulação administrativa, auditoria básica, OAuth/OIDC com refresh, Transit/JWKS, Actuator e Flyway |
-| `policy-enforcer` | Módulo reservado para o consumidor; implementação na etapa 7 |
+| `policy-enforcer` | Consumidores de revogação e bloqueio/política com projeções Redis, consultadas opcionalmente pelo recurso do IAM |
 
-O contrato inicial `SecurityEventType` aceita segmentos minúsculos separados por ponto, até 128 caracteres, e rejeita curingas de binding (`*` e `#`). O envelope versionado e a mensageria serão implementados na etapa 6. Relatórios de teste ficam em `libs/security-events/target/surefire-reports/`.
+O contrato inicial `SecurityEventType` aceita segmentos minúsculos separados por ponto, até 128 caracteres, e rejeita curingas de binding (`*` e `#`). O envelope v1 e a persistência transacional estão na 6A1; os seis produtores foram integrados na 6A2; a 6B publica no broker quando habilitada; consumidores continuam na etapa 7. Relatórios de teste ficam em `libs/security-events/target/surefire-reports/`.
 
 ## Infraestrutura local
 
@@ -123,7 +139,7 @@ Endpoints públicos: `GET /actuator/health`, `/actuator/health/liveness` e `/act
 .\infra\scripts\Start-IamCore.ps1 -EnableBootstrap
 ```
 
-As rotas `/api/admin/**` exigem o token gerado em `.env`. Consulte o [guia de provisionamento](docs/runbooks/provisionamento-local.md) para exemplos, controle de versão e atribuições. A sessão de usuário e os JWTs OAuth não concedem acesso administrativo.
+As rotas `/api/admin/**` e a leitura de `/actuator/metrics/**` exigem o token gerado em `.env`. Consulte o [guia de provisionamento](docs/runbooks/provisionamento-local.md) para exemplos, controle de versão e atribuições. A sessão de usuário e os JWTs OAuth não concedem acesso administrativo.
 
 Para habilitar `GET /oauth2/jwks`, use `Start-IamCore.ps1 -EnableTransit`. Essa opção lê os arquivos AppRole de `infra/.local/` e é independente do bootstrap administrativo. Operação, rotação e diagnóstico estão no [guia Transit](docs/runbooks/transit-local.md).
 
