@@ -61,7 +61,7 @@ O [publicador da 6B](../docs/runbooks/publicacao-outbox-local.md) empacota essa 
 
 A [operação da Outbox na 6C](../docs/runbooks/operacao-outbox-local.md) inclui métricas autenticadas, quarentena de falhas permanentes e limpeza opcional de publicações antigas (`-EnableOutboxRetention`). Não remove auditoria, pendências ou mensagens do broker.
 
-O [consumidor 7A](../docs/runbooks/enforcer-revogacao-local.md) pode ser iniciado em outro processo com `Start-PolicyEnforcer.ps1 -EnableConsumer`. Consome apenas `enforcer.revocation`, grava efeitos/deduplicação no Redis e confirma depois. Bloqueio/política e consulta no IAM continuam pendentes. Não limpe dados Redis para atualizar o serviço.
+O [consumidor 7A](../docs/runbooks/enforcer-revogacao-local.md) pode ser iniciado em outro processo com `Start-PolicyEnforcer.ps1 -EnableConsumer`. Consome `enforcer.revocation` e, com a [7B](../docs/runbooks/enforcer-bloqueio-politica-local.md), também `enforcer.block-policy`; grava efeitos/deduplicação no Redis e confirma depois. A consulta no IAM continua pendente. Não limpe dados Redis para atualizar o serviço.
 
 Cada fila tem uma `.dlq` e uma `.retry`:
 

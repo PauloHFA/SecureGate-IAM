@@ -15,8 +15,31 @@
             "session.terminated",
             "auth.login.failed",
             "auth.login.suspicious",
-            "token.revoked"
+            "token.revoked",
+            "identity.user.created",
+            "identity.user.updated",
+            "identity.user.statuschanged",
+            "identity.user.passwordchanged"
           ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": { "enum": ["identity.user.created", "identity.user.updated", "identity.user.statuschanged", "identity.user.passwordchanged"] }
+        }
+      },
+      "then": {
+        "properties": {
+          "context": { "properties": { "resource": { "type": "string", "format": "uuid" } } },
+          "data": {
+            "type": "object", "additionalProperties": false, "required": ["status", "version"],
+            "properties": {
+              "status": { "enum": ["ACTIVE", "LOCKED", "DISABLED"] },
+              "version": { "type": "string", "pattern": "^(0|[1-9][0-9]{0,18})$" }
+            }
+          }
         }
       }
     },

@@ -68,7 +68,7 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | 4A–4D2 publicadas na base 5A, com CI aprovada; revisão/merge pendentes |
 | 5 | Políticas, risco e MFA | 3–4 | Implementada e publicada até 5D3, CI aprovada; revisão e merge pendentes |
 | 6 | Eventos e Outbox | 2–5 | 6A–6C implementadas localmente; publicação/CI/revisão pendentes |
-| 7 | Enforcer e revogação | 4–6 | Em andamento: 7A local; 7B–7D pendentes |
+| 7 | Enforcer e revogação | 4–6 | Em andamento: 7A/7B locais; 7C/7D pendentes |
 | 8 | Auditoria e desempenho | 6–7 | Pendente |
 | 9 | Vault avançado e PAM | 4–8 | Pendente |
 | 10 | Carga | 5–9 | Pendente |
@@ -214,7 +214,7 @@ Subdivisão: **6A1** — envelope v1, contrato JSON, V9 e Outbox atômica com ev
 
 - [x] Implementar consumidor de revogação com ack manual e idempotência por `eventId` (7A).
 - [x] Aplicar efeito Redis antes de registrar conclusão/ACK na revogação (7A).
-- [ ] Implementar consumidor de bloqueio/política com a mesma garantia.
+- [x] Implementar consumidor de bloqueio/política com a mesma garantia (7B).
 - [ ] Atualizar sessões, bloqueios por usuário/IP e revogação por `jti`/`sid`.
 - [ ] Calcular TTL conforme expiração do token, sessão ou bloqueio.
 - [ ] Tratar duplicação e eventos fora de ordem com regras de versão/timestamp.
@@ -224,7 +224,7 @@ Subdivisão: **6A1** — envelope v1, contrato JSON, V9 e Outbox atômica com ev
 
 **Aceite:** token anteriormente aceito passa a ser rejeitado em menos de 2 segundos no ambiente medido; integração cobre duplicação, reordenação e falhas temporárias.
 
-Subdivisão: **7A** — bootstrap opcional do `policy-enforcer`, fila `enforcer.revocation`, contrato/cabeçalhos, script Redis atômico com fingerprint por eventId, efeitos terminais jti/authorizationId/sid, ACK manual, rejeição à DLQ e recuperação de indisponibilidade; implementada localmente em `feat/enforcer-revocation-consumer`. Ver [ADR-022](adr/022-consumidor-de-revogacao.md), [guia](runbooks/enforcer-revogacao-local.md) e [evidências](evidencias/etapa-07a.md). **7B** — bloqueio/política, estado/versionamento de identidade e prazos de bloqueio/contadores. **7C** — consulta no IAM, comportamento com Redis indisponível e integração de rate limiting. **7D** — testes ponta a ponta, reordenação/falhas e medição de propagação. A 7A não conclui a etapa 7: o IAM ainda não consulta suas marcas e tombstones de sid não recebem TTL fictício sem limite confiável dos grants.
+Subdivisão: **7A** — bootstrap opcional do `policy-enforcer`, fila `enforcer.revocation`, contrato/cabeçalhos, script Redis atômico com fingerprint por eventId, efeitos terminais jti/authorizationId/sid, ACK manual, rejeição à DLQ e recuperação de indisponibilidade; implementada localmente em `feat/enforcer-revocation-consumer`. Ver [ADR-022](adr/022-consumidor-de-revogacao.md), [guia](runbooks/enforcer-revogacao-local.md) e [evidências](evidencias/etapa-07a.md). **7B** — consumidor de bloqueio/política, estado de identidade e versões exatas, contadores de limiar por conta/versão e IP, bloqueios e risco temporários; implementada localmente em `feat/enforcer-block-policy-consumer`. Ver [ADR-023](adr/023-consumidor-bloqueio-politica.md), [guia](runbooks/enforcer-bloqueio-politica-local.md) e [evidências](evidencias/etapa-07b.md). **7C** — consulta no IAM, comportamento com Redis indisponível e integração de rate limiting. **7D** — testes ponta a ponta, reordenação/falhas e medição de propagação. As 7A/7B não concluem a etapa 7: o IAM ainda não consulta suas marcas e tombstones de sid não recebem TTL fictício sem limite confiável dos grants.
 
 ## Etapa 8 — Auditoria e otimização
 
@@ -332,4 +332,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a 7B: consumidor de bloqueio/política, versões de identidade e prazos. A 6A1 está em `2e34a88`; a 6A2, em `3159d3f`; a 6B, em `08dd420`; a 6C, em `323d06e`. A 7A está em `feat/enforcer-revocation-consumer`, sem commit. Publicação/CI remota das etapas 6/7 continuam pendentes. A base publicada até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). Revisão/merge continuam pendentes. Consulta no IAM e medição de propagação permanecem nas 7C/7D.
+Seguir para a 7C: consulta das projeções no IAM, comportamento com Redis indisponível e integração de rate limiting. A 6A1 está em `2e34a88`; a 6A2, em `3159d3f`; a 6B, em `08dd420`; a 6C, em `323d06e`. A 7A está em `3a0c348`; a 7B está em `feat/enforcer-block-policy-consumer`, sem commit. Publicação/CI remota das etapas 6/7 continuam pendentes. A base publicada até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). Revisão/merge continuam pendentes. Consulta no IAM e medição de propagação permanecem nas 7C/7D.

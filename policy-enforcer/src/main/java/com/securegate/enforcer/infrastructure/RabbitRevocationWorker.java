@@ -19,7 +19,12 @@ public final class RabbitRevocationWorker implements AutoCloseable {
   public static final String QUEUE = "enforcer.revocation";
   private final ConnectionFactory factory;
   private final ObjectMapper json;
-  private final RevocationMessageHandler handler;
+  public static final String BLOCK_POLICY_QUEUE = "enforcer.block-policy";
+  private final java.util.function.BiFunction<
+          com.rabbitmq.client.AMQP.BasicProperties, byte[], RevocationMessageHandler.Result>
+      handler;
+  private final String queueName;
+  private final String metricPrefix;
   private final MeterRegistry meters;
   private final int batchSize;
   private final int pollMillis;
@@ -40,6 +45,22 @@ public final class RabbitRevocationWorker implements AutoCloseable {
       MeterRegistry meters,
       int batchSize,
       int pollMillis) {
+    this(factory, json, handler::handle, meters, batchSize, pollMillis, QUEUE);
+  }
+
+  public RabbitRevocationWorker(
+      ConnectionFactory factory,
+      ObjectMapper json,
+      java.util.function.BiFunction<
+              com.rabbitmq.client.AMQP.BasicProperties, byte[], RevocationMessageHandler.Result>
+          handler,
+      MeterRegistry meters,
+      int batchSize,
+      int pollMillis,
+      String queueName) {
+    if (!QUEUE.equals(queueName) && !BLOCK_POLICY_QUEUE.equals(queueName)) {
+      throw new IllegalArgumentException("Unsupported queue.");
+    }
     if (batchSize < 1 || batchSize > 100 || pollMillis < 100 || pollMillis > 60000) {
       throw new IllegalArgumentException("Invalid consumer bounds.");
     }
@@ -49,6 +70,9 @@ public final class RabbitRevocationWorker implements AutoCloseable {
     this.meters = meters;
     this.batchSize = batchSize;
     this.pollMillis = pollMillis;
+    this.queueName = queueName;
+    this.metricPrefix =
+        QUEUE.equals(queueName) ? "iam.enforcer.revocation" : "iam.enforcer.block-policy";
   }
 
   public void start() {
@@ -59,28 +83,30 @@ public final class RabbitRevocationWorker implements AutoCloseable {
     try {
       connect();
       for (int i = 0; i < batchSize && !Thread.currentThread().isInterrupted(); i++) {
-        var message = channel.basicGet(QUEUE, false);
+        var message = channel.basicGet(queueName, false);
         if (message == null) {
           break;
         }
-        var result = handler.handle(message.getProps(), message.getBody());
+        var result = handler.apply(message.getProps(), message.getBody());
         long tag = message.getEnvelope().getDeliveryTag();
         switch (result) {
           case ACK -> channel.basicAck(tag, false);
           case REJECT -> channel.basicReject(tag, false);
           case RETRY -> channel.basicNack(tag, false, true);
         }
-        meters.counter("iam.enforcer.revocation.messages", "result", result.name()).increment();
+        meters.counter(metricPrefix + ".messages", "result", result.name()).increment();
         if (result == RevocationMessageHandler.Result.RETRY) {
           break;
         }
       }
     } catch (IOException | TimeoutException | RuntimeException unavailable) {
       disconnect();
-      meters.counter("iam.enforcer.revocation.connection.errors").increment();
+      meters.counter(metricPrefix + ".connection.errors").increment();
       LoggerFactory.getLogger(RabbitRevocationWorker.class)
           .warn(
-              "Revocation consumer unavailable (type={})", unavailable.getClass().getSimpleName());
+              "Security event consumer unavailable (queue={}, type={})",
+              queueName,
+              unavailable.getClass().getSimpleName());
     }
   }
 
@@ -89,7 +115,7 @@ public final class RabbitRevocationWorker implements AutoCloseable {
       return;
     }
     disconnect();
-    connection = factory.newConnection("securegate-revocation");
+    connection = factory.newConnection("securegate-" + queueName);
     channel = connection.createChannel();
     try (var input = getClass().getResourceAsStream("/rabbitmq/definitions.json")) {
       if (input == null) {
@@ -101,14 +127,14 @@ public final class RabbitRevocationWorker implements AutoCloseable {
             exchange.path("name").asText(), exchange.path("type").asText(), true);
       }
       for (var queue : topology.path("queues")) {
-        if (queue.path("name").asText().startsWith(QUEUE)) {
+        if (queue.path("name").asText().startsWith(queueName)) {
           Map<String, Object> arguments =
               json.convertValue(queue.path("arguments"), new TypeReference<>() {});
           channel.queueDeclare(queue.path("name").asText(), true, false, false, arguments);
         }
       }
       for (var binding : topology.path("bindings")) {
-        if (binding.path("destination").asText().startsWith(QUEUE)) {
+        if (binding.path("destination").asText().startsWith(queueName)) {
           channel.queueBind(
               binding.path("destination").asText(),
               binding.path("source").asText(),

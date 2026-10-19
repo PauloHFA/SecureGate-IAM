@@ -14,6 +14,11 @@ class SecurityEventDataTest {
   static Map<String, String> data(String type) {
     String id = UUID.randomUUID().toString();
     return switch (type) {
+      case "identity.user.created",
+          "identity.user.updated",
+          "identity.user.statuschanged",
+          "identity.user.passwordchanged" ->
+          Map.of("status", "ACTIVE", "version", "4");
       case "policy.changed" ->
           Map.of(
               "policyId",
@@ -62,6 +67,35 @@ class SecurityEventDataTest {
               Instant.now().plusSeconds(300).toString());
       default -> Map.of("version", "4");
     };
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "identity.user.created",
+        "identity.user.updated",
+        "identity.user.statuschanged",
+        "identity.user.passwordchanged"
+      })
+  void identityStateRequiresClosedStatusVersionAndNoSensitiveExtras(String type) {
+    assertDoesNotThrow(() -> SecurityEventData.validate(type, data(type)));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> SecurityEventData.validate(type, Map.of("version", "1")));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> SecurityEventData.validate(type, Map.of("status", "UNKNOWN", "version", "1")));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            SecurityEventData.validate(
+                type, Map.of("status", "ACTIVE", "version", "9223372036854775808")));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            SecurityEventData.validate(
+                type,
+                Map.of("status", "ACTIVE", "version", "1", "email", "synthetic@example.test")));
   }
 
   @ParameterizedTest

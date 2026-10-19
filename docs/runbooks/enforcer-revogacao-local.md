@@ -1,5 +1,7 @@
 # Consumidor de revogação local — 7A
 
+O switch de consumo agora habilita também a fila de bloqueio/política da [7B](enforcer-bloqueio-politica-local.md). Este guia descreve os efeitos de revogação.
+
 ## Executar
 
 Com a stack local disponível e build validado, inicie o IAM em uma janela:
@@ -22,7 +24,7 @@ O JAR esperado é `policy-enforcer/target/policy-enforcer-0.1.0-SNAPSHOT.jar`. G
 
 Siga o [guia de refresh/revogação](oauth-refresh-local.md) para revogar access token ou família, ou encerre uma sessão autenticada conforme o [guia de eventos](eventos-seguranca-local.md). A Outbox deve preencher `published_at`; `enforcer.revocation` deve ser drenada após o Redis aceitar o efeito.
 
-O painel RabbitMQ fica em `http://127.0.0.1:15672`, no vhost configurado. Observe fila principal, redeliveries e `enforcer.revocation.dlq`. `audit.persist` e `enforcer.block-policy` continuam acumulando até implementar seus consumidores; isso não representa falha deste worker.
+O painel RabbitMQ fica em `http://127.0.0.1:15672`, no vhost configurado. Observe fila principal, redeliveries e `enforcer.revocation.dlq`. `enforcer.block-policy` é consumida pela 7B no mesmo processo; `audit.persist` continua acumulando até implementar seu consumidor.
 
 As marcas Redis desta entrega **ainda não são consultadas pelo recurso protegido no iam-core**. Revogação/introspecção locais existentes continuam funcionando, mas não há comprovação nova de revogação distribuída ou latência abaixo de dois segundos.
 

@@ -30,6 +30,8 @@ A 6C acrescenta métricas administrativas de backlog, quarentena com histórico 
 
 A 7A inicia o `policy-enforcer` com consumo opcional da fila de revogação, ACK manual após efeito Redis e deduplicação atômica. Projeta jti, família de autorização e sid encerrado, sem reduzir prazos em eventos fora de ordem. O recurso do IAM ainda não consulta essas marcas. Consulte o [guia do consumidor](docs/runbooks/enforcer-revogacao-local.md), a [ADR-022](docs/adr/022-consumidor-de-revogacao.md) e as [evidências 7A](docs/evidencias/etapa-07a.md).
 
+A 7B acrescenta a fila de bloqueio/política ao mesmo processo: status e versões exatas de identidade/política, contadores limitados por conta/versão e IP e sinais temporários de risco. Eventos antigos não revertem desbloqueio nem ressuscitam sinais expirados. Consulte o [guia de bloqueio/política](docs/runbooks/enforcer-bloqueio-politica-local.md), a [ADR-023](docs/adr/023-consumidor-bloqueio-politica.md) e as [evidências 7B](docs/evidencias/etapa-07b.md).
+
 ## Decisões aprovadas
 
 - Java 21, Spring Boot e Spring Authorization Server.
@@ -65,7 +67,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **7B**, consumidor de bloqueio/política com versões e prazos. A consulta no IAM e a medição de propagação seguem nas 7C/7D. A 6A1 (`2e34a88`), a 6A2 (`3159d3f`), a 6B (`08dd420`) e a 6C (`323d06e`) estão em commits locais. A 7A está em `feat/enforcer-revocation-consumer`, ainda sem commit. Publicação/CI remota das etapas 6/7 continuam pendentes. A base até a 5D3 (`7713a94`) está publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). Revisão e merge continuam pendentes.
+Próxima entrega: **7C**, consulta das projeções no IAM, comportamento com Redis indisponível e integração de rate limiting. A 7D fará a medição de propagação. A 6A1 (`2e34a88`), a 6A2 (`3159d3f`), a 6B (`08dd420`), a 6C (`323d06e`) e a 7A (`3a0c348`) estão em commits locais. A 7B está em `feat/enforcer-block-policy-consumer`, ainda sem commit. Publicação/CI remota das etapas 6/7 continuam pendentes. A base até a 5D3 (`7713a94`) está publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). Revisão e merge continuam pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
@@ -99,7 +101,7 @@ Para corrigir formatação Java, execute `.\mvnw.cmd spotless:apply` no Windows 
 | --- | --- |
 | `libs/security-events` | Biblioteca Java sem Spring, com validação inicial dos tipos de evento |
 | `iam-core` | Identity/Access, políticas e simulação administrativa, auditoria básica, OAuth/OIDC com refresh, Transit/JWKS, Actuator e Flyway |
-| `policy-enforcer` | Consumidor de revogação e projeção Redis; bloqueio/política e consulta distribuída ainda pendentes |
+| `policy-enforcer` | Consumidores de revogação e bloqueio/política com projeções Redis; consulta distribuída no IAM ainda pendente |
 
 O contrato inicial `SecurityEventType` aceita segmentos minúsculos separados por ponto, até 128 caracteres, e rejeita curingas de binding (`*` e `#`). O envelope v1 e a persistência transacional estão na 6A1; os seis produtores foram integrados na 6A2; a 6B publica no broker quando habilitada; consumidores continuam na etapa 7. Relatórios de teste ficam em `libs/security-events/target/surefire-reports/`.
 

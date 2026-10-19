@@ -33,7 +33,7 @@ FROM iam_audit.outbox_events
 WHERE published_at IS NULL;
 ```
 
-`last_error_code` é a última falha e pode continuar presente enquanto outra tentativa está em andamento. `published_at` comprova confirmação do broker, não consumo. O [consumidor 7A](enforcer-revogacao-local.md) pode drenar revogações; auditoria e bloqueio/política ainda acumulam até suas entregas.
+`last_error_code` é a última falha e pode continuar presente enquanto outra tentativa está em andamento. `published_at` comprova confirmação do broker, não consumo. Os consumidores [7A](enforcer-revogacao-local.md) e [7B](enforcer-bloqueio-politica-local.md) podem drenar revogação e bloqueio/política; auditoria ainda acumula até sua entrega.
 
 No painel RabbitMQ local (`http://127.0.0.1:15672`), use as credenciais existentes e selecione o vhost configurado. `audit.persist` recebe todos os tipos. Bloqueio/política recebe as chaves correspondentes, incluindo `auth.login.failed` e `identity.user.*`; revogação recebe `token.revoked` e `session.terminated`.
 

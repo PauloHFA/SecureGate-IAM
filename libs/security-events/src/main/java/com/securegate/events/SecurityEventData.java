@@ -14,6 +14,11 @@ public final class SecurityEventData {
   public static void validate(String type, Map<String, String> data) {
     Set<String> allowed =
         switch (type) {
+          case "identity.user.created",
+              "identity.user.updated",
+              "identity.user.statuschanged",
+              "identity.user.passwordchanged" ->
+              Set.of("status", "version");
           case "policy.changed" ->
               Set.of("policyId", "version", "operation", "enabled", "resource", "action");
           case "user.locked" -> Set.of("userId", "version", "status", "reason");
@@ -42,6 +47,13 @@ public final class SecurityEventData {
       numericAddress(data.get("remoteAddress"));
     }
     switch (type) {
+      case "identity.user.created",
+          "identity.user.updated",
+          "identity.user.statuschanged",
+          "identity.user.passwordchanged" -> {
+        version(data);
+        oneOf(data, "status", "ACTIVE", "LOCKED", "DISABLED");
+      }
       case "policy.changed" -> {
         uuid(data, "policyId");
         version(data);

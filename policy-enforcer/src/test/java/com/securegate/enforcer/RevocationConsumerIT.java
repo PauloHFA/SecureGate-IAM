@@ -64,6 +64,40 @@ class RevocationConsumerIT {
   @Autowired ApplicationContext context;
   private RedisRevocationStore store;
   private SimpleMeterRegistry meters;
+  private com.securegate.enforcer.infrastructure.RedisBlockPolicyStore blockStore;
+
+  private RabbitRevocationWorker blockWorker(
+      com.securegate.enforcer.application.port.BlockPolicyStore target) {
+    var handler =
+        new com.securegate.enforcer.infrastructure.BlockPolicyMessageHandler(
+            json, new com.securegate.enforcer.application.BlockPolicyHandler(target));
+    return new RabbitRevocationWorker(
+        factory(),
+        json,
+        handler::handle,
+        meters,
+        20,
+        100,
+        RabbitRevocationWorker.BLOCK_POLICY_QUEUE);
+  }
+
+  private SecurityEvent blockEvent(
+      String type, String resource, java.util.Map<String, String> data) {
+    return BlockPolicyEffectTest.event(type, resource, data, Instant.now());
+  }
+
+  private String blockKey(String kind, String subject) {
+    return com.securegate.enforcer.infrastructure.RedisBlockPolicyStore.key(kind, subject);
+  }
+
+  private int blockCount(String suffix) throws Exception {
+    try (var connection = factory().newConnection();
+        var channel = connection.createChannel()) {
+      return channel
+          .queueDeclarePassive(RabbitRevocationWorker.BLOCK_POLICY_QUEUE + suffix)
+          .getMessageCount();
+    }
+  }
 
   private ConnectionFactory factory() {
     var factory = new ConnectionFactory();
@@ -100,6 +134,12 @@ class RevocationConsumerIT {
             });
     store = new RedisRevocationStore(redis);
     meters = new SimpleMeterRegistry();
+    blockStore =
+        new com.securegate.enforcer.infrastructure.RedisBlockPolicyStore(
+            redis, 300, 300, 300, 2, 3);
+    try (var worker = blockWorker(blockStore)) {
+      worker.runOnce();
+    }
     try (var worker = worker(store)) {
       worker.runOnce();
     }
@@ -107,6 +147,8 @@ class RevocationConsumerIT {
         var channel = connection.createChannel()) {
       channel.queuePurge(RabbitRevocationWorker.QUEUE);
       channel.queuePurge(RabbitRevocationWorker.QUEUE + ".dlq");
+      channel.queuePurge(RabbitRevocationWorker.BLOCK_POLICY_QUEUE);
+      channel.queuePurge(RabbitRevocationWorker.BLOCK_POLICY_QUEUE + ".dlq");
     }
   }
 
@@ -346,6 +388,10 @@ class RevocationConsumerIT {
     assertTrue(context.getBeansOfType(RabbitRevocationWorker.class).isEmpty());
     var event = event();
     publish(event);
+    String user = UUID.randomUUID().toString();
+    publish(
+        blockEvent(
+            "identity.user.created", user, java.util.Map.of("status", "ACTIVE", "version", "0")));
     try (var enabled =
         new org.springframework.context.annotation.AnnotationConfigApplicationContext()) {
       enabled.setParent(context);
@@ -377,6 +423,287 @@ class RevocationConsumerIT {
         Thread.sleep(25);
       }
       assertNotNull(redis.opsForValue().get(key(event)));
+      deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+      while (!Boolean.TRUE.equals(redis.hasKey(blockKey("identity", user)))
+          && System.nanoTime() < deadline) {
+        Thread.sleep(25);
+      }
+      assertNotNull(redis.opsForValue().get(blockKey("identity", user)));
     }
+  }
+
+  @Test
+  void identityVersionsRemainExactBeyondDoublePrecisionAndOldLocksCannotUndoUnlocks()
+      throws Exception {
+    String id = UUID.randomUUID().toString();
+    publish(
+        blockEvent(
+            "identity.user.statuschanged",
+            id,
+            java.util.Map.of("status", "ACTIVE", "version", "9007199254740993")));
+    publish(
+        blockEvent(
+            "user.locked",
+            id,
+            java.util.Map.of(
+                "userId",
+                id,
+                "version",
+                "9007199254740992",
+                "status",
+                "LOCKED",
+                "reason",
+                "ADMINISTRATIVE")));
+    try (var worker = blockWorker(blockStore)) {
+      worker.runOnce();
+    }
+    assertEquals("0009007199254740993|ACTIVE", redis.opsForValue().get(blockKey("identity", id)));
+    assertEquals(-1L, redis.getExpire(blockKey("identity", id), TimeUnit.MILLISECONDS));
+    publish(
+        blockEvent(
+            "identity.user.statuschanged",
+            id,
+            java.util.Map.of("status", "LOCKED", "version", "9007199254740993")));
+    try (var worker = blockWorker(blockStore)) {
+      worker.runOnce();
+    }
+    assertEquals(1, blockCount(".dlq"));
+    assertTrue(redis.opsForValue().get(blockKey("identity", id)).endsWith("|ACTIVE"));
+  }
+
+  @Test
+  void policyVersionsPreserveDisabledNewerStateAndRejectContradictorySameVersion()
+      throws Exception {
+    String id = UUID.randomUUID().toString();
+    java.util.function.BiFunction<String, String, SecurityEvent> change =
+        (version, enabled) ->
+            blockEvent(
+                "policy.changed",
+                id,
+                java.util.Map.of(
+                    "policyId",
+                    id,
+                    "version",
+                    version,
+                    "enabled",
+                    enabled,
+                    "operation",
+                    "UPDATED",
+                    "resource",
+                    "api:test",
+                    "action",
+                    "read"));
+    publish(change.apply("10", "false"));
+    publish(change.apply("9", "true"));
+    try (var worker = blockWorker(blockStore)) {
+      worker.runOnce();
+    }
+    assertTrue(
+        redis.opsForValue().get(blockKey("policy", id)).startsWith("0000000000000000010|false|"));
+    publish(change.apply("10", "true"));
+    try (var worker = blockWorker(blockStore)) {
+      worker.runOnce();
+    }
+    assertEquals(1, blockCount(".dlq"));
+    assertEquals(-1L, redis.getExpire(blockKey("policy", id), TimeUnit.MILLISECONDS));
+  }
+
+  private SecurityEvent failure(
+      String user, String version, String attempt, String ip, Instant time) {
+    var data = new java.util.HashMap<String, String>();
+    data.put("attemptId", attempt);
+    data.put("reason", "CREDENTIALS_OR_ACCOUNT_REJECTED");
+    if (user != null) {
+      data.put("userId", user);
+      data.put("version", version);
+    }
+    if (ip != null) {
+      data.put("remoteAddress", ip);
+    }
+    return BlockPolicyEffectTest.event("auth.login.failed", "login", data, time);
+  }
+
+  @Test
+  void attemptIdAndEventIdDedupPreventDoubleCountingAndCountersAreBounded() throws Exception {
+    String user = UUID.randomUUID().toString();
+    String attempt = UUID.randomUUID().toString();
+    String ip = "203.0.113.10";
+    var first = failure(user, "1", attempt, ip, Instant.now());
+    publish(first);
+    publish(first);
+    publish(failure(user, "1", attempt, ip, first.occurredAt()));
+    try (var worker = blockWorker(blockStore)) {
+      worker.runOnce();
+    }
+    assertEquals(1L, redis.opsForZSet().zCard(blockKey("attempts:account", user + ":1")));
+    assertFalse(redis.hasKey(blockKey("blocked:account", user + ":1")));
+    for (int i = 0; i < 8; i++) {
+      publish(failure(user, "1", UUID.randomUUID().toString(), ip, Instant.now()));
+    }
+    try (var worker = blockWorker(blockStore)) {
+      worker.runOnce();
+    }
+    assertEquals(2L, redis.opsForZSet().zCard(blockKey("attempts:account", user + ":1")));
+    assertEquals(3L, redis.opsForZSet().zCard(blockKey("attempts:ip", ip)));
+    assertTrue(redis.hasKey(blockKey("blocked:account", user + ":1")));
+    assertTrue(redis.hasKey(blockKey("blocked:ip", ip)));
+    publish(failure(user, "2", UUID.randomUUID().toString(), null, Instant.now()));
+    try (var worker = blockWorker(blockStore)) {
+      worker.runOnce();
+    }
+    assertFalse(redis.hasKey(blockKey("blocked:account", user + ":2")));
+    assertEquals(0, blockCount(""));
+  }
+
+  @Test
+  void unknownAccountsContributeOnlyObservedIpAndIpv6LiteralsShareCanonicalCounter()
+      throws Exception {
+    for (String ip : java.util.List.of("2001:db8::1", "2001:0db8:0:0:0:0:0:1", "2001:db8:0:0::1")) {
+      publish(failure(null, null, UUID.randomUUID().toString(), ip, Instant.now()));
+    }
+    try (var worker = blockWorker(blockStore)) {
+      worker.runOnce();
+    }
+    String ip = com.securegate.events.SecurityEventData.numericAddress("2001:db8::1");
+    assertEquals(3L, redis.opsForZSet().zCard(blockKey("attempts:ip", ip)));
+    assertTrue(redis.hasKey(blockKey("blocked:ip", ip)));
+    assertFalse(redis.hasKey(blockKey("attempts:account", "")));
+  }
+
+  @Test
+  void expiredSignalsAndDelayedReplaysDoNotResurrectTemporaryBlocksOrRisk() throws Exception {
+    var shortStore =
+        new com.securegate.enforcer.infrastructure.RedisBlockPolicyStore(redis, 1, 1, 1, 1, 1);
+    String user = UUID.randomUUID().toString();
+    String sid = UUID.randomUUID().toString();
+    var failed = failure(user, "1", UUID.randomUUID().toString(), "203.0.113.20", Instant.now());
+    var risk =
+        blockEvent(
+            "auth.login.suspicious",
+            "auth:login",
+            java.util.Map.of(
+                "userId",
+                user,
+                "version",
+                "1",
+                "sid",
+                sid,
+                "riskScore",
+                "80",
+                "reasons",
+                "DEVICE_UNKNOWN",
+                "remoteAddress",
+                "203.0.113.21"));
+    publish(failed);
+    publish(risk);
+    try (var worker = blockWorker(shortStore)) {
+      worker.runOnce();
+    }
+    assertTrue(redis.hasKey(blockKey("blocked:account", user + ":1")));
+    assertTrue(redis.hasKey(blockKey("risk", sid)));
+    assertFalse(redis.hasKey(blockKey("blocked:ip", "203.0.113.21")));
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while ((Boolean.TRUE.equals(redis.hasKey(blockKey("blocked:account", user + ":1")))
+            || Boolean.TRUE.equals(redis.hasKey(blockKey("risk", sid))))
+        && System.nanoTime() < deadline) {
+      Thread.sleep(25);
+    }
+    publish(failed);
+    publish(risk);
+    publish(
+        failure(
+            user,
+            "1",
+            UUID.randomUUID().toString(),
+            "203.0.113.20",
+            Instant.now().minusSeconds(301)));
+    try (var worker = blockWorker(shortStore)) {
+      worker.runOnce();
+    }
+    assertFalse(redis.hasKey(blockKey("blocked:account", user + ":1")));
+    assertFalse(redis.hasKey(blockKey("risk", sid)));
+    assertEquals(0, blockCount(""));
+  }
+
+  @Test
+  void projectionFailureBeforeCompletionRequeuesAndDoesNotPartiallyCount() throws Exception {
+    String user = UUID.randomUUID().toString();
+    String ip = "203.0.113.30";
+    var event = failure(user, "1", UUID.randomUUID().toString(), ip, Instant.now());
+    publish(event);
+    redis.opsForValue().set(blockKey("attempts:ip", ip), "synthetic wrong type");
+    try (var worker = blockWorker(blockStore)) {
+      worker.runOnce();
+    }
+    assertEquals(1, blockCount(""));
+    assertFalse(redis.hasKey("securegate:{block-policy}:event:" + event.eventId()));
+    assertFalse(redis.hasKey(blockKey("attempts:account", user + ":1")));
+    redis.delete(blockKey("attempts:ip", ip));
+    try (var worker = blockWorker(blockStore)) {
+      worker.runOnce();
+    }
+    assertEquals(0, blockCount(""));
+    assertEquals(1L, redis.opsForZSet().zCard(blockKey("attempts:account", user + ":1")));
+  }
+
+  @Test
+  void concurrentWorkersAndReplayAfterEffectPreserveOneAttemptAndEventIdConflictsGoToDlq()
+      throws Exception {
+    String user = UUID.randomUUID().toString();
+    var event = failure(user, "1", UUID.randomUUID().toString(), null, Instant.now());
+    var effect = com.securegate.enforcer.domain.BlockPolicyEffect.from(event);
+    var fingerprint = RedisRevocationStore.fingerprint(json.writeValueAsBytes(event));
+    assertEquals(
+        com.securegate.enforcer.application.port.BlockPolicyStore.Result.APPLIED,
+        blockStore.apply(effect, fingerprint));
+    publish(event);
+    publish(event);
+    try (var first = blockWorker(blockStore);
+        var second = blockWorker(blockStore)) {
+      CompletableFuture.allOf(
+              CompletableFuture.runAsync(first::runOnce),
+              CompletableFuture.runAsync(second::runOnce))
+          .get(10, TimeUnit.SECONDS);
+    }
+    assertEquals(1L, redis.opsForZSet().zCard(blockKey("attempts:account", user + ":1")));
+    var changed = failure(user, "2", UUID.randomUUID().toString(), null, Instant.now());
+    var conflict =
+        new SecurityEvent(
+            event.eventId(),
+            changed.eventType(),
+            1,
+            changed.occurredAt(),
+            changed.producer(),
+            changed.correlationId(),
+            changed.actor(),
+            changed.context(),
+            changed.data());
+    publish(conflict);
+    try (var worker = blockWorker(blockStore)) {
+      worker.runOnce();
+    }
+    assertEquals(1, blockCount(".dlq"));
+    assertFalse(redis.hasKey(blockKey("attempts:account", user + ":2")));
+  }
+
+  @Test
+  void futureSignalsAndUnknownIdentityEventsAreRejectedWithoutEffects() throws Exception {
+    publish(
+        failure(
+            null,
+            null,
+            UUID.randomUUID().toString(),
+            "203.0.113.40",
+            Instant.now().plusSeconds(120)));
+    publish(
+        blockEvent(
+            "identity.user.future",
+            UUID.randomUUID().toString(),
+            java.util.Map.of("version", "1")));
+    try (var worker = blockWorker(blockStore)) {
+      worker.runOnce();
+    }
+    assertEquals(2, blockCount(".dlq"));
+    assertFalse(redis.hasKey(blockKey("attempts:ip", "203.0.113.40")));
   }
 }
