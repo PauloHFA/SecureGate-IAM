@@ -1,6 +1,6 @@
 # Políticas locais — entrega 5A
 
-Esta entrega permite administrar políticas e simular decisões. A simulação não concede acesso, não altera tokens e não comprova MFA. A integração ao login/emissão/recursos será feita na 5D.
+Este guia permite administrar políticas e simular decisões. A simulação não concede acesso, não altera tokens e não comprova MFA. A [5D1](politicas-tokens-local.md) acrescenta aplicação real na emissão/renovação de tokens de usuário; navegação de desafio e proteção de recursos continuam pendentes.
 
 ## Preparar
 

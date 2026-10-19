@@ -8,13 +8,15 @@ Fundação, infraestrutura e API administrativa de Identity/Access implementadas
 
 A entrega 4A acrescenta assinatura RS256 via Vault Transit e JWKS; a 4B integra Client Credentials/JDBC. A 4C acrescenta login, clientes web confidenciais e Authorization Code com PKCE S256 e consentimento protegido. A 4D1 implementa refresh opcional com rotação, janela absoluta de 30 minutos, detecção de reuso, introspecção e revogação pelo cliente proprietário. A 4D2 adiciona discovery, ID token Transit e userinfo com claims limitadas aos escopos aprovados. Access tokens e ID tokens duram cinco minutos. Consulte os guias [PKCE](docs/runbooks/oauth-pkce-local.md), [refresh](docs/runbooks/oauth-refresh-local.md) e [OIDC](docs/runbooks/oidc-local.md), com validação registrada nas [evidências 4D2](docs/evidencias/etapa-04d2.md).
 
-A 5A acrescenta políticas JSONB versionadas e auditadas e uma avaliação administrativa por papéis atuais. O motor nega por padrão, faz DENY prevalecer e combina exigência de MFA com limites de escopo/TTL. Essa avaliação é uma recomendação administrativa: a integração ao login e aos tokens ficará na 5D. Consulte o [guia de políticas](docs/runbooks/politicas-local.md) e as [evidências 5A](docs/evidencias/etapa-05a.md).
+A 5A acrescenta políticas JSONB versionadas e auditadas e uma avaliação administrativa por papéis atuais. O motor nega por padrão, faz DENY prevalecer e combina exigência de MFA com limites de escopo/TTL. A prévia administrativa permanece separada da aplicação à emissão de tokens da 5D1. Consulte o [guia de políticas](docs/runbooks/politicas-local.md) e as [evidências 5A](docs/evidencias/etapa-05a.md).
 
 A 5B1 adiciona condições ABAC tipadas na gramática v2, risco determinístico de 0–100 e cenários administrativos separados da avaliação normal. Documentos v1 permanecem compatíveis. Consulte o [guia ABAC/risco](docs/runbooks/abac-risco-local.md) e as [evidências 5B1](docs/evidencias/etapa-05b1.md).
 
 A 5B2 coleta contexto de navegador autenticado, rede da conexão, falhas reais de login e sensibilidade administrada de recursos. Aprovação de navegador tem prazo e versão; contextos de outro usuário, antigos ou fechados não fornecem confiança. Há cinco minutos de aquecimento do contador após iniciar o processo. Consulte o [guia de coleta](docs/runbooks/coleta-risco-local.md) e as [evidências 5B2](docs/evidencias/etapa-05b2.md).
 
-A 5C1 inicia MFA com TOTP e proteção da semente por uma chave AES-256-GCM separada no Vault Transit, vinculada ao usuário e à inscrição. A 5C2 acrescenta cadastro/ativação em `/mfa`, recuperação de uso único, limite de tentativas por conta e prova de step-up de cinco minutos vinculada à sessão. Cadastro é opcional; a aplicação das provas ao login/tokens continua na 5D. Consulte o [guia MFA](docs/runbooks/mfa-local.md), as [evidências 5C2](docs/evidencias/etapa-05c2.md) e a [base criptográfica](docs/runbooks/mfa-base-local.md).
+A 5C1 inicia MFA com TOTP e proteção da semente por uma chave AES-256-GCM separada no Vault Transit, vinculada ao usuário e à inscrição. A 5C2 acrescenta cadastro/ativação em `/mfa`, recuperação de uso único, limite de tentativas por conta e prova de step-up de cinco minutos vinculada à sessão. Consulte o [guia MFA](docs/runbooks/mfa-local.md), as [evidências 5C2](docs/evidencias/etapa-05c2.md) e a [base criptográfica](docs/runbooks/mfa-base-local.md).
+
+A 5D1 exige política para emissão e renovação de tokens de usuário: alvo `oauth:<client_id>`, ação `issue`. Sem permissão correspondente, a troca é negada; limites reduzem escopos/TTL e MFA exige prova no sid original. Isso vale também para clientes existentes, sem ALLOW automático. O desafio integrado à navegação e a aplicação nos recursos continuam pendentes. Consulte o [guia de políticas na emissão](docs/runbooks/politicas-tokens-local.md) e as [evidências 5D1](docs/evidencias/etapa-05d1.md).
 
 ## Decisões aprovadas
 
@@ -44,12 +46,13 @@ A 5C1 inicia MFA com TOTP e proteção da semente por uma chave AES-256-GCM sepa
 - [ADR-012 — Coleta confiável de sinais de risco](docs/adr/012-coleta-confiavel-de-risco.md)
 - [ADR-013 — Base TOTP e cifra de segredos pelo Transit](docs/adr/013-base-totp-e-cifra-transit.md)
 - [ADR-014 — Cadastro MFA, recuperação e prova de step-up](docs/adr/014-cadastro-mfa-recuperacao-e-step-up.md)
+- [ADR-015 — Políticas na emissão e renovação de tokens](docs/adr/015-politicas-na-emissao-de-tokens.md)
 
 O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Implementação**, versão 0.1, outubro de 2026, disponível em PDF na pasta local do projeto.
 
 ## Próximo passo
 
-Seguir para a 5D: aplicação das decisões de políticas, risco e MFA ao login, emissão e recursos. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A base até a 5A (`8f5666d`) foi publicada em `feat/policy-foundation`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831). A 5B1 está no commit local `738c660`; a 5B2, em `3e6b136`; a 5C1, em `90282bb`; a 5C2 está na branch `feat/mfa-enrollment-step-up`. Essas entregas aguardam publicação/CI remota. Revisão e merge continuam pendentes.
+Seguir para a 5D2: desafio MFA integrado à navegação da autorização; depois, aplicação aos recursos na 5D3/enforcer. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A base até a 5A (`8f5666d`) foi publicada em `feat/policy-foundation`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831). As entregas 5B/5C estão em commits locais, incluindo a 5C2 (`9039107`); a 5D1 está na branch `feat/policy-token-enforcement`. Essas entregas aguardam publicação/CI remota. Revisão e merge continuam pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

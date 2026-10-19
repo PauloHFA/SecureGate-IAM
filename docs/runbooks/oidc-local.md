@@ -2,6 +2,8 @@
 
 Prepare infraestrutura, habilite Authorization/Bootstrap, carregue `$baseUrl` e `$adminHeaders` e provisione um usuário ACTIVE conforme o [guia PKCE](oauth-pkce-local.md). OIDC usa o mesmo login; o segredo pertence ao backend do cliente.
 
+Desde a 5D1, o cliente OIDC também exige política no alvo `oauth:<client_id>` / ação `issue`. Siga o [guia de políticas na emissão](politicas-tokens-local.md). Se usar ALLOW_LIMITED, preserve `openid` e inclua `profile`/`email` somente quando desejar permitir essas claims, dentro do consentimento do usuário.
+
 ## Discovery e cadastro
 
 ```powershell

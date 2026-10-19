@@ -5,6 +5,7 @@ import com.securegate.iam.access.application.port.EffectiveRoles;
 import com.securegate.iam.audit.application.port.AuditRecord;
 import com.securegate.iam.audit.application.port.AuditTrail;
 import com.securegate.iam.identity.application.port.IdentityLookup;
+import com.securegate.iam.policy.application.port.PolicyDecisions;
 import com.securegate.iam.policy.application.port.PolicyDocuments;
 import com.securegate.iam.policy.application.port.PolicyRepository;
 import com.securegate.iam.policy.application.port.RiskSignalsProvider;
@@ -24,7 +25,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-public final class PolicyService {
+public final class PolicyService implements PolicyDecisions {
   private static final int MAX_CANDIDATES = 1000;
   private final PolicyRepository policies;
   private final PolicyDocuments documents;
@@ -98,7 +99,22 @@ public final class PolicyService {
     return policies.list(page).stream().map(this::view).toList();
   }
 
-  /** Administrative preview: caller cannot supply roles, MFA proof or a trusted risk score. */
+  /** Live enforcement entry point; synthetic signals are never accepted here. */
+  @Override
+  public Decision decide(
+      UUID userId, String resource, String action, Set<String> scopes, UUID contextId) {
+    var result = evaluate(userId, resource, action, scopes, contextId);
+    return new Decision(
+        "DENY".equals(result.effect()),
+        result.allowedScopes(),
+        result.maxAccessTokenTtlSeconds(),
+        result.mfaRequired(),
+        result.appliedPolicies().stream()
+            .map(policy -> new Applied(policy.id(), policy.version()))
+            .toList(),
+        result.risk().score());
+  }
+
   public DecisionView evaluate(
       UUID userId, String resource, String action, Set<String> requestedScopes) {
     return evaluate(userId, resource, action, requestedScopes, null);

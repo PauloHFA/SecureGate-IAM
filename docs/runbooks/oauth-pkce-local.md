@@ -44,6 +44,8 @@ $webClient.client
 
 O segredo fica em `$webClient.clientSecret` e só é retornado na criação. O GET administrativo mostra os metadados básicos; o cadastro não é um endpoint de registro dinâmico público. Duplicatas retornam 409. Esse cliente usa `authorization_code` com Basic Auth e PKCE obrigatório, sem Client Credentials. O exemplo omite `refreshTokens`, portanto não recebe refresh.
 
+Desde a 5D1, cadastre uma política explícita para **`resource = oauth:local-web-client`**, **`action = issue`** antes de trocar códigos por tokens. Sem permissão correspondente, a troca retorna `invalid_grant`, inclusive para clientes já existentes. Siga o [guia de políticas na emissão](politicas-tokens-local.md) para ALLOW, limites e MFA; cadastro de cliente não cria essa permissão automaticamente.
+
 Redirects devem ser HTTPS remoto ou HTTP de loopback, com path e sem query/fragmento/userinfo. São aceitas até três URIs. O servidor compara a string completa, incluindo porta, path e barra final. Não há wildcard, correspondência por prefixo ou porta de loopback dinâmica. Clientes máquina a máquina continuam usando o [cadastro da 4B](oauth-client-credentials-local.md).
 
 ## Gerar PKCE e iniciar autorização

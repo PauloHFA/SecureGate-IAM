@@ -1,6 +1,6 @@
 # Validar a base MFA TOTP — 5C1
 
-Este guia descreve a base criptográfica entregue na 5C1. O fluxo de cadastro, recuperação e comprovação da sessão foi acrescentado pela 5C2; para usá-lo, siga o [guia MFA](mfa-local.md). O login/tokens ainda não exigem MFA automaticamente; essa aplicação continua na 5D.
+Este guia descreve a base criptográfica entregue na 5C1. O fluxo de cadastro, recuperação e comprovação da sessão foi acrescentado pela 5C2; para usá-lo, siga o [guia MFA](mfa-local.md). A [5D1](politicas-tokens-local.md) aplica essa prova à emissão/renovação quando a política exige MFA. O desafio integrado à navegação fica na 5D2.
 
 ## Build com infraestrutura temporária
 
@@ -39,6 +39,6 @@ O script preserva chaves existentes e cria `securegate-mfa` apenas quando ausent
 - Ciphertext não decifra: confira o usuário e o ID da inscrição originais; AAD diferente é rejeitado. A perda da chave também impede a recuperação do segredo.
 - Vault indisponível ou entrada remota inválida: a porta retorna erro sanitizado; não use geração/cifra local como fallback.
 - Rotação: versões anteriores precisam ser retidas enquanto existirem fatores cifrados com elas. Rewrap e retenção automatizados permanecem fora desta entrega.
-- Testes não habilitam MFA para contas reais. A 5C2 acrescenta V8 e comprovação da sessão; aplicação de MFA aos tokens fica na 5D.
+- Testes não habilitam MFA para contas reais. A 5C2 acrescenta V8 e comprovação da sessão; a 5D1 aplica a exigência à emissão/renovação de usuário.
 
 Consulte [ADR-013](../adr/013-base-totp-e-cifra-transit.md), [evidências 5C1](../evidencias/etapa-05c1.md) e [roteiro](../PLANO-DE-IMPLEMENTACAO.md).

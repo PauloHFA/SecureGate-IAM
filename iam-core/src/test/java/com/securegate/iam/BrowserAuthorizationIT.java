@@ -123,6 +123,258 @@ class BrowserAuthorizationIT {
   @org.springframework.test.context.bean.override.mockito.MockitoSpyBean java.time.Clock riskClock;
   @Autowired com.securegate.iam.identity.application.port.LoginRiskHistory loginHistory;
   @Autowired com.securegate.iam.identity.application.MfaService mfa;
+
+  @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+  com.securegate.iam.policy.application.port.PolicyDecisions enforcementPolicies;
+
+  @Test
+  void tokenPolicyDefaultsToDenyAndReevaluatesTheSameUnconsumedCode() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = browser();
+    String code = approve(browser, flow, pending(browser, flow));
+    issuancePolicy(flow, "ALLOW", List.of(), null, List.of(), false);
+    assertError(exchange(flow, code, flow.verifier(), CALLBACK), "invalid_grant");
+    assertTrue(
+        authorizations
+            .findByToken(
+                code,
+                new org.springframework.security.oauth2.server.authorization.OAuth2TokenType(
+                    "code"))
+            .getToken(
+                org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCode
+                    .class)
+            .isActive());
+    issuancePolicy(flow, "DENY", List.of(), null, List.of(), true);
+    assertError(exchange(flow, code, flow.verifier(), CALLBACK), "invalid_grant");
+    issuancePolicy(flow, "ALLOW", List.of(), null, List.of(), true);
+    assertEquals(200, exchange(flow, code, flow.verifier(), CALLBACK).statusCode());
+  }
+
+  @Test
+  void limitedPolicyNarrowsJwtResponsePersistenceAndOidcClaims() throws Exception {
+    Flow flow = flow(false, true);
+    issuancePolicy(flow, "ALLOW_LIMITED", List.of("openid", "api:read"), 60, List.of(), true);
+    HttpClient browser = browser();
+    String code =
+        approveScopes(
+            browser,
+            flow,
+            pending(browser, flow),
+            List.of("openid", "profile", "email", "api:read"));
+    var response = exchange(flow, code, flow.verifier(), CALLBACK);
+    assertEquals(200, response.statusCode(), response.body());
+    var body = JSON.readTree(response.body());
+    assertEquals(
+        java.util.Set.of("openid", "api:read"),
+        java.util.Set.of(body.path("scope").asText().split(" ")));
+    assertTrue(body.path("expires_in").asLong() <= 60);
+    var jwt =
+        com.nimbusds.jwt.SignedJWT.parse(body.path("access_token").asText()).getJWTClaimsSet();
+    assertEquals(
+        java.util.Set.of("openid", "api:read"),
+        java.util.Set.copyOf(jwt.getStringListClaim("scope")));
+    assertTrue(jwt.getExpirationTime().getTime() - jwt.getIssueTime().getTime() <= 60000);
+    var identity =
+        com.nimbusds.jwt.SignedJWT.parse(body.path("id_token").asText()).getJWTClaimsSet();
+    assertNull(identity.getClaim("email"));
+    assertNull(identity.getClaim("name"));
+    assertNotNull(identity.getClaim("nonce"));
+    var saved =
+        authorizations.findByToken(
+            body.path("access_token").asText(),
+            org.springframework.security.oauth2.server.authorization.OAuth2TokenType.ACCESS_TOKEN);
+    assertEquals(java.util.Set.of("openid", "api:read"), saved.getAuthorizedScopes());
+    assertEquals(saved.getAuthorizedScopes(), saved.getAccessToken().getToken().getScopes());
+    var userinfo = userinfo(body.path("access_token").asText());
+    assertEquals(200, userinfo.statusCode());
+    assertEquals(1, JSON.readTree(userinfo.body()).size());
+    issuancePolicy(flow, "ALLOW_LIMITED", List.of("api:read"), 60, List.of(), true);
+    Flow next = flow(false, true);
+    issuancePolicy(next, "ALLOW_LIMITED", List.of("api:read"), 60, List.of(), true);
+    browser = browser();
+    code = approveScopes(browser, next, pending(browser, next), List.of("openid", "api:read"));
+    assertError(exchange(next, code, next.verifier(), CALLBACK), "invalid_grant");
+  }
+
+  @Test
+  void refreshReevaluatesPolicyWithoutRestoringPreviouslyRemovedScopes() throws Exception {
+    Flow flow = flow(true, true);
+    HttpClient browser = browser();
+    String code =
+        approveScopes(
+            browser,
+            flow,
+            pending(browser, flow),
+            List.of("openid", "profile", "email", "api:read"));
+    Pair initial = pair(exchange(flow, code, flow.verifier(), CALLBACK));
+    issuancePolicy(flow, "ALLOW_LIMITED", List.of("openid", "api:read"), 45, List.of(), true);
+    var limited = refresh(flow, initial.refresh(), null);
+    assertEquals(200, limited.statusCode(), limited.body());
+    var body = JSON.readTree(limited.body());
+    assertTrue(body.path("expires_in").asLong() <= 45);
+    assertEquals(
+        java.util.Set.of("openid", "api:read"),
+        java.util.Set.of(body.path("scope").asText().split(" ")));
+    issuancePolicy(flow, "ALLOW", List.of(), null, List.of(), true);
+    assertError(refresh(flow, body.path("refresh_token").asText(), "email"), "invalid_scope");
+    var again = refresh(flow, body.path("refresh_token").asText(), null);
+    assertEquals(200, again.statusCode());
+    assertEquals(
+        java.util.Set.of("openid", "api:read"),
+        java.util.Set.of(JSON.readTree(again.body()).path("scope").asText().split(" ")));
+  }
+
+  @Test
+  void tokenPolicyRequiresMfaFromTheOriginalSessionAndRechecksItOnRefresh() throws Exception {
+    Flow flow = flow(true);
+    issuancePolicy(flow, "ALLOW_WITH_MFA", List.of(), null, List.of(), true);
+    HttpClient browser = browser();
+    String code = approve(browser, flow, pending(browser, flow));
+    assertError(exchange(flow, code, flow.verifier(), CALLBACK), "invalid_grant");
+    HttpClient other = mfaLogin(flow);
+    String seed = mfaSeed(mfaPost(other, "/mfa/enroll", Map.of("password", PASSWORD)));
+    var recovery = mfaRecovery(mfaPost(other, "/mfa/confirm", Map.of("code", mfaCode(seed))));
+    assertError(exchange(flow, code, flow.verifier(), CALLBACK), "invalid_grant");
+    assertEquals(
+        200,
+        mfaPost(browser, "/mfa/verify", Map.of("method", "RECOVERY", "code", recovery.getFirst()))
+            .statusCode());
+    Pair issued = pair(exchange(flow, code, flow.verifier(), CALLBACK));
+    java.time.Instant now = java.time.Instant.now();
+    org.mockito.Mockito.doReturn(now.plusSeconds(301)).when(riskClock).instant();
+    assertError(refresh(flow, issued.refresh(), null), "invalid_grant");
+    assertEquals(
+        200,
+        mfaPost(browser, "/mfa/verify", Map.of("method", "RECOVERY", "code", recovery.get(1)))
+            .statusCode());
+    assertEquals(200, refresh(flow, issued.refresh(), null).statusCode());
+  }
+
+  @Test
+  void tokenPolicyUsesTheServerBrowserContextForLiveNetworkEvidence() throws Exception {
+    Flow flow = flow();
+    issuancePolicy(
+        flow,
+        "ALLOW",
+        List.of(),
+        null,
+        List.of(
+            Map.of("attribute", "NETWORK_TRUST", "operator", "EQ", "values", List.of("TRUSTED"))),
+        true);
+    HttpClient browser = browser();
+    String code = approve(browser, flow, pending(browser, flow));
+    assertError(exchange(flow, code, flow.verifier(), CALLBACK), "invalid_grant");
+    // Other tests may already have an allowlisted loopback network; isolate the classification.
+    var networks =
+        jdbc.queryForList(
+            "SELECT id,enabled,version FROM iam_policy.trusted_networks WHERE network='127.0.0.1/32'::cidr");
+    if (networks.isEmpty()) {
+      assertEquals(
+          201,
+          admin("POST", "/api/admin/risk/networks", Map.of("cidr", "127.0.0.1/32")).statusCode());
+    } else {
+      var network = networks.getFirst();
+      assertEquals(
+          200,
+          admin(
+                  "PUT",
+                  "/api/admin/risk/networks/" + network.get("id"),
+                  Map.of("enabled", true, "version", network.get("version")))
+              .statusCode());
+    }
+    assertEquals(200, exchange(flow, code, flow.verifier(), CALLBACK).statusCode());
+    jdbc.update(
+        "UPDATE iam_policy.trusted_networks SET enabled=false WHERE network='127.0.0.1/32'::cidr");
+  }
+
+  @Test
+  void policyAuditFailureRollsBackCodeAndRefreshIssuance() throws Exception {
+    Flow flow = flow(true);
+    HttpClient browser = browser();
+    String code = approve(browser, flow, pending(browser, flow));
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic policy audit failure"))
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                event -> event.type().value().equals("oauth.policy.applied")));
+    var failed = exchange(flow, code, flow.verifier(), CALLBACK);
+    assertEquals(503, failed.statusCode());
+    assertEquals("temporarily_unavailable", JSON.readTree(failed.body()).path("error").asText());
+    org.mockito.Mockito.reset(mfaAudit);
+    Pair issued = pair(exchange(flow, code, flow.verifier(), CALLBACK));
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic policy audit failure"))
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                event -> event.type().value().equals("oauth.policy.applied")));
+    assertEquals(503, refresh(flow, issued.refresh(), null).statusCode());
+    org.mockito.Mockito.reset(mfaAudit);
+    assertEquals(200, refresh(flow, issued.refresh(), null).statusCode());
+  }
+
+  @Test
+  void policyCollectorFailureCannotFallBackToUnrestrictedTokens() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = browser();
+    String code = approve(browser, flow, pending(browser, flow));
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic collector failure"))
+        .when(enforcementPolicies)
+        .decide(
+            org.mockito.ArgumentMatchers.eq(flow.userId()),
+            org.mockito.ArgumentMatchers.anyString(),
+            org.mockito.ArgumentMatchers.anyString(),
+            org.mockito.ArgumentMatchers.anySet(),
+            org.mockito.ArgumentMatchers.any());
+    assertEquals(503, exchange(flow, code, flow.verifier(), CALLBACK).statusCode());
+    org.mockito.Mockito.reset(enforcementPolicies);
+    assertEquals(200, exchange(flow, code, flow.verifier(), CALLBACK).statusCode());
+  }
+
+  private void issuancePolicy(
+      Flow flow,
+      String effect,
+      List<String> scopes,
+      Integer ttl,
+      List<Map<String, Object>> conditions,
+      boolean enabled)
+      throws Exception {
+    UUID id =
+        jdbc.queryForObject(
+            "SELECT id FROM iam_policy.policies WHERE name=?",
+            UUID.class,
+            "issuance-" + flow.clientId());
+    var previous = JSON.readTree(admin("GET", "/api/admin/policies/" + id, Map.of()).body());
+    var rule = new HashMap<String, Object>();
+    rule.put("schemaVersion", conditions.isEmpty() ? 1 : 2);
+    rule.put("resource", "oauth:" + flow.clientId());
+    rule.put("action", "issue");
+    rule.put("effect", effect);
+    rule.put("rolesAnyOf", List.of());
+    rule.put("allowedScopes", scopes);
+    if (ttl != null) {
+      rule.put("maxAccessTokenTtlSeconds", ttl);
+    }
+    if (!conditions.isEmpty()) {
+      rule.put("conditions", conditions);
+    }
+    var result =
+        admin(
+            "PUT",
+            "/api/admin/policies/" + id,
+            Map.of(
+                "name",
+                "issuance-" + flow.clientId(),
+                "priority",
+                100,
+                "enabled",
+                enabled,
+                "version",
+                previous.path("version").asLong(),
+                "document",
+                rule));
+    assertEquals(200, result.statusCode(), result.body());
+  }
+
   @Autowired com.securegate.iam.identity.application.port.MfaProofs mfaProofs;
 
   @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
@@ -195,7 +447,9 @@ class BrowserAuthorizationIT {
     Flow flow = flow();
     HttpClient owner = mfaLogin(flow);
     HttpClient other = mfaLogin(flow);
-    java.time.Instant now = java.time.Instant.now();
+    // PostgreSQL persists instants at microsecond precision; keep the exact boundary deterministic.
+    java.time.Instant now =
+        java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
     org.mockito.Mockito.doReturn(now).when(riskClock).instant();
     String seed = mfaSeed(mfaPost(owner, "/mfa/enroll", Map.of("password", PASSWORD)));
     assertEquals(400, mfaPost(other, "/mfa/confirm", Map.of("code", mfaCode(seed))).statusCode());
@@ -1614,6 +1868,32 @@ class BrowserAuthorizationIT {
             "/api/admin/users",
             Map.of("email", email, "displayName", "Synthetic User", "password", PASSWORD));
     assertEquals(201, user.statusCode());
+    var permit =
+        admin(
+            "POST",
+            "/api/admin/policies",
+            Map.of(
+                "name",
+                "issuance-" + clientId,
+                "priority",
+                100,
+                "enabled",
+                true,
+                "document",
+                Map.of(
+                    "schemaVersion",
+                    1,
+                    "resource",
+                    "oauth:" + clientId,
+                    "action",
+                    "issue",
+                    "effect",
+                    "ALLOW",
+                    "rolesAnyOf",
+                    List.of(),
+                    "allowedScopes",
+                    List.of())));
+    assertEquals(201, permit.statusCode(), permit.body());
     return new Flow(
         suffix.toUpperCase(java.util.Locale.ROOT),
         clientId,

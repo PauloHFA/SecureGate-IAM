@@ -2,6 +2,8 @@
 
 Use a preparação, usuário ACTIVE e fluxo PKCE do [guia de login](oauth-pkce-local.md). A aplicação deve iniciar com `Start-IamCore.ps1 -EnableAuthorization`; bootstrap é necessário somente para o cadastro. Os três endpoints abaixo são POST, com Basic Auth do cliente proprietário, sem sessão de navegador.
 
+Desde a [5D1](politicas-tokens-local.md), renovar exige política atual no alvo `oauth:<client_id>` / `issue`. MFA exigido deve ser comprovado no sid original do grant; a chamada do backend não precisa de cookie, mas usa esse vínculo persistido. Limites podem reduzir escopos/TTL; escopos removidos não reaparecem na família por omissão de `scope`.
+
 ## Habilitar refresh no cadastro
 
 No objeto de cadastro web do guia PKCE, antes de executar o POST, inclua:

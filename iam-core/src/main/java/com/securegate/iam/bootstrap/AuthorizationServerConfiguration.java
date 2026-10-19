@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.securegate.iam.access.application.port.EffectiveRoles;
 import com.securegate.iam.audit.application.port.AuditTrail;
 import com.securegate.iam.authorization.application.OAuthClientService;
+import com.securegate.iam.authorization.application.TokenAccessService;
 import com.securegate.iam.authorization.application.port.ClientRegistry;
 import com.securegate.iam.authorization.application.port.ConsentRequests;
 import com.securegate.iam.authorization.application.port.SigningKeys;
@@ -14,6 +15,8 @@ import com.securegate.iam.authorization.infrastructure.JdbcClientRegistry;
 import com.securegate.iam.authorization.infrastructure.JdbcConsentRequests;
 import com.securegate.iam.authorization.infrastructure.OidcIdentityClaims;
 import com.securegate.iam.authorization.infrastructure.OwnedTokenProvider;
+import com.securegate.iam.authorization.infrastructure.PolicyGrantProvider;
+import com.securegate.iam.authorization.infrastructure.PolicyIssuance;
 import com.securegate.iam.authorization.infrastructure.RefreshTokenLedger;
 import com.securegate.iam.authorization.infrastructure.RefreshTrackingAuthorizations;
 import com.securegate.iam.authorization.infrastructure.RotatingRefreshProvider;
@@ -23,8 +26,10 @@ import com.securegate.iam.authorization.presentation.OAuthFailureHandler;
 import com.securegate.iam.identity.application.port.AuthenticatedIdentity;
 import com.securegate.iam.identity.application.port.IdentityLookup;
 import com.securegate.iam.identity.application.port.IdentityProfiles;
+import com.securegate.iam.identity.application.port.MfaProofs;
 import com.securegate.iam.identity.application.port.PasswordHasher;
 import com.securegate.iam.identity.infrastructure.JdbcIdentityProfiles;
+import com.securegate.iam.policy.application.port.PolicyDecisions;
 import com.securegate.iam.shared.application.port.OperationContext;
 import com.securegate.iam.shared.application.port.UnitOfWork;
 import com.securegate.iam.shared.presentation.CorrelationIdFilter;
@@ -73,6 +78,17 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 @ConditionalOnProperty(name = "iam.authorization.enabled", havingValue = "true")
 @EnableConfigurationProperties(AuthorizationProperties.class)
 public class AuthorizationServerConfiguration {
+  @Bean
+  TokenAccessService tokenAccessService(
+      PolicyDecisions policies, IdentityLookup identities, MfaProofs proofs) {
+    return new TokenAccessService(policies, identities, proofs);
+  }
+
+  @Bean
+  PolicyIssuance policyIssuance(TokenAccessService access) {
+    return new PolicyIssuance(access);
+  }
+
   @Bean
   IdentityProfiles identityProfiles(JdbcTemplate jdbc) {
     return new JdbcIdentityProfiles(jdbc);
@@ -159,7 +175,8 @@ public class AuthorizationServerConfiguration {
       IdentityLookup identities,
       EffectiveRoles roles,
       RefreshTokenLedger ledger,
-      OidcIdentityClaims oidcClaims) {
+      OidcIdentityClaims oidcClaims,
+      PolicyIssuance issuance) {
     JwtGenerator generator = new JwtGenerator(encoder);
     generator.setJwtCustomizer(
         context -> {
@@ -173,10 +190,14 @@ public class AuthorizationServerConfiguration {
             throw new OAuth2AuthenticationException("server_error");
           }
           if (!idToken) {
+            issuance.boundExpiry(context.getClaims());
             context
                 .getClaims()
                 // JDBC's security allowlist supports ArrayList, not List.of() implementation types.
                 .audience(new ArrayList<>(List.of(audience)))
+                .claim(
+                    "scope",
+                    new ArrayList<>(context.getAuthorizedScopes().stream().sorted().toList()))
                 .claim("client_id", context.getRegisteredClient().getClientId());
           } else {
             context
@@ -215,7 +236,7 @@ public class AuthorizationServerConfiguration {
         new DelegatingOAuth2TokenGenerator(generator, new FamilyBoundRefreshGenerator(ledger));
     return context -> {
       try {
-        return tokens.generate(context);
+        return tokens.generate(issuance.constrain(context));
       } catch (JwtEncodingException exception) {
         throw new OAuth2AuthenticationException(new OAuth2Error("temporarily_unavailable"));
       }
@@ -232,7 +253,9 @@ public class AuthorizationServerConfiguration {
       RefreshTokenLedger ledger,
       OAuth2AuthorizationService authorizations,
       IdentityLookup identities,
-      OidcIdentityClaims oidcClaims)
+      OidcIdentityClaims oidcClaims,
+      PolicyIssuance issuance,
+      AuditTrail audit)
       throws Exception {
     var failure = new OAuthFailureHandler(json);
     var server = OAuth2AuthorizationServerConfigurer.authorizationServer();
@@ -279,7 +302,13 @@ public class AuthorizationServerConfiguration {
                                 .authenticationProviders(
                                     providers ->
                                         configureGrantProviders(
-                                            providers, jdbc, manager, ledger, authorizations)))
+                                            providers,
+                                            jdbc,
+                                            manager,
+                                            ledger,
+                                            authorizations,
+                                            issuance,
+                                            audit)))
                     .tokenIntrospectionEndpoint(
                         endpoint ->
                             endpoint
@@ -375,7 +404,9 @@ public class AuthorizationServerConfiguration {
       JdbcTemplate jdbc,
       PlatformTransactionManager manager,
       RefreshTokenLedger ledger,
-      OAuth2AuthorizationService authorizations) {
+      OAuth2AuthorizationService authorizations,
+      PolicyIssuance issuance,
+      AuditTrail audit) {
     for (int index = 0; index < providers.size(); index++) {
       var provider = providers.get(index);
       if (provider instanceof OAuth2ClientCredentialsAuthenticationProvider credentials) {
@@ -384,12 +415,29 @@ public class AuthorizationServerConfiguration {
                 .andThen(AuthorizationServerConfiguration::requireScopes));
       } else if (provider instanceof OAuth2AuthorizationCodeAuthenticationProvider) {
         providers.set(
-            index, new SerializedCodeRedemption(provider, jdbc, new TransactionTemplate(manager)));
+            index,
+            new SerializedCodeRedemption(
+                new PolicyGrantProvider(
+                    provider,
+                    issuance,
+                    authorizations,
+                    audit,
+                    AuthorizationServerConfiguration::policyCorrelation),
+                jdbc,
+                new TransactionTemplate(manager)));
       } else if (provider instanceof OAuth2RefreshTokenAuthenticationProvider) {
         providers.set(
             index,
             new RotatingRefreshProvider(
-                provider, ledger, authorizations, new TransactionTemplate(manager)));
+                new PolicyGrantProvider(
+                    provider,
+                    issuance,
+                    authorizations,
+                    audit,
+                    AuthorizationServerConfiguration::policyCorrelation),
+                ledger,
+                authorizations,
+                new TransactionTemplate(manager)));
       }
     }
   }
@@ -423,5 +471,14 @@ public class AuthorizationServerConfiguration {
     if (authentication.getScopes().isEmpty()) {
       throw new OAuth2AuthenticationException("invalid_scope");
     }
+  }
+
+  private static String policyCorrelation() {
+    var attributes = RequestContextHolder.getRequestAttributes();
+    Object value =
+        attributes instanceof ServletRequestAttributes servlet
+            ? servlet.getRequest().getAttribute(CorrelationIdFilter.ATTRIBUTE)
+            : null;
+    return value instanceof String id ? id : UUID.randomUUID().toString();
   }
 }
