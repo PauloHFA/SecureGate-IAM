@@ -13,6 +13,18 @@
   <name>SecureGate Policy Enforcer</name>
   <dependencies>
     <dependency>
+      <groupId>com.rabbitmq</groupId><artifactId>amqp-client</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-json</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter</artifactId>
     </dependency>
@@ -20,5 +32,36 @@
       <groupId>com.securegate</groupId>
       <artifactId>security-events</artifactId>
     </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId><artifactId>archunit-junit5</artifactId><scope>test</scope>
+    </dependency>
   </dependencies>
+  <build>
+    <resources>
+      <resource><directory>src/main/resources</directory></resource>
+      <resource><directory>${project.basedir}/../infra/rabbitmq</directory><targetPath>rabbitmq</targetPath>
+        <includes><include>definitions.json</include></includes></resource>
+    </resources>
+    <plugins>
+      <plugin><groupId>org.jacoco</groupId><artifactId>jacoco-maven-plugin</artifactId><version>${jacoco.version}</version>
+        <configuration><includes><include>com/securegate/enforcer/domain/**</include><include>com/securegate/enforcer/application/**</include></includes></configuration>
+        <executions>
+          <execution><id>coverage-agent</id><goals><goal>prepare-agent</goal></goals></execution>
+          <execution><id>coverage-report</id><phase>verify</phase><goals><goal>report</goal></goals></execution>
+          <execution><id>coverage-minimum</id><phase>verify</phase><goals><goal>check</goal></goals>
+            <configuration><rules><rule><element>PACKAGE</element><limits><limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>0.80</minimum></limit></limits></rule></rules></configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId>
+        <executions><execution><goals><goal>repackage</goal></goals></execution></executions>
+      </plugin>
+    </plugins>
+  </build>
 </project>

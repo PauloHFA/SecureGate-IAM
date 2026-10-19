@@ -28,6 +28,8 @@ A 6B acrescenta publicação opcional no RabbitMQ com mensagens persistentes, co
 
 A 6C acrescenta métricas administrativas de backlog, quarentena com histórico e limpeza opcional de publicações confirmadas. Use `-EnableOutboxRetention` para ativar a retenção de sete dias; pendências e auditoria são preservadas. Consulte o [guia operacional](docs/runbooks/operacao-outbox-local.md), a [ADR-021](docs/adr/021-operacao-da-outbox.md) e as [evidências 6C](docs/evidencias/etapa-06c.md).
 
+A 7A inicia o `policy-enforcer` com consumo opcional da fila de revogação, ACK manual após efeito Redis e deduplicação atômica. Projeta jti, família de autorização e sid encerrado, sem reduzir prazos em eventos fora de ordem. O recurso do IAM ainda não consulta essas marcas. Consulte o [guia do consumidor](docs/runbooks/enforcer-revogacao-local.md), a [ADR-022](docs/adr/022-consumidor-de-revogacao.md) e as [evidências 7A](docs/evidencias/etapa-07a.md).
+
 ## Decisões aprovadas
 
 - Java 21, Spring Boot e Spring Authorization Server.
@@ -63,7 +65,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **7**, consumidores Enforcer, Redis e revogação distribuída, começando por ack manual e idempotência por eventId. A 6A1 (`2e34a88`), a 6A2 (`3159d3f`) e a 6B (`08dd420`) estão em commits locais. A 6C está em `feat/outbox-operations`, ainda sem commit. Publicação/CI remota da etapa 6 continuam pendentes. A base até a 5D3 (`7713a94`) está publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). Revisão e merge continuam pendentes.
+Próxima entrega: **7B**, consumidor de bloqueio/política com versões e prazos. A consulta no IAM e a medição de propagação seguem nas 7C/7D. A 6A1 (`2e34a88`), a 6A2 (`3159d3f`), a 6B (`08dd420`) e a 6C (`323d06e`) estão em commits locais. A 7A está em `feat/enforcer-revocation-consumer`, ainda sem commit. Publicação/CI remota das etapas 6/7 continuam pendentes. A base até a 5D3 (`7713a94`) está publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). Revisão e merge continuam pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
@@ -85,7 +87,7 @@ Linux/macOS:
 ./mvnw -B -ntp clean verify
 ```
 
-O build valida JDK/Maven, verifica formatação, executa testes unitários e de integração e gera os JARs. `iam-core/target/iam-core-0.1.0-SNAPSHOT.jar` é executável Spring Boot; `policy-enforcer` ainda não possui bootstrap. Os testes de integração falham se Docker não estiver disponível, sem serem ignorados silenciosamente.
+O build valida JDK/Maven, verifica formatação, executa testes unitários e de integração e gera os JARs. `iam-core/target/iam-core-0.1.0-SNAPSHOT.jar` e `policy-enforcer/target/policy-enforcer-0.1.0-SNAPSHOT.jar` são executáveis Spring Boot. O enforcer não possui servidor HTTP e seu consumidor é opcional. Os testes de integração falham se Docker não estiver disponível, sem serem ignorados silenciosamente.
 
 JaCoCo exige pelo menos 80% de cobertura de linhas por pacote de domínio/aplicação de Identity, Access, Authorization e Policy. O relatório HTML fica em `iam-core/target/site/jacoco/index.html`, e a CI inclui os relatórios de cobertura no artefato de testes.
 
@@ -97,7 +99,7 @@ Para corrigir formatação Java, execute `.\mvnw.cmd spotless:apply` no Windows 
 | --- | --- |
 | `libs/security-events` | Biblioteca Java sem Spring, com validação inicial dos tipos de evento |
 | `iam-core` | Identity/Access, políticas e simulação administrativa, auditoria básica, OAuth/OIDC com refresh, Transit/JWKS, Actuator e Flyway |
-| `policy-enforcer` | Módulo reservado para o consumidor; implementação na etapa 7 |
+| `policy-enforcer` | Consumidor de revogação e projeção Redis; bloqueio/política e consulta distribuída ainda pendentes |
 
 O contrato inicial `SecurityEventType` aceita segmentos minúsculos separados por ponto, até 128 caracteres, e rejeita curingas de binding (`*` e `#`). O envelope v1 e a persistência transacional estão na 6A1; os seis produtores foram integrados na 6A2; a 6B publica no broker quando habilitada; consumidores continuam na etapa 7. Relatórios de teste ficam em `libs/security-events/target/surefire-reports/`.
 

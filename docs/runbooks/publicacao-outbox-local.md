@@ -33,7 +33,7 @@ FROM iam_audit.outbox_events
 WHERE published_at IS NULL;
 ```
 
-`last_error_code` é a última falha e pode continuar presente enquanto outra tentativa está em andamento. `published_at` comprova confirmação do broker; os consumidores ainda serão implementados. Filas de auditoria/enforcer podem acumular mensagens até essas entregas.
+`last_error_code` é a última falha e pode continuar presente enquanto outra tentativa está em andamento. `published_at` comprova confirmação do broker, não consumo. O [consumidor 7A](enforcer-revogacao-local.md) pode drenar revogações; auditoria e bloqueio/política ainda acumulam até suas entregas.
 
 No painel RabbitMQ local (`http://127.0.0.1:15672`), use as credenciais existentes e selecione o vhost configurado. `audit.persist` recebe todos os tipos. Bloqueio/política recebe as chaves correspondentes, incluindo `auth.login.failed` e `identity.user.*`; revogação recebe `token.revoked` e `session.terminated`.
 
@@ -63,7 +63,7 @@ O retry usa atrasos exponenciais até cinco minutos para falhas transitórias. R
 
 Se o processo cair após o broker aceitar a mensagem e antes da confirmação no banco, outro worker poderá enviá-la novamente após o lease. Consumidores precisam de idempotência por eventId. ACK também não comprova que todas as filas pretendidas receberam o evento quando algum binding foi removido e outra rota continua existindo.
 
-As filas `.retry` de consumidor usam TTL de cinco segundos e voltam pelo exchange direto de redelivery somente à fila correspondente. Rejeição definitiva vai à DLQ desse consumidor. Essa infraestrutura foi testada, mas os consumidores ainda não estão ativos. O retry do publicador é controlado pelos campos da Outbox.
+As filas `.retry` de consumidor usam TTL de cinco segundos e voltam pelo exchange direto de redelivery somente à fila correspondente. Rejeição definitiva vai à DLQ desse consumidor. Essa infraestrutura foi testada; o consumidor de revogação 7A usa requeue para falhas transitórias, sem passar por `.retry`. O retry do publicador é controlado pelos campos da Outbox.
 
 ## Validação
 
