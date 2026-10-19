@@ -26,6 +26,8 @@ A 6A2 integra os seis produtores de segurança, preserva a auditoria legada e va
 
 A 6B acrescenta publicação opcional no RabbitMQ com mensagens persistentes, confirmação/mandatory return, leases concorrentes e retry na Outbox. Use `-EnableOutboxPublisher` para ativar. A entrega preserva eventId/payload nas tentativas e cobre falha/recuperação com broker real. Consulte o [guia de publicação](docs/runbooks/publicacao-outbox-local.md), a [ADR-020](docs/adr/020-publicacao-outbox-rabbitmq.md) e as [evidências 6B](docs/evidencias/etapa-06b.md).
 
+A 6C acrescenta métricas administrativas de backlog, quarentena com histórico e limpeza opcional de publicações confirmadas. Use `-EnableOutboxRetention` para ativar a retenção de sete dias; pendências e auditoria são preservadas. Consulte o [guia operacional](docs/runbooks/operacao-outbox-local.md), a [ADR-021](docs/adr/021-operacao-da-outbox.md) e as [evidências 6C](docs/evidencias/etapa-06c.md).
+
 ## Decisões aprovadas
 
 - Java 21, Spring Boot e Spring Authorization Server.
@@ -61,7 +63,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **6C**, retenção, métricas e recuperação operacional da Outbox. A 6A1 (`2e34a88`) e a 6A2 (`3159d3f`) estão em commits locais. A 6B está em `feat/outbox-rabbitmq-publisher`, ainda sem commit/publicação/CI remota. A base até a 5D3 (`7713a94`) está publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). Revisão e merge continuam pendentes.
+Próxima entrega: **7**, consumidores Enforcer, Redis e revogação distribuída, começando por ack manual e idempotência por eventId. A 6A1 (`2e34a88`), a 6A2 (`3159d3f`) e a 6B (`08dd420`) estão em commits locais. A 6C está em `feat/outbox-operations`, ainda sem commit. Publicação/CI remota da etapa 6 continuam pendentes. A base até a 5D3 (`7713a94`) está publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). Revisão e merge continuam pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
@@ -129,7 +131,7 @@ Endpoints públicos: `GET /actuator/health`, `/actuator/health/liveness` e `/act
 .\infra\scripts\Start-IamCore.ps1 -EnableBootstrap
 ```
 
-As rotas `/api/admin/**` exigem o token gerado em `.env`. Consulte o [guia de provisionamento](docs/runbooks/provisionamento-local.md) para exemplos, controle de versão e atribuições. A sessão de usuário e os JWTs OAuth não concedem acesso administrativo.
+As rotas `/api/admin/**` e a leitura de `/actuator/metrics/**` exigem o token gerado em `.env`. Consulte o [guia de provisionamento](docs/runbooks/provisionamento-local.md) para exemplos, controle de versão e atribuições. A sessão de usuário e os JWTs OAuth não concedem acesso administrativo.
 
 Para habilitar `GET /oauth2/jwks`, use `Start-IamCore.ps1 -EnableTransit`. Essa opção lê os arquivos AppRole de `infra/.local/` e é independente do bootstrap administrativo. Operação, rotação e diagnóstico estão no [guia Transit](docs/runbooks/transit-local.md).
 

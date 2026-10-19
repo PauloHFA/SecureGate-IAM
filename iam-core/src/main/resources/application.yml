@@ -22,6 +22,11 @@ spring:
 
 iam:
   outbox:
+    operations:
+      retention-enabled: ${IAM_OUTBOX_RETENTION_ENABLED:false}
+      retention-days: ${IAM_OUTBOX_RETENTION_DAYS:7}
+      batch-size: ${IAM_OUTBOX_RETENTION_BATCH_SIZE:100}
+      poll-millis: ${IAM_OUTBOX_OPERATIONS_POLL_MILLIS:30000}
     publisher:
       enabled: ${IAM_OUTBOX_PUBLISHER_ENABLED:false}
       host: ${IAM_RABBITMQ_HOST:127.0.0.1}
@@ -68,7 +73,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,metrics
       discovery:
         enabled: false
   endpoint:

@@ -28,7 +28,9 @@ public class BootstrapTokenFilter extends OncePerRequestFilter {
   @Override
   protected boolean shouldNotFilter(HttpServletRequest request) {
     return !request.getServletPath().equals("/api/admin")
-        && !request.getServletPath().startsWith("/api/admin/");
+        && !request.getServletPath().startsWith("/api/admin/")
+        && !request.getServletPath().equals("/actuator/metrics")
+        && !request.getServletPath().startsWith("/actuator/metrics/");
   }
 
   @Override

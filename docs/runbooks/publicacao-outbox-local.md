@@ -57,9 +57,9 @@ As quatro propriedades curtas da tabela usam o mesmo prefixo `iam.outbox.publish
 | NACK | Broker não confirmou aceitação; reagenda |
 | CONFIRM_TIMEOUT | Resultado inconclusivo no prazo configurado; reagenda |
 | BROKER_UNAVAILABLE | Conexão, topologia ou canal indisponível; reagenda |
-| INVALID_EVENT | Envelope/cabeçalhos inválidos; preserva para tratamento operacional |
+| INVALID_EVENT | Envelope/cabeçalhos inválidos; suspende em quarentena na V12 |
 
-O retry usa atrasos exponenciais até cinco minutos. Recuperar o broker ou a rota permite nova tentativa com o mesmo eventId e payload. O publicador não descarta eventos após um limite de falhas. Não modifique o payload imutável nem preencha `published_at` para ocultar um incidente; procedimentos de quarentena/reprocessamento pertencem à 6C.
+O retry usa atrasos exponenciais até cinco minutos para falhas transitórias. Recuperar o broker ou a rota permite nova tentativa com o mesmo eventId e payload. O publicador não descarta eventos após um limite de falhas. `INVALID_EVENT` suspende as tentativas automáticas na V12. Não modifique o payload imutável nem preencha `published_at` para ocultar um incidente; siga os procedimentos de quarentena/liberação da [6C](operacao-outbox-local.md).
 
 Se o processo cair após o broker aceitar a mensagem e antes da confirmação no banco, outro worker poderá enviá-la novamente após o lease. Consumidores precisam de idempotência por eventId. ACK também não comprova que todas as filas pretendidas receberam o evento quando algum binding foi removido e outra rota continua existindo.
 
@@ -69,4 +69,4 @@ As filas `.retry` de consumidor usam TTL de cinco segundos e voltam pelo exchang
 
 O build usa RabbitMQ 4.3.6, PostgreSQL e Vault temporários. Cobre publicação persistente, retorno sem rota, concorrência, lease vencido, duplicata após perda simulada da confirmação no banco, indisponibilidade/recuperação do broker, worker agendado, ativação pelo Spring, TTL e DLQ. NACK e timeout também têm testes unitários.
 
-Não é necessário interromper a stack persistente para executar esses testes. Retenção, métricas e recuperação operacional são a próxima entrega, 6C; efeitos distribuídos continuam na etapa 7. Ver [ADR-020](../adr/020-publicacao-outbox-rabbitmq.md) e [evidências](../evidencias/etapa-06b.md).
+Não é necessário interromper a stack persistente para executar esses testes. Retenção, métricas e recuperação operacional estão na [6C](operacao-outbox-local.md); efeitos distribuídos continuam na etapa 7. Ver [ADR-020](../adr/020-publicacao-outbox-rabbitmq.md) e [evidências](../evidencias/etapa-06b.md).

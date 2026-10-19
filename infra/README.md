@@ -59,6 +59,8 @@ Vhost padrão: `securegate`. Os recursos são duráveis. O usuário administrati
 
 O [publicador da 6B](../docs/runbooks/publicacao-outbox-local.md) empacota essa mesma definição sem credenciais e declara a topologia ao conectar para enviar. Os dois bindings novos de falha de login/evolução de identidade preparam o consumidor da etapa 7.
 
+A [operação da Outbox na 6C](../docs/runbooks/operacao-outbox-local.md) inclui métricas autenticadas, quarentena de falhas permanentes e limpeza opcional de publicações antigas (`-EnableOutboxRetention`). Não remove auditoria, pendências ou mensagens do broker.
+
 Cada fila tem uma `.dlq` e uma `.retry`:
 
 - Rejeição sem requeue envia para `security.events.dlx`, com routing key igual ao nome da fila original, e então para sua `.dlq`.

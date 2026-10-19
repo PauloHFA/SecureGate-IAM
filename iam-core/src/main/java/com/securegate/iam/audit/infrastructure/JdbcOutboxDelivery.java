@@ -35,7 +35,7 @@ public final class JdbcOutboxDelivery implements OutboxDelivery {
                     """
         WITH candidate AS (
           SELECT event_id FROM iam_audit.outbox_events
-          WHERE published_at IS NULL AND next_attempt_at<=statement_timestamp()
+          WHERE published_at IS NULL AND quarantined_at IS NULL AND next_attempt_at<=statement_timestamp()
             AND (lease_until IS NULL OR lease_until<=statement_timestamp())
           ORDER BY next_attempt_at,created_at,event_id
           FOR UPDATE SKIP LOCKED LIMIT 1
@@ -90,9 +90,11 @@ public final class JdbcOutboxDelivery implements OutboxDelivery {
                 jdbc.update(
                         """
         UPDATE iam_audit.outbox_events SET claim_id=NULL,lease_until=NULL,last_error_code=?,
+          quarantined_at=CASE WHEN ?='INVALID_EVENT' THEN clock_timestamp() ELSE NULL END,
           next_attempt_at=clock_timestamp()+(? * interval '1 second')
         WHERE event_id=? AND claim_id=? AND lease_until>clock_timestamp() AND published_at IS NULL
         """,
+                        failure.name(),
                         failure.name(),
                         delaySeconds,
                         claim.eventId(),

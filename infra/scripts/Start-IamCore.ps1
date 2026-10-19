@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher)
+param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LocalEnvironment.ps1')
@@ -33,6 +33,7 @@ $applicationEnvironment = @{
   IAM_BOOTSTRAP_ENABLED = $(if ($EnableBootstrap) { 'true' } else { 'false' })
   IAM_BOOTSTRAP_TOKEN = $(if ($EnableBootstrap) { $settings.IAM_BOOTSTRAP_TOKEN } else { '' })
   IAM_OUTBOX_PUBLISHER_ENABLED = $(if ($EnableOutboxPublisher) { 'true' } else { 'false' })
+  IAM_OUTBOX_RETENTION_ENABLED = $(if ($EnableOutboxRetention) { 'true' } else { 'false' })
   IAM_RABBITMQ_HOST = '127.0.0.1'
   IAM_RABBITMQ_PORT = $settings.RABBITMQ_PORT
   IAM_RABBITMQ_VHOST = $settings.RABBITMQ_VHOST

@@ -1,6 +1,6 @@
 # Envelope e Outbox local — 6A1
 
-A base da Outbox persiste eventos junto da auditoria. A [6A2](eventos-seguranca-local.md) integra os seis produtores e a [6B](publicacao-outbox-local.md) permite ativar a publicação com confirmação e retry. O próximo passo é a 6C, operação e retenção.
+A base da Outbox persiste eventos junto da auditoria. A [6A2](eventos-seguranca-local.md) integra os seis produtores, a [6B](publicacao-outbox-local.md) permite ativar a publicação com confirmação/retry e a [6C](operacao-outbox-local.md) acrescenta métricas, quarentena e retenção opcional.
 
 ## Executar
 

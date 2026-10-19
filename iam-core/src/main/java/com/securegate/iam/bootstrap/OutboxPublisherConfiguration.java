@@ -5,8 +5,10 @@ import com.rabbitmq.client.ConnectionFactory;
 import com.securegate.iam.audit.application.OutboxPublisher;
 import com.securegate.iam.audit.application.port.OutboxDelivery;
 import com.securegate.iam.audit.infrastructure.JdbcOutboxDelivery;
+import com.securegate.iam.audit.infrastructure.MeteredOutboxDelivery;
 import com.securegate.iam.audit.infrastructure.OutboxWorker;
 import com.securegate.iam.audit.infrastructure.RabbitEventTransport;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -19,8 +21,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 @EnableConfigurationProperties(OutboxPublisherProperties.class)
 public class OutboxPublisherConfiguration {
   @Bean
-  OutboxDelivery outboxDelivery(JdbcTemplate jdbc, PlatformTransactionManager manager) {
-    return new JdbcOutboxDelivery(jdbc, manager);
+  OutboxDelivery outboxDelivery(
+      JdbcTemplate jdbc, PlatformTransactionManager manager, MeterRegistry meters) {
+    return new MeteredOutboxDelivery(new JdbcOutboxDelivery(jdbc, manager), meters);
   }
 
   @Bean(destroyMethod = "close")

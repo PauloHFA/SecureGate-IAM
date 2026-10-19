@@ -55,4 +55,4 @@ O alvo de classificação do login é `auth:login`. Pode ser administrado em `/a
 - Um sid encerrado é terminal. Não use um TTL arbitrário curto: não há expiresAt inventado no evento de sessão. A etapa 7 precisa manter tombstone ou calcular uma janela segura para todos os grants associados.
 - Deduplicate por eventId e não marque a entrega concluída antes de aplicar seu efeito. Não deduza uma ordem global pelo relógio.
 
-A [6B](publicacao-outbox-local.md) implementa confirmação/retry do broker; a próxima entrega é a 6C, retenção e operação. Consulte [ADR-019](../adr/019-produtores-de-eventos-de-seguranca.md), [evidências](../evidencias/etapa-06a2.md) e [plano](../PLANO-DE-IMPLEMENTACAO.md).
+A [6B](publicacao-outbox-local.md) implementa confirmação/retry do broker e a [6C](operacao-outbox-local.md), retenção e operação. Consumidores e efeitos distribuídos seguem na etapa 7. Consulte [ADR-019](../adr/019-produtores-de-eventos-de-seguranca.md), [evidências](../evidencias/etapa-06a2.md) e [plano](../PLANO-DE-IMPLEMENTACAO.md).

@@ -39,6 +39,8 @@ public class SecurityConfiguration {
                     .permitAll()
                     .requestMatchers("/api/admin/**")
                     .hasAuthority("BOOTSTRAP_ADMIN")
+                    .requestMatchers(HttpMethod.GET, "/actuator/metrics", "/actuator/metrics/**")
+                    .hasAuthority("BOOTSTRAP_ADMIN")
                     .anyRequest()
                     .denyAll())
         .sessionManagement(
