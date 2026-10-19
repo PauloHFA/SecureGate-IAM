@@ -1,6 +1,6 @@
 # Políticas locais — entrega 5A
 
-Este guia permite administrar políticas e simular decisões. A simulação não concede acesso, não altera tokens e não comprova MFA. A [5D1](politicas-tokens-local.md) acrescenta aplicação real na emissão/renovação de tokens de usuário; navegação de desafio e proteção de recursos continuam pendentes.
+Este guia permite administrar políticas e simular decisões. A simulação não concede acesso, não altera tokens e não comprova MFA. A [5D1](politicas-tokens-local.md) aplica decisões na emissão/renovação de tokens de usuário; a [5D2](desafio-mfa-local.md) integra o desafio à navegação e a [5D3](recursos-local.md) protege o recurso local por operação. Recursos externos continuam na etapa 7.
 
 ## Preparar
 

@@ -65,4 +65,4 @@ Build de aceite:
 .\mvnw.cmd -B -ntp clean verify
 ```
 
-Verificação de senha e Client Credentials não recebem essa política de identidade humana. A navegação tem desafio integrado desde a 5D2; proteção por operação nos recursos continua na 5D3/enforcer. Veja [ADR-015](../adr/015-politicas-na-emissao-de-tokens.md), [evidências históricas](../evidencias/etapa-05d1.md) e [roteiro](../PLANO-DE-IMPLEMENTACAO.md).
+Verificação de senha e Client Credentials não recebem essa política de identidade humana. A navegação tem desafio integrado desde a 5D2; a [5D3](recursos-local.md) protege o recurso local por operação; recursos externos e revogação distribuída permanecem na etapa 7. Veja [ADR-015](../adr/015-politicas-na-emissao-de-tokens.md), [evidências históricas](../evidencias/etapa-05d1.md) e [roteiro](../PLANO-DE-IMPLEMENTACAO.md).

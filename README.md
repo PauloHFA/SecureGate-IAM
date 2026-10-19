@@ -18,7 +18,7 @@ A 5C1 inicia MFA com TOTP e proteção da semente por uma chave AES-256-GCM sepa
 
 A 5D1 exige política para emissão e renovação de tokens de usuário: alvo `oauth:<client_id>`, ação `issue`. Sem permissão correspondente, a troca é negada; limites reduzem escopos/TTL e MFA exige prova no sid original. Isso vale também para clientes existentes, sem ALLOW automático. Consulte o [guia de políticas na emissão](docs/runbooks/politicas-tokens-local.md) e as [evidências 5D1](docs/evidencias/etapa-05d1.md).
 
-A 5D2 integra o desafio MFA à navegação de autorização, antes do consentimento e novamente na aprovação. O retorno exige CSRF, ticket de uso único, prazo e a mesma identidade/sessão; preserva state, nonce e PKCE e revalida a autorização. A aplicação por operação nos recursos continua na 5D3/enforcer. Consulte o [guia do desafio MFA](docs/runbooks/desafio-mfa-local.md) e as [evidências 5D2](docs/evidencias/etapa-05d2.md).
+A 5D2 integra o desafio MFA à navegação de autorização, antes do consentimento e novamente na aprovação. O retorno exige CSRF, ticket de uso único, prazo e a mesma identidade/sessão; preserva state, nonce e PKCE e revalida a autorização. A 5D3 acrescenta a API Bearer por operação, descrita abaixo. Consulte o [guia do desafio MFA](docs/runbooks/desafio-mfa-local.md) e as [evidências 5D2](docs/evidencias/etapa-05d2.md).
 
 ## Decisões aprovadas
 
@@ -55,7 +55,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Seguir para a 5D3: aplicação das decisões por operação nos recursos, coordenada com o enforcer. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A base até a 5A (`8f5666d`) foi publicada em `feat/policy-foundation`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831). As entregas 5B/5C/5D1 estão em commits locais, incluindo a 5D1 (`31984bd`); a 5D2 está na branch `feat/mfa-authorization-navigation`. Essas entregas aguardam publicação/CI remota. Revisão e merge continuam pendentes.
+Seguir para a 6A: contrato versionado dos eventos e gravação transacional na Outbox. A 5D3 implementa o recurso local e o contrato com o enforcer; consumo/Redis e propagação distribuída continuam na etapa 7. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A base até a 5A (`8f5666d`) foi publicada em `feat/policy-foundation`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831). As entregas 5B/5C/5D1 estão em commits locais, incluindo a 5D1 (`31984bd`); a 5D2 está no commit `df0d1c9` e a 5D3 na branch `feat/resource-operation-authorization`. Essas entregas aguardam publicação/CI remota. Revisão e merge continuam pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
@@ -133,9 +133,9 @@ Os mesmos parâmetros habilitam o fluxo de navegador. Cadastre o cliente em `/ap
 
 Para autenticação OIDC, cadastre o cliente web com `oidc: true`, que adiciona `openid` automaticamente, e siga o [guia OIDC](docs/runbooks/oidc-local.md). Discovery fica em `/.well-known/openid-configuration`; userinfo exige Bearer access token do fluxo OIDC. O ID token tem audiência do cliente, e o access token, da API. O cliente deve validar assinatura, issuer, audiência, expiração e nonce antes de concluir seu login.
 
-Para administrar políticas, basta `-EnableBootstrap`; OAuth/Transit são independentes. Use `/api/admin/policies` e `POST /api/admin/policies/evaluate`, conforme o [guia de políticas](docs/runbooks/politicas-local.md). `/api/admin/policies/simulate` testa cenários sintéticos com `simulation: true`, conforme o [guia ABAC/risco](docs/runbooks/abac-risco-local.md). Não há endpoint público de autorização de recursos nesta entrega. A política e sua auditoria são gravadas na mesma transação; edições exigem a versão atual.
+Para administrar políticas, basta `-EnableBootstrap`; OAuth/Transit são independentes. Use `/api/admin/policies` e `POST /api/admin/policies/evaluate`, conforme o [guia de políticas](docs/runbooks/politicas-local.md). `/api/admin/policies/simulate` testa cenários sintéticos com `simulation: true`, conforme o [guia ABAC/risco](docs/runbooks/abac-risco-local.md). A API protegida `GET /api/resources/account` exige Bearer de usuário, audiência configurada e política `account:self` / `read`; consulte o [guia de recursos](docs/runbooks/recursos-local.md), a [ADR-017](docs/adr/017-autorizacao-por-operacao-nos-recursos.md) e as [evidências 5D3](docs/evidencias/etapa-05d3.md). A política e sua auditoria são gravadas na mesma transação; edições exigem a versão atual.
 
-Para coletar contexto real, habilite Authorization e faça login no navegador. A administração lista contextos em `/api/admin/risk/users/{userId}/contexts`; informe o `contextId` correspondente em evaluate. Redes, sensibilidade e aprovação de navegador ficam sob `/api/admin/risk/**`, conforme o [guia de coleta](docs/runbooks/coleta-risco-local.md). Headers de encaminhamento não definem a origem observada. A coleta não aplica decisões automaticamente ao login/tokens; essa integração será feita na 5D.
+Para coletar contexto real, habilite Authorization e faça login no navegador. A administração lista contextos em `/api/admin/risk/users/{userId}/contexts`; informe o `contextId` correspondente em evaluate. Redes, sensibilidade e aprovação de navegador ficam sob `/api/admin/risk/**`, conforme o [guia de coleta](docs/runbooks/coleta-risco-local.md). Headers de encaminhamento não definem a origem observada. A 5D usa esses sinais na navegação, emissão/refresh e recurso local; evaluate/simulate permanecem ferramentas administrativas.
 
 ## Arquivos locais
 

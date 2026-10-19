@@ -46,4 +46,4 @@ Em `prompt=none`, a navegação não pode abrir MFA: falta de prova resulta em `
 | Redirecionamento/PKCE/state/nonce inválidos | Validação do protocolo rejeita o pedido antes de criar retorno |
 | Política muda durante MFA | Pedido é reavaliado ao retornar; comprovar fator não supera DENY |
 
-Refresh não abre página de MFA: continua conforme o [guia de refresh](oauth-refresh-local.md), usando o sid do grant original. Proteção dos recursos pertence à próxima entrega 5D3/enforcer. Consulte [ADR-016](../adr/016-desafio-mfa-na-autorizacao.md), [evidências](../evidencias/etapa-05d2.md) e [roteiro](../PLANO-DE-IMPLEMENTACAO.md).
+Refresh não abre página de MFA: continua conforme o [guia de refresh](oauth-refresh-local.md), usando o sid do grant original. A [5D3](recursos-local.md) protege o recurso local por operação; a API retorna erro MFA sem abrir navegação. Recursos externos continuam na etapa 7. Consulte [ADR-016](../adr/016-desafio-mfa-na-autorizacao.md), [evidências](../evidencias/etapa-05d2.md) e [roteiro](../PLANO-DE-IMPLEMENTACAO.md).

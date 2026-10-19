@@ -1,6 +1,6 @@
 # SecureGate IAM — Roteiro de implementação
 
-Atualizado em 18/10/2026. Base: documento de arquitetura e plano v0.1, outubro de 2026.
+Atualizado em 19/10/2026. Base: documento de arquitetura e plano v0.1, outubro de 2026.
 
 Decisões aprovadas: Java 21, Spring Boot, Maven e Vault Transit desde a etapa de autenticação. Consulte [ADR-001](adr/001-stack-e-organizacao.md) e [ADR-002](adr/002-assinatura-jwt-vault-transit.md).
 
@@ -66,7 +66,7 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 2 | Esqueleto e CI | 0–1 | Concluída; validação local e CI GitHub aprovadas |
 | 3 | Identity e Access | 2 | Incluída na base publicada 5A, com CI aprovada; revisão/merge pendentes |
 | 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | 4A–4D2 publicadas na base 5A, com CI aprovada; revisão/merge pendentes |
-| 5 | Políticas, risco e MFA | 3–4 | Em andamento; 5A publicada, 5B/5C/5D1/5D2 locais; recursos na 5D3 pendentes |
+| 5 | Políticas, risco e MFA | 3–4 | Funcionalidade local implementada até 5D3; publicação/CI, revisão e merge pendentes |
 | 6 | Eventos e Outbox | 2–5 | Pendente |
 | 7 | Enforcer e revogação | 4–6 | Pendente |
 | 8 | Auditoria e desempenho | 6–7 | Pendente |
@@ -179,7 +179,7 @@ As entregas 4A–4D2 cobrem o escopo funcional da etapa 4 e estão incluídas na
 - [x] Coletar sinais de identidade, navegador lembrado/aprovado, conexão observada, falhas reais e perfil administrado de recurso no modelo local documentado.
 - [x] Calcular risco determinístico de 0 a 100 e tratar sinais ausentes/inválidos, com coleta real local na 5B2.
 - [x] Implementar TOTP, códigos de recuperação com hash e prova de step-up vinculada à sessão.
-- [ ] Aplicar decisões no login, emissão de token e autorização de recursos; emissão/refresh de usuário na 5D1 e desafio de autorização na 5D2 implementados, recursos pendentes.
+- [x] Aplicar decisões na navegação de autenticação/autorização, emissão/refresh e recurso local por operação (5D1–5D3). A senha isolada não recebe bloqueio global por política; propagação para recursos externos permanece na etapa 7.
 
 **Aceite:** testes parametrizados cobrem tabela de decisão, conflitos, ausência de política, MFA incompleto e redução de escopo/TTL.
 
@@ -192,9 +192,9 @@ Subdivisão da etapa:
 - **5C2 — Cadastro, recuperação e step-up:** formulários autenticados/CSRF, senha e login recentes, V8 com fator cifrado/recuperação em hash, consumo transacional por conta, bloqueio de tentativas, auditoria e prova de cinco minutos vinculada à sessão e à versão da identidade. Logout/reautenticação encerram o sid sem reabertura por requisições em andamento. Ver [ADR-014](adr/014-cadastro-mfa-recuperacao-e-step-up.md), [guia](runbooks/mfa-local.md) e [evidências](evidencias/etapa-05c2.md).
 - **5D1 — Emissão e renovação:** default deny obrigatório em Authorization Code/refresh de usuário, alvo `oauth:<client_id>` / `issue`, avaliação real de papéis/risco, prova MFA do sid original, redução coerente de escopo/TTL em JWT/resposta/JDBC, claims OIDC filtradas e auditoria transacional. Ver [ADR-015](adr/015-politicas-na-emissao-de-tokens.md), [guia](runbooks/politicas-tokens-local.md) e [evidências](evidencias/etapa-05d1.md).
 - **5D2 — Navegação e desafio:** orientação real antes de consentimento e nova checagem ao aprová-lo, desafio local, retorno de cinco minutos vinculado a usuário/versão/sid, uso único por POST/CSRF, parâmetros normalizados e revalidação. Ativação preserva exibição de recuperação; prompt=none não inicia interação. Ver [ADR-016](adr/016-desafio-mfa-na-autorizacao.md), [guia](runbooks/desafio-mfa-local.md) e [evidências](evidencias/etapa-05d2.md).
-- **5D3 — Recursos:** aplicar decisões por operação nos recursos, coordenando contrato/validação com o enforcer da etapa 7. Pendente.
+- **5D3 — Recursos:** API Bearer stateless `GET /api/resources/account`, alvo/ação/escopo fixos, JWT e grant atual, identidade/versão, política real por chamada, prova do sid original, interseção e TTL contado desde iat, auditoria antes da resposta e contrato interno com o enforcer. Ver [ADR-017](adr/017-autorizacao-por-operacao-nos-recursos.md), [guia](runbooks/recursos-local.md) e [evidências](evidencias/etapa-05d3.md).
 
-A 5D2 não encerra a etapa 5. Evaluate/simulate continuam prévias administrativas; navegação e emissão usam avaliação real, papéis atuais, sid do servidor e `MfaProofs` quando exigido. Não há ALLOW automático nem prova sintética. O desafio orienta a autorização, sem bloquear toda verificação de senha ou substituir a barreira final dos tokens da 5D1. Proteção de recursos por operação permanece pendente. Client Credentials não recebe política de identidade humana. Remoção/substituição de fator ativo e regeneração de códigos permanecem fora do escopo atual. Confiança de navegador não é atestação de hardware; rede corresponde ao par conectado, sem confiar em forwarded headers. O contador de falhas de login tem aquecimento/cobertura local; tentativas MFA são persistidas por conta. Sessões e retornos de navegação continuam locais à instância. Operação multi-instância, revogação distribuída e retenção/expurgo precisam das entregas operacionais. A base até a 5A foi publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831), com 243 testes; entregas posteriores ainda aguardam publicação/CI remota. Revisão/merge continuam pendentes.
+A 5D3 conclui o escopo funcional local da etapa 5; aceite remoto, revisão e merge continuam pendentes. Evaluate/simulate continuam prévias administrativas; navegação e emissão usam avaliação real, papéis atuais, sid do servidor e `MfaProofs` quando exigido. Não há ALLOW automático nem prova sintética. O desafio orienta a autorização, sem bloquear toda verificação de senha ou substituir a barreira final dos tokens da 5D1. O recurso local aplica decisões por operação; recursos externos e revogação distribuída dependem da etapa 7. Client Credentials não recebe política de identidade humana. Remoção/substituição de fator ativo e regeneração de códigos permanecem fora do escopo atual. Confiança de navegador não é atestação de hardware; rede corresponde ao par conectado, sem confiar em forwarded headers. O contador de falhas de login tem aquecimento/cobertura local; tentativas MFA são persistidas por conta. Sessões e retornos de navegação continuam locais à instância. Operação multi-instância, revogação distribuída e retenção/expurgo precisam das entregas operacionais. A base até a 5A foi publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831), com 243 testes; entregas posteriores ainda aguardam publicação/CI remota. Revisão/merge continuam pendentes.
 
 ## Etapa 6 — Eventos e Outbox
 
@@ -207,6 +207,8 @@ A 5D2 não encerra a etapa 5. Evaluate/simulate continuam prévias administrativ
 - [ ] Definir limpeza, retenção e métricas da Outbox.
 
 **Aceite:** rollback não publica mudança não confirmada; queda do broker não perde evento persistido; recuperação publica pendências; produtor e consumidores respeitam o contrato.
+
+Subdivisão prevista: **6A** — envelope versionado, testes de contrato e gravação transacional na Outbox; **6B** — publicação RabbitMQ com confirmação, retry e mensagens não roteadas; **6C** — retenção, métricas e cenários de indisponibilidade/recuperação. As três entregas continuam pendentes.
 
 ## Etapa 7 — Enforcer, Redis e revogação
 
@@ -327,4 +329,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a 5D3: aplicar decisões por operação nos recursos e definir o contrato de integração com o enforcer. A 5D2 está na branch `feat/mfa-authorization-navigation`; a 5D1 está no commit local `31984bd`; a 5C2, em `9039107`; a 5C1, em `90282bb`. A 5A (`8f5666d`) foi publicada em `feat/policy-foundation` e passou na CI. A 5B1 está no commit local `738c660`; a 5B2 está no commit local `3e6b136`; push e CI remota dessas entregas pendentes. Revisão e merge continuam pendentes.
+Seguir para a 6A: envelope versionado em `security-events`, contratos e Outbox gravada na mesma transação da mudança. A publicação RabbitMQ com confirmação/retry será a 6B; retenção/métricas e testes de recuperação, a 6C. A 5D3 está na branch `feat/resource-operation-authorization`; a 5D2 está no commit local `df0d1c9`; a 5D1 está no commit local `31984bd`; a 5C2, em `9039107`; a 5C1, em `90282bb`. A 5A (`8f5666d`) foi publicada em `feat/policy-foundation` e passou na CI. A 5B1 está no commit local `738c660`; a 5B2 está no commit local `3e6b136`; push e CI remota dessas entregas pendentes. Revisão e merge continuam pendentes.

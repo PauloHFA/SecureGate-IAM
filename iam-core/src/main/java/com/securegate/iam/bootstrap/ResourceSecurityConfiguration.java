@@ -1,0 +1,173 @@
+package com.securegate.iam.bootstrap;
+
+import com.securegate.events.SecurityEventType;
+import com.securegate.iam.audit.application.port.AuditRecord;
+import com.securegate.iam.audit.application.port.AuditTrail;
+import com.securegate.iam.authorization.application.ResourceAccessService;
+import com.securegate.iam.authorization.application.port.ResourceTokens;
+import com.securegate.iam.authorization.infrastructure.LocalResourceTokens;
+import com.securegate.iam.authorization.infrastructure.RefreshTokenLedger;
+import com.securegate.iam.identity.application.port.IdentityLookup;
+import com.securegate.iam.identity.application.port.MfaProofs;
+import com.securegate.iam.policy.application.port.PolicyDecisions;
+import com.securegate.iam.shared.application.port.OperationContext;
+import com.securegate.iam.shared.presentation.CorrelationIdFilter;
+import java.time.Clock;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.core.DefaultOAuth2AuthenticatedPrincipal;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+
+@Configuration(proxyBeanMethods = false)
+@ConditionalOnProperty(name = "iam.authorization.enabled", havingValue = "true")
+public class ResourceSecurityConfiguration {
+  @Bean
+  ResourceTokens resourceTokens(
+      JwtDecoder decoder, OAuth2AuthorizationService authorizations, RefreshTokenLedger ledger) {
+    return new LocalResourceTokens(decoder, authorizations, ledger);
+  }
+
+  @Bean
+  ResourceAccessService resourceAccessService(
+      ResourceTokens tokens,
+      IdentityLookup identities,
+      PolicyDecisions policies,
+      MfaProofs proofs,
+      Clock clock,
+      @Value("${iam.resources.audience:securegate-api}") String audience) {
+    if (!audience.matches("[a-zA-Z0-9][a-zA-Z0-9:._/-]{2,127}")) {
+      throw new IllegalArgumentException("Invalid resource audience.");
+    }
+    return new ResourceAccessService(tokens, identities, policies, proofs, clock, audience);
+  }
+
+  @Bean
+  @Order(3)
+  SecurityFilterChain resourceSecurity(
+      HttpSecurity http, ResourceAccessService access, AuditTrail audit) throws Exception {
+    return http.securityMatcher("/api/resources/**")
+        .csrf(AbstractHttpConfigurer::disable)
+        .requestCache(AbstractHttpConfigurer::disable)
+        .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        .authorizeHttpRequests(
+            r ->
+                r.requestMatchers(HttpMethod.GET, "/api/resources/account")
+                    .authenticated()
+                    .anyRequest()
+                    .denyAll())
+        .oauth2ResourceServer(
+            oauth ->
+                oauth
+                    .opaqueToken(
+                        opaque ->
+                            opaque.introspector(
+                                token -> {
+                                  try {
+                                    var attributes = RequestContextHolder.getRequestAttributes();
+                                    if (!(attributes instanceof ServletRequestAttributes current)
+                                        || !"GET".equals(current.getRequest().getMethod())
+                                        || !"/api/resources/account"
+                                            .equals(current.getRequest().getServletPath())) {
+                                      throw new ResourceAccessService.Rejected(
+                                          "insufficient_scope");
+                                    }
+                                    var permit =
+                                        access.authorize(
+                                            token, ResourceAccessService.Operation.ACCOUNT_READ);
+                                    Object correlation =
+                                        attributes instanceof ServletRequestAttributes servlet
+                                            ? servlet
+                                                .getRequest()
+                                                .getAttribute(CorrelationIdFilter.ATTRIBUTE)
+                                            : null;
+                                    audit.record(
+                                        new AuditRecord(
+                                            new SecurityEventType("resource.access.allowed"),
+                                            "account:self",
+                                            new OperationContext(
+                                                permit.userId().toString(),
+                                                correlation instanceof String id
+                                                    ? id
+                                                    : UUID.randomUUID().toString()),
+                                            Map.of(
+                                                "action",
+                                                "read",
+                                                "scopes",
+                                                String.join(" ", permit.scopes()),
+                                                "policies",
+                                                permit.decision().policies().stream()
+                                                    .map(p -> p.id() + ":" + p.version())
+                                                    .collect(Collectors.joining(",")),
+                                                "mfa",
+                                                Boolean.toString(permit.decision().mfaRequired()),
+                                                "risk",
+                                                Integer.toString(permit.decision().riskScore()),
+                                                "expiresAt",
+                                                permit.expiresAt().toString())));
+                                    return new DefaultOAuth2AuthenticatedPrincipal(
+                                        permit.userId().toString(),
+                                        Map.of(
+                                            "sub",
+                                            permit.userId().toString(),
+                                            "scope",
+                                            permit.scopes().stream().sorted().toList(),
+                                            "expires_at",
+                                            permit.expiresAt().toString()),
+                                        List.of());
+                                  } catch (ResourceAccessService.Rejected rejected) {
+                                    throw new OAuth2AuthenticationException(rejected.code());
+                                  } catch (RuntimeException unavailable) {
+                                    throw new OAuth2AuthenticationException(
+                                        "temporarily_unavailable");
+                                  }
+                                }))
+                    .authenticationEntryPoint(
+                        (request, response, failure) -> {
+                          String code =
+                              failure instanceof OAuth2AuthenticationException oauthFailure
+                                  ? oauthFailure.getError().getErrorCode()
+                                  : "invalid_token";
+                          int status =
+                              switch (code) {
+                                case "temporarily_unavailable" -> 503;
+                                case "mfa_required", "insufficient_scope" -> 403;
+                                default -> 401;
+                              };
+                          response.setStatus(status);
+                          response.setContentType("application/json");
+                          response.setHeader("Cache-Control", "no-store");
+                          if (status == 503) {
+                            response.setHeader("Retry-After", "5");
+                          } else {
+                            response.setHeader(
+                                "WWW-Authenticate",
+                                "Bearer error=\""
+                                    + (status == 401 ? "invalid_token" : "insufficient_scope")
+                                    + "\"");
+                          }
+                          response
+                              .getWriter()
+                              .write(
+                                  "{\"error\":\""
+                                      + (status == 401 ? "invalid_token" : code)
+                                      + "\"}");
+                        }))
+        .build();
+  }
+}

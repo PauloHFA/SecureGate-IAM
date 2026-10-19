@@ -106,6 +106,7 @@ class BrowserAuthorizationIT {
     registry.add("iam.transit.secret-id-file", () -> credentials.resolve("secret").toString());
     registry.add("iam.authorization.enabled", () -> true);
     registry.add("iam.authorization.issuer", () -> ISSUER);
+    registry.add("iam.resources.audience", () -> "browser-api");
     registry.add("iam.bootstrap.enabled", () -> true);
     registry.add("iam.bootstrap.token", () -> ADMIN);
   }
@@ -123,6 +124,188 @@ class BrowserAuthorizationIT {
   @org.springframework.test.context.bean.override.mockito.MockitoSpyBean java.time.Clock riskClock;
   @Autowired com.securegate.iam.identity.application.port.LoginRiskHistory loginHistory;
   @Autowired com.securegate.iam.identity.application.MfaService mfa;
+  @Autowired com.securegate.iam.authorization.application.port.ResourceTokens resourceTokens;
+
+  @org.junit.jupiter.api.AfterEach
+  void removeResourcePolicies() {
+    jdbc.update("DELETE FROM iam_policy.policies WHERE document->>'resource'='account:self'");
+  }
+
+  private HttpResponse<String> resource(String token) throws Exception {
+    var request = HttpRequest.newBuilder(uri("/api/resources/account"));
+    if (token != null) {
+      request.header("Authorization", "Bearer " + token);
+    }
+    return HTTP.send(request.GET().build(), HttpResponse.BodyHandlers.ofString());
+  }
+
+  private void resourcePolicy(String effect, List<String> scopes, Integer ttl) throws Exception {
+    var rule = new HashMap<String, Object>();
+    rule.put("schemaVersion", 1);
+    rule.put("resource", "account:self");
+    rule.put("action", "read");
+    rule.put("effect", effect);
+    rule.put("rolesAnyOf", List.of());
+    rule.put("allowedScopes", scopes);
+    if (ttl != null) {
+      rule.put("maxAccessTokenTtlSeconds", ttl);
+    }
+    var response =
+        admin(
+            "POST",
+            "/api/admin/policies",
+            Map.of(
+                "name",
+                "resource-" + UUID.randomUUID(),
+                "priority",
+                100,
+                "enabled",
+                true,
+                "document",
+                rule));
+    assertEquals(201, response.statusCode(), response.body());
+  }
+
+  @Test
+  void resourceRequiresBearerAndOwnPolicyThenReevaluatesDeny() throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    assertEquals(401, resource(null).statusCode());
+    assertEquals(401, resource("bad-token").statusCode());
+    assertEquals(403, resource(tokens.access()).statusCode());
+    resourcePolicy("ALLOW_LIMITED", List.of("api:read"), 60);
+    var response = resource(tokens.access());
+    assertEquals(200, response.statusCode(), response.body());
+    var body = JSON.readTree(response.body());
+    assertEquals(flow.userId().toString(), body.path("sub").asText());
+    assertEquals("api:read", body.path("scope").get(0).asText());
+    assertEquals(3, body.size());
+    assertEquals("no-store", response.headers().firstValue("Cache-Control").orElseThrow());
+    assertTrue(response.headers().allValues("Set-Cookie").isEmpty());
+    assertEquals(401, get(mfaLogin(flow), "/api/resources/account").statusCode());
+    var unsupported =
+        HTTP.send(
+            HttpRequest.newBuilder(uri("/api/resources/account"))
+                .header("Authorization", "Bearer " + tokens.access())
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(403, unsupported.statusCode());
+    assertEquals(
+        1,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.security_events WHERE event_type='resource.access.allowed' AND actor=? AND resource='account:self' AND details->>'action'='read'",
+            Integer.class,
+            flow.userId().toString()));
+    resourcePolicy("DENY", List.of(), null);
+    assertEquals(403, resource(tokens.access()).statusCode());
+  }
+
+  @Test
+  void resourceUsesCurrentPolicyTtlWithoutSlidingTheTokenAge() throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    resourcePolicy("ALLOW_LIMITED", List.of("api:read"), 30);
+    assertEquals(200, resource(tokens.access()).statusCode());
+    var issued =
+        com.nimbusds.jwt.SignedJWT.parse(tokens.access())
+            .getJWTClaimsSet()
+            .getIssueTime()
+            .toInstant();
+    org.mockito.Mockito.doReturn(issued.plusSeconds(30)).when(riskClock).instant();
+    assertEquals(403, resource(tokens.access()).statusCode());
+  }
+
+  @Test
+  void resourceSeesRevocationRefreshReplacementAndIdentityVersionImmediately() throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    resourcePolicy("ALLOW", List.of(), null);
+    assertEquals(200, resource(tokens.access()).statusCode());
+    var renewed = JSON.readTree(refresh(flow, tokens.refresh(), null).body());
+    String access = renewed.path("access_token").asText();
+    assertFalse(access.isBlank());
+    assertEquals(401, resource(tokens.access()).statusCode());
+    assertEquals(200, resource(access).statusCode());
+    assertEquals(200, oauthPost("/oauth2/revoke", flow, Map.of("token", access)).statusCode());
+    assertEquals(401, resource(access).statusCode());
+    Flow other = flow(true);
+    Pair otherTokens = initialTokens(other);
+    assertEquals(200, resource(otherTokens.access()).statusCode());
+    jdbc.update("UPDATE iam_identity.users SET version=version+1 WHERE id=?", other.userId());
+    assertEquals(401, resource(otherTokens.access()).statusCode());
+  }
+
+  @Test
+  void resourceMfaCannotUseProofFromAnotherLoginAndLogoutRemovesProof() throws Exception {
+    Flow flow = flow(true);
+    HttpClient browser = mfaLogin(flow);
+    String code = approve(browser, flow, get(browser, location(get(browser, authorize(flow)))));
+    var tokens = pair(exchange(flow, code, flow.verifier(), CALLBACK));
+    resourcePolicy("ALLOW_WITH_MFA", List.of(), null);
+    assertEquals(
+        "mfa_required", JSON.readTree(resource(tokens.access()).body()).path("error").asText());
+    HttpClient other = mfaLogin(flow);
+    String seed = mfaSeed(mfaPost(other, "/mfa/enroll", Map.of("password", PASSWORD)));
+    var activated = mfaPost(other, "/mfa/confirm", Map.of("code", mfaCode(seed)));
+    var recovery = mfaRecovery(activated);
+    assertEquals(403, resource(tokens.access()).statusCode());
+    assertEquals(
+        200,
+        mfaPost(browser, "/mfa/verify", Map.of("code", recovery.getFirst(), "method", "RECOVERY"))
+            .statusCode());
+    assertEquals(200, resource(tokens.access()).statusCode());
+    var page = get(browser, "/mfa");
+    post(browser, "/logout", Map.of("_csrf", hidden(page.body(), "_csrf")));
+    assertEquals(403, resource(tokens.access()).statusCode());
+  }
+
+  @Test
+  void resourceRejectsIdTokensWrongAudienceAndTamperedTokens() throws Exception {
+    Flow flow = flow(false, true);
+    var browser = browser();
+    String code =
+        approveScopes(browser, flow, pending(browser, flow), List.of("openid", "api:read"));
+    var tokens = JSON.readTree(exchange(flow, code, flow.verifier(), CALLBACK).body());
+    resourcePolicy("ALLOW", List.of(), null);
+    String access = tokens.path("access_token").asText();
+    assertEquals(200, resource(access).statusCode());
+    assertEquals(401, resource(tokens.path("id_token").asText()).statusCode());
+    String[] parts = access.split("\\.");
+    parts[1] =
+        Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString("{\"sub\":\"forged\"}".getBytes(StandardCharsets.UTF_8));
+    assertEquals(401, resource(String.join(".", parts)).statusCode());
+    // A valid signature and stored authorization still do not substitute for the resource audience.
+    assertTrue(resourceTokens.resolve(access, "foreign-api").isEmpty());
+  }
+
+  @Test
+  void resourcePolicyDependencyFailureReturns503WithoutLeakingDetails() throws Exception {
+    Flow flow = flow(true);
+    Pair tokens = initialTokens(flow);
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic-secret-detail"))
+        .when(enforcementPolicies)
+        .decide(
+            org.mockito.ArgumentMatchers.eq(flow.userId()),
+            org.mockito.ArgumentMatchers.eq("account:self"),
+            org.mockito.ArgumentMatchers.eq("read"),
+            org.mockito.ArgumentMatchers.anySet(),
+            org.mockito.ArgumentMatchers.any());
+    var response = resource(tokens.access());
+    assertEquals(503, response.statusCode(), response.body());
+    assertEquals("{\"error\":\"temporarily_unavailable\"}", response.body());
+    assertEquals("5", response.headers().firstValue("Retry-After").orElseThrow());
+    org.mockito.Mockito.reset(enforcementPolicies);
+    resourcePolicy("ALLOW", List.of(), null);
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic-audit-detail"))
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                event -> event.type().value().equals("resource.access.allowed")));
+    assertEquals(503, resource(tokens.access()).statusCode());
+  }
 
   @Test
   void authorizationChallengesBeforeConsentAndResumesOidcWithOriginalPkceStateAndNonce()

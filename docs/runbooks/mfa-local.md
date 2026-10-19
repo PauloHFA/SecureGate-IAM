@@ -1,6 +1,6 @@
 # MFA TOTP, recuperação e step-up local — 5C2
 
-Este guia cadastra um fator e comprova MFA na sessão. Desde a [5D1](politicas-tokens-local.md), uma política ALLOW_WITH_MFA exige essa prova na emissão/renovação de tokens de usuário. A [5D2](desafio-mfa-local.md) integra o desafio à navegação da autorização. Cadastrar o fator ainda não impede login somente com senha fora desse fluxo.
+Este guia cadastra um fator e comprova MFA na sessão. Desde a [5D1](politicas-tokens-local.md), uma política ALLOW_WITH_MFA exige essa prova na emissão/renovação de tokens de usuário. A [5D2](desafio-mfa-local.md) integra o desafio à navegação da autorização; a [5D3](recursos-local.md) consulta a prova do sid original por operação no recurso local. Cadastrar o fator ainda não impede login somente com senha fora desse fluxo.
 
 ## Preparar
 
