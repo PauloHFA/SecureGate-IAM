@@ -40,7 +40,8 @@ class SecurityEventTest {
         "identity.user.created"
       })
   void roundTripsCanonicalHeadersAndUtcTimeWithoutSpring(String type) throws Exception {
-    var original = event(type, 1, Map.of("resource", "synthetic-resource"), Map.of("version", "4"));
+    var original =
+        event(type, 1, Map.of("resource", "synthetic-resource"), SecurityEventDataTest.data(type));
     var payload = JSON.writeValueAsString(original);
     var tree = JSON.readTree(payload);
     assertEquals(type, tree.path("eventType").asText());
@@ -84,7 +85,7 @@ class SecurityEventTest {
         IllegalArgumentException.class,
         () -> event("policy.changed", 1, Map.of("resource", "x"), Map.of("bad-key", "value")));
     var payload =
-        JSON.writeValueAsString(event("policy.changed", 1, Map.of("resource", "x"), Map.of()));
+        JSON.writeValueAsString(event("audit.changed", 1, Map.of("resource", "x"), Map.of()));
     assertThrows(
         com.fasterxml.jackson.core.JsonProcessingException.class,
         () ->
@@ -182,7 +183,7 @@ class SecurityEventTest {
   void copiesMetadataAndRedactsDiagnosticOutput() {
     var data = new HashMap<String, String>();
     data.put("version", "private-metadata");
-    var event = event("policy.changed", 1, Map.of("resource", "private-resource"), data);
+    var event = event("audit.changed", 1, Map.of("resource", "private-resource"), data);
     data.put("version", "different");
     assertEquals("private-metadata", event.data().get("version"));
     assertThrows(

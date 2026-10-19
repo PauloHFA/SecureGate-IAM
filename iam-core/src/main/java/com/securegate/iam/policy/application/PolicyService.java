@@ -193,5 +193,23 @@ public final class PolicyService implements PolicyDecisions {
                 Boolean.toString(policy.enabled()),
                 "effect",
                 policy.document().effect().name())));
+    audit.record(
+        new AuditRecord(
+            new SecurityEventType("policy.changed"),
+            policy.id().toString(),
+            context,
+            Map.of(
+                "policyId",
+                policy.id().toString(),
+                "version",
+                Long.toString(policy.version()),
+                "enabled",
+                Boolean.toString(policy.enabled()),
+                "operation",
+                "policy.created".equals(event) ? "CREATED" : "UPDATED",
+                "resource",
+                policy.document().resource(),
+                "action",
+                policy.document().action())));
   }
 }

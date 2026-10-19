@@ -38,8 +38,11 @@ public class PolicyConfiguration {
       JdbcTemplate jdbc,
       Clock clock,
       @org.springframework.beans.factory.annotation.Value("${iam.authorization.enabled:false}")
-          boolean enabled) {
-    return new JdbcLoginRiskHistory(jdbc, clock, enabled);
+          boolean enabled,
+      AuditTrail audit,
+      UnitOfWork transactions) {
+    return new JdbcLoginRiskHistory(
+        jdbc, clock, enabled, audit, transactions, EventContexts::current);
   }
 
   @Bean
@@ -48,8 +51,10 @@ public class PolicyConfiguration {
       Clock clock,
       LoginRiskHistory history,
       IdentityLookup identities,
-      UnitOfWork transactions) {
-    return new JdbcRiskEvidence(jdbc, clock, history, identities, transactions);
+      UnitOfWork transactions,
+      AuditTrail audit) {
+    return new JdbcRiskEvidence(
+        jdbc, clock, history, identities, transactions, audit, EventContexts::current);
   }
 
   @Bean

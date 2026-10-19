@@ -1,6 +1,6 @@
 # Envelope e Outbox local — 6A1
 
-Esta entrega persiste eventos junto da auditoria. Ainda não envia mensagens ao RabbitMQ. O passo seguinte é a 6A2, que integra os seis produtores de eventos de segurança previstos no plano.
+Esta entrega persiste eventos junto da auditoria. Ainda não envia mensagens ao RabbitMQ. A [6A2](eventos-seguranca-local.md) integra os seis produtores de segurança. O próximo passo é a 6B, publicação com confirmação e retry.
 
 ## Executar
 

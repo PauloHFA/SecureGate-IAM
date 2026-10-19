@@ -12,13 +12,30 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 class JdbcLoginRiskHistoryTest {
+  private JdbcLoginRiskHistory history(JdbcTemplate jdbc, Clock clock, boolean enabled) {
+    var transactions =
+        new com.securegate.iam.shared.application.port.UnitOfWork() {
+          public <T> T execute(java.util.function.Supplier<T> action) {
+            return action.get();
+          }
+        };
+    return new JdbcLoginRiskHistory(
+        jdbc,
+        clock,
+        enabled,
+        mock(com.securegate.iam.audit.application.port.AuditTrail.class),
+        transactions,
+        () ->
+            new com.securegate.iam.shared.application.port.OperationContext("system", "unit-test"));
+  }
+
   @Test
   void warmupAndWriteFailurePreventAFalseZeroAndRecoveryRequiresFullWindow() {
     var now = Instant.parse("2026-10-18T18:00:00Z");
     Clock clock = mock(Clock.class);
     when(clock.instant()).thenReturn(now);
     JdbcTemplate jdbc = mock(JdbcTemplate.class);
-    var history = new JdbcLoginRiskHistory(jdbc, clock, true);
+    var history = history(jdbc, clock, true);
     UUID user = UUID.randomUUID();
     assertNull(history.recentFailures(user));
     when(clock.instant()).thenReturn(now.plusSeconds(300));
@@ -40,10 +57,10 @@ class JdbcLoginRiskHistoryTest {
   @Test
   void disabledObservationAndMalformedEmailDoNotWriteOrReportSafeCounts() {
     JdbcTemplate jdbc = mock(JdbcTemplate.class);
-    var disabled = new JdbcLoginRiskHistory(jdbc, Clock.systemUTC(), false);
+    var disabled = history(jdbc, Clock.systemUTC(), false);
     disabled.recordFailure("user@example.test");
     assertNull(disabled.recentFailures(UUID.randomUUID()));
-    var enabled = new JdbcLoginRiskHistory(jdbc, Clock.systemUTC(), true);
+    var enabled = history(jdbc, Clock.systemUTC(), true);
     enabled.recordFailure(null);
     enabled.recordFailure("a".repeat(255));
     verifyNoInteractions(jdbc);

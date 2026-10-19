@@ -34,6 +34,7 @@ public record SecurityEvent(
     context = metadata(context);
     data = metadata(data);
     text(context.get("resource"), 100);
+    SecurityEventData.validate(eventType, data);
   }
 
   private static Map<String, String> metadata(Map<String, String> values) {

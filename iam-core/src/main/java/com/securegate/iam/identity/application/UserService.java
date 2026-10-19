@@ -78,6 +78,22 @@ public class UserService implements IdentityLookup {
           if (updated != previous) {
             users.update(updated, version);
             record("identity.user.statuschanged", updated, context);
+            if (updated.status() == UserStatus.LOCKED) {
+              audit.record(
+                  new AuditRecord(
+                      new SecurityEventType("user.locked"),
+                      updated.id().toString(),
+                      context,
+                      Map.of(
+                          "userId",
+                          updated.id().toString(),
+                          "version",
+                          Long.toString(updated.version()),
+                          "status",
+                          "LOCKED",
+                          "reason",
+                          "ADMINISTRATIVE")));
+            }
           }
           return UserView.from(updated);
         });

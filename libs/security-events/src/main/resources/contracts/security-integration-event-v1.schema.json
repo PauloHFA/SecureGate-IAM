@@ -1,0 +1,348 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:securegate:security-integration-event:1",
+  "title": "SecureGate integration event data v1",
+  "allOf": [
+    {
+      "$ref": "urn:securegate:security-event:1"
+    },
+    {
+      "properties": {
+        "eventType": {
+          "enum": [
+            "policy.changed",
+            "user.locked",
+            "session.terminated",
+            "auth.login.failed",
+            "auth.login.suspicious",
+            "token.revoked"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "policy.changed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "policyId",
+              "version",
+              "operation",
+              "enabled",
+              "resource",
+              "action"
+            ],
+            "properties": {
+              "policyId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "version": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$"
+              },
+              "operation": {
+                "enum": [
+                  "CREATED",
+                  "UPDATED"
+                ]
+              },
+              "enabled": {
+                "enum": [
+                  "true",
+                  "false"
+                ]
+              },
+              "resource": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "user.locked"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "userId",
+              "version",
+              "status",
+              "reason"
+            ],
+            "properties": {
+              "userId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "version": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$"
+              },
+              "status": {
+                "const": "LOCKED"
+              },
+              "reason": {
+                "const": "ADMINISTRATIVE"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "session.terminated"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "userId",
+              "version",
+              "sid",
+              "reason"
+            ],
+            "properties": {
+              "userId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "version": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$"
+              },
+              "sid": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "reason": {
+                "const": "BROWSER_CLOSED"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "auth.login.failed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "attemptId",
+              "reason"
+            ],
+            "properties": {
+              "attemptId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "reason": {
+                "const": "CREDENTIALS_OR_ACCOUNT_REJECTED"
+              },
+              "userId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "version": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$"
+              },
+              "remoteAddress": {
+                "type": "string",
+                "maxLength": 45
+              }
+            },
+            "dependentRequired": {
+              "userId": [
+                "version"
+              ],
+              "version": [
+                "userId"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "auth.login.suspicious"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "userId",
+              "version",
+              "sid",
+              "riskScore",
+              "reasons"
+            ],
+            "properties": {
+              "userId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "version": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$"
+              },
+              "sid": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "riskScore": {
+                "type": "string",
+                "pattern": "^([7-9][0-9]|100)$"
+              },
+              "reasons": {
+                "type": "string"
+              },
+              "remoteAddress": {
+                "type": "string",
+                "maxLength": 45
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "token.revoked"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "authorizationId",
+              "registeredClientId",
+              "target",
+              "reason",
+              "expiresAt"
+            ],
+            "properties": {
+              "authorizationId": {
+                "type": "string"
+              },
+              "registeredClientId": {
+                "type": "string"
+              },
+              "target": {
+                "enum": [
+                  "ACCESS_TOKEN",
+                  "AUTHORIZATION"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  "CLIENT_REVOCATION",
+                  "REFRESH_REUSE"
+                ]
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "jti": {
+                "type": "string"
+              },
+              "userId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "version": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$"
+              },
+              "sid": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "dependentRequired": {
+              "userId": [
+                "version",
+                "sid"
+              ],
+              "version": [
+                "userId",
+                "sid"
+              ],
+              "sid": [
+                "userId",
+                "version"
+              ]
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "target": {
+                      "const": "ACCESS_TOKEN"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "jti"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

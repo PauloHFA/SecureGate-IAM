@@ -3,16 +3,21 @@ package com.securegate.iam.authorization.infrastructure;
 import com.securegate.events.SecurityEventType;
 import com.securegate.iam.audit.application.port.AuditRecord;
 import com.securegate.iam.audit.application.port.AuditTrail;
+import com.securegate.iam.authorization.application.port.ConsentRequests;
+import com.securegate.iam.identity.application.port.AuthenticatedIdentity;
 import com.securegate.iam.shared.application.port.OperationContext;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.Principal;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 
@@ -142,16 +147,49 @@ public final class RefreshTokenLedger {
   }
 
   public void audit(OAuth2Authorization authorization, String event) {
+    OperationContext operation = context.get();
     audit.record(
         new AuditRecord(
             new SecurityEventType(event),
             authorization.getId(),
-            context.get(),
+            operation,
             Map.of(
                 "registeredClientId",
                 authorization.getRegisteredClientId(),
                 "authorizationId",
                 authorization.getId())));
+    var access = authorization.getAccessToken();
+    if (access == null || access.getClaims() == null) {
+      throw new IllegalStateException("Revocation requires persisted access token metadata.");
+    }
+    boolean family = revoked(authorization.getId());
+    var data = new HashMap<String, String>();
+    data.put("authorizationId", authorization.getId());
+    data.put("registeredClientId", authorization.getRegisteredClientId());
+    data.put("target", family ? "AUTHORIZATION" : "ACCESS_TOKEN");
+    data.put(
+        "reason", "oauth.refresh.reused".equals(event) ? "REFRESH_REUSE" : "CLIENT_REVOCATION");
+    Object jti = access.getClaims().get("jti");
+    if (jti instanceof String id) {
+      data.put("jti", id);
+    }
+    Instant deadline = access.getToken().getExpiresAt();
+    if (family) {
+      Instant conservative = expires(authorization.getId()).orElse(Instant.now()).plusSeconds(300);
+      if (conservative.isAfter(deadline)) {
+        deadline = conservative;
+      }
+    }
+    data.put("expiresAt", deadline.toString());
+    Authentication principal = authorization.getAttribute(Principal.class.getName());
+    if (principal != null && principal.getPrincipal() instanceof AuthenticatedIdentity identity) {
+      data.put("userId", identity.getName());
+      data.put("version", Long.toString(identity.version()));
+      data.put("sid", authorization.getAttribute(ConsentRequests.SESSION_ID));
+    }
+    audit.record(
+        new AuditRecord(
+            new SecurityEventType("token.revoked"), authorization.getId(), operation, data));
   }
 
   private static String hash(String value) {

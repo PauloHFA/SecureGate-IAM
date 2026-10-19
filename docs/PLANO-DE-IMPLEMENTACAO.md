@@ -67,7 +67,7 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 3 | Identity e Access | 2 | Incluída na base publicada 5A, com CI aprovada; revisão/merge pendentes |
 | 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | 4A–4D2 publicadas na base 5A, com CI aprovada; revisão/merge pendentes |
 | 5 | Políticas, risco e MFA | 3–4 | Implementada e publicada até 5D3, CI aprovada; revisão e merge pendentes |
-| 6 | Eventos e Outbox | 2–5 | Em andamento: 6A1 local; 6A2, 6B e 6C pendentes |
+| 6 | Eventos e Outbox | 2–5 | Em andamento: 6A1/6A2 locais; 6B e 6C pendentes |
 | 7 | Enforcer e revogação | 4–6 | Pendente |
 | 8 | Auditoria e desempenho | 6–7 | Pendente |
 | 9 | Vault avançado e PAM | 4–8 | Pendente |
@@ -199,16 +199,16 @@ A 5D3 conclui o escopo funcional local da etapa 5 e passou na CI remota; revisã
 ## Etapa 6 — Eventos e Outbox
 
 - [x] Criar envelope versionado e testes de contrato em `security-events` (6A1).
-- [x] Incluir identificador, tipo, versão, horário, correlação, ator, contexto e metadados dos eventos já auditados (6A1); dados dos seis produtores de integração permanecem na 6A2.
-- [ ] Cobrir `auth.login.suspicious`, `auth.login.failed`, `token.revoked`, `session.terminated`, `policy.changed` e `user.locked`.
-- [x] Gravar Outbox na mesma transação das mudanças já auditadas, com rollback do par e payload imutável (6A1). Novos produtores devem preservar essa garantia na 6A2.
+- [x] Incluir identificador, tipo, versão, horário, correlação, ator, contexto e dados dos seis produtores de integração (6A1/6A2).
+- [x] Cobrir `auth.login.suspicious`, `auth.login.failed`, `token.revoked`, `session.terminated`, `policy.changed` e `user.locked` nos pontos de produção documentados da 6A2.
+- [x] Gravar Outbox na mesma transação das mudanças auditadas e dos seis produtores, com rollback conjunto e payload imutável (6A1/6A2). Tentativa de login com persistência indisponível conserva erro genérico e histórico incompleto, sem prometer evento durável.
 - [ ] Publicar com confirmação, retry e tratamento de mensagens não roteadas.
 - [ ] Validar topologia RabbitMQ, TTL e DLQ.
 - [ ] Definir limpeza, retenção e métricas da Outbox.
 
 **Aceite:** rollback não publica mudança não confirmada; queda do broker não perde evento persistido; recuperação publica pendências; produtor e consumidores respeitam o contrato.
 
-Subdivisão: **6A1** — envelope v1, contrato JSON, V9 e Outbox atômica com eventos já auditados, implementada localmente na branch `feat/security-event-outbox`; ver [ADR-018](adr/018-envelope-e-outbox-transacional.md), [guia](runbooks/outbox-local.md) e [evidências](evidencias/etapa-06a1.md). **6A2** — definir dados e integrar os seis produtores de segurança aos fluxos reais; pendente. **6B** — publicação RabbitMQ com confirmação, retry e mensagens não roteadas; pendente. **6C** — retenção, métricas e cenários de indisponibilidade/recuperação; pendente. A 6A1 não conclui a etapa 6 e não publica mensagens no broker.
+Subdivisão: **6A1** — envelope v1, contrato JSON, V9 e Outbox atômica com eventos já auditados, implementada localmente na branch `feat/security-event-outbox`; ver [ADR-018](adr/018-envelope-e-outbox-transacional.md), [guia](runbooks/outbox-local.md) e [evidências](evidencias/etapa-06a1.md). **6A2** — dados validados e seis produtores reais, V10 para avaliação única de login, encerramento transacional e claim `authorization_id` estável no access token de usuário; implementada localmente em `feat/security-event-producers`. Ver [ADR-019](adr/019-produtores-de-eventos-de-seguranca.md), [guia](runbooks/eventos-seguranca-local.md) e [evidências](evidencias/etapa-06a2.md). **6B** — publicação RabbitMQ com confirmação, retry e mensagens não roteadas; pendente. **6C** — retenção, métricas e cenários de indisponibilidade/recuperação; pendente. A 6A1 não conclui a etapa 6 e não publica mensagens no broker.
 
 ## Etapa 7 — Enforcer, Redis e revogação
 
@@ -329,4 +329,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a 6A2: definir os dados necessários e integrar `auth.login.suspicious`, `auth.login.failed`, `token.revoked`, `session.terminated`, `policy.changed` e `user.locked` aos fluxos reais, com as transações e limites apropriados. O envelope e a Outbox dos eventos já auditados estão implementados na 6A1, branch `feat/security-event-outbox`. A publicação RabbitMQ será a 6B e a operação/recuperação, a 6C. A base até a 5D3 (`7713a94`) foi publicada em `feat/resource-operation-authorization`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069); a 6A1 aguarda commit/publicação/CI remota. Revisão/merge continuam pendentes.
+Seguir para a 6B: publicar os envelopes persistidos com confirmação RabbitMQ, tratamento de mensagens não roteadas, retry e controle concorrente, preservando eventId/payload. A 6A1 está no commit local `2e34a88`; a 6A2 está em `feat/security-event-producers`, com dados e produtores dos seis eventos integrados. Retenção, métricas e recuperação operacional continuam na 6C, e os efeitos distribuídos na etapa 7. A base até a 5D3 (`7713a94`) foi publicada em `feat/resource-operation-authorization`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). A 6A ainda aguarda publicação/CI remota; a 6A2 aguarda commit. Revisão/merge continuam pendentes.

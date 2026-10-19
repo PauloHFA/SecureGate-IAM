@@ -200,6 +200,11 @@ public class AuthorizationServerConfiguration {
             throw new OAuth2AuthenticationException("server_error");
           }
           if (!idToken) {
+            if (context.getAuthorization() != null
+                && !AuthorizationGrantType.CLIENT_CREDENTIALS.equals(
+                    context.getAuthorizationGrantType())) {
+              context.getClaims().claim("authorization_id", context.getAuthorization().getId());
+            }
             issuance.boundExpiry(context.getClaims());
             context
                 .getClaims()

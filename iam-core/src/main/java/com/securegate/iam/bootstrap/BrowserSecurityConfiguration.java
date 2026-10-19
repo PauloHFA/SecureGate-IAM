@@ -13,6 +13,7 @@ import com.securegate.iam.identity.application.port.LoginRiskHistory;
 import com.securegate.iam.identity.application.port.MfaProofs;
 import com.securegate.iam.identity.infrastructure.JdbcLoginUsers;
 import com.securegate.iam.policy.application.port.RiskContextSink;
+import com.securegate.iam.shared.application.port.UnitOfWork;
 import com.securegate.iam.shared.presentation.ProblemResponses;
 import java.net.URI;
 import java.util.UUID;
@@ -59,6 +60,7 @@ public class BrowserSecurityConfiguration {
       MfaProofs mfaProofs,
       TokenAccessService access,
       AuthorizationContinuation continuations,
+      UnitOfWork transactions,
       org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService
           authorizations)
       throws Exception {
@@ -136,33 +138,53 @@ public class BrowserSecurityConfiguration {
                 form.loginPage("/login")
                     .failureHandler(
                         (request, response, failure) -> {
-                          failures.recordFailure(request.getParameter("username"));
+                          failures.recordFailure(
+                              request.getParameter("username"), request.getRemoteAddr());
                           new org.springframework.security.web.authentication
                                   .SimpleUrlAuthenticationFailureHandler("/login?error")
                               .onAuthenticationFailure(request, response, failure);
                         })
                     .successHandler(
                         (request, response, authentication) -> {
-                          continuations.clear();
-                          revokeMfa(request, mfaProofs);
-                          observer.closePrevious(request);
-                          if (authentication
-                              instanceof
-                              org.springframework.security.authentication
-                                      .AbstractAuthenticationToken
-                                  token) {
-                            token.setDetails(null);
+                          try {
+                            transactions.execute(
+                                () -> {
+                                  continuations.clear();
+                                  revokeMfa(request, mfaProofs);
+                                  observer.closePrevious(request);
+                                  if (authentication
+                                      instanceof
+                                      org.springframework.security.authentication
+                                              .AbstractAuthenticationToken
+                                          token) {
+                                    token.setDetails(null);
+                                  }
+                                  request
+                                      .getSession()
+                                      .setAttribute(
+                                          ConsentRequests.SESSION_ID, UUID.randomUUID().toString());
+                                  request
+                                      .getSession()
+                                      .setAttribute(
+                                          OidcIdentityClaims.AUTH_TIME,
+                                          java.time.Instant.now().toString());
+                                  observer.capture(request, response, authentication);
+                                  return null;
+                                });
+                          } catch (RuntimeException unavailable) {
+                            org.springframework.security.core.context.SecurityContextHolder
+                                .clearContext();
+                            var failedSession = request.getSession(false);
+                            if (failedSession != null) {
+                              failedSession.invalidate();
+                            }
+                            response.setStatus(503);
+                            response.setContentType("application/json");
+                            response.setHeader("Cache-Control", "no-store");
+                            response.getWriter().write("{\"error\":\"temporarily_unavailable\"}");
+                            return;
                           }
-                          request
-                              .getSession()
-                              .setAttribute(
-                                  ConsentRequests.SESSION_ID, UUID.randomUUID().toString());
-                          request
-                              .getSession()
-                              .setAttribute(
-                                  OidcIdentityClaims.AUTH_TIME, java.time.Instant.now().toString());
                           var saved = cache.getRequest(request, response);
-                          observer.capture(request, response, authentication);
                           cache.removeRequest(request, response);
                           String destination = "/login?authenticated";
                           if (saved != null) {
@@ -180,9 +202,13 @@ public class BrowserSecurityConfiguration {
                 logout
                     .addLogoutHandler(
                         (request, response, authentication) -> {
-                          continuations.clear();
-                          revokeMfa(request, mfaProofs);
-                          observer.close(request, authentication);
+                          transactions.execute(
+                              () -> {
+                                continuations.clear();
+                                revokeMfa(request, mfaProofs);
+                                observer.close(request, authentication);
+                                return null;
+                              });
                         })
                     .logoutSuccessUrl("/login?logout"))
         .headers(

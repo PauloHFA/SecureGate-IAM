@@ -47,6 +47,10 @@ import org.testcontainers.utility.DockerImageName;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class BrowserAuthorizationIT {
   private static final ObjectMapper JSON = new ObjectMapper();
+  private static final ObjectMapper EVENTS =
+      new ObjectMapper()
+          .findAndRegisterModules()
+          .disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
   private static final HttpClient HTTP = HttpClient.newHttpClient();
   private static final String ROOT = UUID.randomUUID().toString();
   private static final String ADMIN = UUID.randomUUID().toString();
@@ -125,6 +129,278 @@ class BrowserAuthorizationIT {
   @Autowired com.securegate.iam.identity.application.port.LoginRiskHistory loginHistory;
   @Autowired com.securegate.iam.identity.application.MfaService mfa;
   @Autowired com.securegate.iam.authorization.application.port.ResourceTokens resourceTokens;
+
+  private List<com.securegate.events.SecurityEvent> facts(String type, String key, String value) {
+    return jdbc.query(
+        "SELECT payload::text FROM iam_audit.outbox_events WHERE event_type=? AND payload->'data'->>?=? ORDER BY occurred_at,event_id",
+        (rs, row) -> {
+          try {
+            return EVENTS.readValue(rs.getString(1), com.securegate.events.SecurityEvent.class);
+          } catch (Exception invalid) {
+            throw new IllegalStateException("Invalid stored event.");
+          }
+        },
+        type,
+        key,
+        value);
+  }
+
+  private HttpResponse<String> loginAttempt(HttpClient browser, String email, String password)
+      throws Exception {
+    var login = get(browser, "/login");
+    return post(
+        browser,
+        "/login",
+        Map.of("username", email, "password", password, "_csrf", hidden(login.body(), "_csrf")));
+  }
+
+  @Test
+  void failedLoginFactsShareTheAttemptWithHistoryAndNeverExposeTheUsername() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = browser();
+    assertEquals(302, loginAttempt(browser, flow.email(), "wrong-password").statusCode());
+    var failed = facts("auth.login.failed", "userId", flow.userId().toString());
+    assertEquals(1, failed.size());
+    var fact = failed.getFirst();
+    assertEquals(
+        1,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_identity.login_failures WHERE id=? AND user_id=?",
+            Integer.class,
+            UUID.fromString(fact.data().get("attemptId")),
+            flow.userId()));
+    assertFalse(EVENTS.writeValueAsString(fact).contains(flow.email()));
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic failed-login event failure"))
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                event -> event.type().value().equals("auth.login.failed")));
+    assertEquals(302, loginAttempt(browser, flow.email(), "wrong-password").statusCode());
+    assertEquals(
+        1,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_identity.login_failures WHERE user_id=?",
+            Integer.class,
+            flow.userId()));
+    assertEquals(1, facts("auth.login.failed", "userId", flow.userId().toString()).size());
+    org.mockito.Mockito.reset(mfaAudit);
+    String correlation = "unknown-" + UUID.randomUUID();
+    var login = get(browser, "/login");
+    var response =
+        browser.send(
+            HttpRequest.newBuilder(uri("/login"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Correlation-ID", correlation)
+                .POST(
+                    HttpRequest.BodyPublishers.ofString(
+                        form(
+                            Map.of(
+                                "username",
+                                "unknown-" + UUID.randomUUID() + "@example.test",
+                                "password",
+                                "wrong-password",
+                                "_csrf",
+                                hidden(login.body(), "_csrf")))))
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(302, response.statusCode());
+    var unknown =
+        JSON.readTree(
+            jdbc.queryForObject(
+                "SELECT payload::text FROM iam_audit.outbox_events WHERE payload->>'correlationId'=?",
+                String.class,
+                correlation));
+    assertFalse(unknown.path("data").has("userId"));
+    assertEquals(3, unknown.path("data").size());
+    assertEquals("127.0.0.1", unknown.path("data").path("remoteAddress").asText());
+  }
+
+  @Test
+  void suspiciousLoginIsAssessedOncePerSidAndLogoutProducesATerminalFact() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = mfaLogin(flow);
+    var suspicious = facts("auth.login.suspicious", "userId", flow.userId().toString());
+    assertEquals(1, suspicious.size());
+    var fact = suspicious.getFirst();
+    assertTrue(Integer.parseInt(fact.data().get("riskScore")) >= 70);
+    assertTrue(fact.data().get("reasons").contains("DEVICE_UNTRUSTED"));
+    get(browser, "/mfa");
+    get(browser, "/mfa");
+    assertEquals(1, facts("auth.login.suspicious", "userId", flow.userId().toString()).size());
+    var page = get(browser, "/mfa");
+    assertEquals(
+        302, post(browser, "/logout", Map.of("_csrf", hidden(page.body(), "_csrf"))).statusCode());
+    var closed = facts("session.terminated", "sid", fact.data().get("sid"));
+    assertEquals(1, closed.size());
+    assertEquals(flow.userId().toString(), closed.getFirst().data().get("userId"));
+    assertNotNull(
+        jdbc.queryForObject(
+            "SELECT closed_at FROM iam_policy.browser_contexts WHERE id=?",
+            java.sql.Timestamp.class,
+            UUID.fromString(fact.data().get("sid"))));
+    assertEquals(302, get(browser, "/mfa").statusCode());
+  }
+
+  @Test
+  void suspiciousEventFailureCannotLeaveAnAuthenticatedBrowserOrCommittedContext()
+      throws Exception {
+    Flow flow = flow();
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic suspicious event failure"))
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                event -> event.type().value().equals("auth.login.suspicious")));
+    HttpClient browser = browser();
+    var response = loginAttempt(browser, flow.email(), PASSWORD);
+    assertEquals(503, response.statusCode(), response.body());
+    assertEquals(302, get(browser, "/mfa").statusCode());
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_policy.browser_contexts WHERE user_id=?",
+            Integer.class,
+            flow.userId()));
+    assertTrue(facts("auth.login.suspicious", "userId", flow.userId().toString()).isEmpty());
+  }
+
+  @Test
+  void lowRiskReauthenticationDoesNotEmitSuspicionAndTerminatesTheOldSid() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = mfaLogin(flow);
+    String oldSid =
+        facts("auth.login.suspicious", "userId", flow.userId().toString())
+            .getFirst()
+            .data()
+            .get("sid");
+    var now = java.time.Instant.now().plusSeconds(600);
+    org.mockito.Mockito.doReturn(now).when(riskClock).instant();
+    UUID network = UUID.randomUUID();
+    jdbc.update(
+        "INSERT INTO iam_policy.trusted_networks(id,network,enabled) VALUES (?,'127.0.0.0/24',true)",
+        network);
+    jdbc.update(
+        "INSERT INTO iam_policy.resource_profiles(resource,sensitivity) VALUES ('auth:login','PUBLIC')");
+    jdbc.update(
+        "UPDATE iam_policy.browser_devices SET trusted_until=? WHERE user_id=?",
+        java.sql.Timestamp.from(now.plusSeconds(3600)),
+        flow.userId());
+    try {
+      assertEquals(302, loginAttempt(browser, flow.email(), PASSWORD).statusCode());
+      assertEquals(1, facts("auth.login.suspicious", "userId", flow.userId().toString()).size());
+      assertEquals(1, facts("session.terminated", "sid", oldSid).size());
+    } finally {
+      jdbc.update("DELETE FROM iam_policy.trusted_networks WHERE id=?", network);
+      jdbc.update("DELETE FROM iam_policy.resource_profiles WHERE resource='auth:login'");
+    }
+  }
+
+  @Test
+  void sessionEventFailureRollsBackContextAndMfaClosureAndAllowsRetry() throws Exception {
+    Flow flow = flow();
+    HttpClient browser = mfaLogin(flow);
+    String sid =
+        facts("auth.login.suspicious", "userId", flow.userId().toString())
+            .getFirst()
+            .data()
+            .get("sid");
+    String seed = mfaSeed(mfaPost(browser, "/mfa/enroll", Map.of("password", PASSWORD)));
+    mfaRecovery(mfaPost(browser, "/mfa/confirm", Map.of("code", mfaCode(seed))));
+    assertTrue(mfaProofs.current(flow.userId(), 0, UUID.fromString(sid)).isPresent());
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic session event failure"))
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                event -> event.type().value().equals("session.terminated")));
+    var page = get(browser, "/mfa");
+    assertEquals(
+        500, post(browser, "/logout", Map.of("_csrf", hidden(page.body(), "_csrf"))).statusCode());
+    assertTrue(mfaProofs.current(flow.userId(), 0, UUID.fromString(sid)).isPresent());
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_policy.browser_contexts WHERE id=? AND closed_at IS NOT NULL",
+            Integer.class,
+            UUID.fromString(sid)));
+    assertTrue(facts("session.terminated", "sid", sid).isEmpty());
+    org.mockito.Mockito.reset(mfaAudit);
+    page = get(browser, "/mfa");
+    assertEquals(200, page.statusCode());
+    assertEquals(
+        302, post(browser, "/logout", Map.of("_csrf", hidden(page.body(), "_csrf"))).statusCode());
+    assertTrue(mfaProofs.current(flow.userId(), 0, UUID.fromString(sid)).isEmpty());
+    assertEquals(1, facts("session.terminated", "sid", sid).size());
+  }
+
+  @Test
+  void revocationFactsTargetFamilyAcrossRefreshAndSingleAccessTokenWithoutRefresh()
+      throws Exception {
+    Flow family = flow(true);
+    Pair initial = initialTokens(family);
+    String authorizationId = authorizationId(initial.access());
+    var renewed = pair(refresh(family, initial.refresh(), null));
+    assertEquals(
+        authorizationId,
+        com.nimbusds.jwt.SignedJWT.parse(initial.access())
+            .getJWTClaimsSet()
+            .getStringClaim("authorization_id"));
+    assertEquals(
+        authorizationId,
+        com.nimbusds.jwt.SignedJWT.parse(renewed.access())
+            .getJWTClaimsSet()
+            .getStringClaim("authorization_id"));
+    assertEquals(
+        200, oauthPost("/oauth2/revoke", family, Map.of("token", initial.refresh())).statusCode());
+    var revoked = facts("token.revoked", "authorizationId", authorizationId);
+    assertEquals(1, revoked.size());
+    assertEquals("AUTHORIZATION", revoked.getFirst().data().get("target"));
+    assertEquals(family.userId().toString(), revoked.getFirst().data().get("userId"));
+    assertTrue(
+        java.time.Instant.parse(revoked.getFirst().data().get("expiresAt"))
+            .isAfter(java.time.Instant.now()));
+    assertEquals(
+        200, oauthPost("/oauth2/revoke", family, Map.of("token", renewed.access())).statusCode());
+    assertEquals(1, facts("token.revoked", "authorizationId", authorizationId).size());
+    Flow single = flow(false);
+    var browser = browser();
+    String code = approve(browser, single, pending(browser, single));
+    String access =
+        JSON.readTree(exchange(single, code, single.verifier(), CALLBACK).body())
+            .path("access_token")
+            .asText();
+    String singleId = authorizationId(access);
+    assertEquals(200, oauthPost("/oauth2/revoke", single, Map.of("token", access)).statusCode());
+    var singleFact = facts("token.revoked", "authorizationId", singleId).getFirst();
+    assertEquals("ACCESS_TOKEN", singleFact.data().get("target"));
+    assertEquals(
+        com.nimbusds.jwt.SignedJWT.parse(access).getJWTClaimsSet().getJWTID(),
+        singleFact.data().get("jti"));
+    assertFalse(EVENTS.writeValueAsString(singleFact).contains(access));
+  }
+
+  @Test
+  void refreshReuseFactAndFamilyInvalidationRollbackTogetherWhenPersistenceFails()
+      throws Exception {
+    Flow flow = flow(true);
+    Pair first = initialTokens(flow);
+    Pair second = pair(refresh(flow, first.refresh(), null));
+    String id = authorizationId(second.access());
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic revocation event failure"))
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                event -> event.type().value().equals("token.revoked")));
+    assertEquals(500, refresh(flow, first.refresh(), null).statusCode());
+    assertActive(flow, second.access(), true);
+    assertTrue(facts("token.revoked", "authorizationId", id).isEmpty());
+    org.mockito.Mockito.reset(mfaAudit);
+    assertError(refresh(flow, first.refresh(), null), "invalid_grant");
+    var fact = facts("token.revoked", "authorizationId", id).getFirst();
+    assertEquals("REFRESH_REUSE", fact.data().get("reason"));
+    assertEquals("AUTHORIZATION", fact.data().get("target"));
+    assertActive(flow, second.access(), false);
+    assertError(refresh(flow, first.refresh(), null), "invalid_grant");
+    assertEquals(1, facts("token.revoked", "authorizationId", id).size());
+  }
 
   @org.junit.jupiter.api.AfterEach
   void removeResourcePolicies() {

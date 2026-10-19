@@ -87,7 +87,14 @@ class UserServiceTest {
     when(repository.find(user.id())).thenReturn(Optional.of(user));
     assertEquals("LOCKED", service.status(user.id(), "LOCKED", 0, context).status());
     verify(repository).update(any(), eq(0L));
-    verify(audit).record(any());
+    verify(audit)
+        .record(argThat(event -> event.type().value().equals("identity.user.statuschanged")));
+    verify(audit)
+        .record(
+            argThat(
+                event ->
+                    event.type().value().equals("user.locked")
+                        && event.details().get("version").equals("1")));
     clearInvocations(repository, audit);
     assertEquals("ACTIVE", service.status(user.id(), "ACTIVE", 0, context).status());
     verify(repository, never()).update(any(), anyLong());

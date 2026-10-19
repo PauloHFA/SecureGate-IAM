@@ -64,6 +64,44 @@ class AdminProvisioningIT {
   private final HttpClient client = HttpClient.newHttpClient();
 
   @Test
+  void userLockedFactCommitsOnceWithVersionAndItsFailureRollsBackTheTransition() throws Exception {
+    var user = createUser();
+    String id = user.path("id").asText();
+    doThrow(new IllegalStateException("synthetic canonical event failure"))
+        .when(outbox)
+        .append(argThat(event -> event.eventType().equals("user.locked")));
+    assertEquals(
+        500,
+        call("PATCH", "/users/" + id + "/status", Map.of("status", "LOCKED", "version", 0))
+            .statusCode());
+    assertEquals("ACTIVE", users.find(UUID.fromString(id)).orElseThrow().status().name());
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.outbox_events WHERE event_type='user.locked' AND payload->'data'->>'userId'=?",
+            Integer.class,
+            id));
+    org.mockito.Mockito.reset(outbox);
+    assertEquals(
+        200,
+        call("PATCH", "/users/" + id + "/status", Map.of("status", "LOCKED", "version", 0))
+            .statusCode());
+    assertEquals(
+        200,
+        call("PATCH", "/users/" + id + "/status", Map.of("status", "LOCKED", "version", 1))
+            .statusCode());
+    var payload =
+        jdbc.queryForObject(
+            "SELECT payload::text FROM iam_audit.outbox_events WHERE event_type='user.locked' AND payload->'data'->>'userId'=?",
+            String.class,
+            id);
+    var fact = json.readValue(payload, com.securegate.events.SecurityEvent.class);
+    assertEquals("1", fact.data().get("version"));
+    assertEquals("ADMINISTRATIVE", fact.data().get("reason"));
+    assertFalse(payload.contains(PASSWORD));
+  }
+
+  @Test
   void commitsAuditAndCanonicalOutboxTogetherWithMatchingIdsAndTimestamps() throws Exception {
     var user =
         successful(
@@ -127,7 +165,7 @@ class AdminProvisioningIT {
     String correlation = "standalone-" + unique();
     var record =
         new com.securegate.iam.audit.application.port.AuditRecord(
-            new com.securegate.events.SecurityEventType("policy.changed"),
+            new com.securegate.events.SecurityEventType("audit.changed"),
             "synthetic-policy",
             new com.securegate.iam.shared.application.port.OperationContext("test", correlation),
             Map.of("version", "2"));
@@ -139,7 +177,7 @@ class AdminProvisioningIT {
     var envelope =
         new com.securegate.events.SecurityEvent(
             UUID.randomUUID(),
-            "policy.changed",
+            "audit.changed",
             1,
             java.time.Instant.now(),
             "iam-core",
@@ -155,7 +193,7 @@ class AdminProvisioningIT {
     String correlation = "outer-" + unique();
     var record =
         new com.securegate.iam.audit.application.port.AuditRecord(
-            new com.securegate.events.SecurityEventType("policy.changed"),
+            new com.securegate.events.SecurityEventType("audit.changed"),
             "synthetic-policy",
             new com.securegate.iam.shared.application.port.OperationContext("test", correlation),
             Map.of("version", "3"));
@@ -178,7 +216,7 @@ class AdminProvisioningIT {
     String correlation = "immutable-" + unique();
     audit.record(
         new com.securegate.iam.audit.application.port.AuditRecord(
-            new com.securegate.events.SecurityEventType("policy.changed"),
+            new com.securegate.events.SecurityEventType("audit.changed"),
             "synthetic-policy",
             new com.securegate.iam.shared.application.port.OperationContext("test", correlation),
             Map.of("version", "1")));

@@ -1,17 +1,25 @@
 package com.securegate.iam.policy.infrastructure;
 
+import com.securegate.events.SecurityEventType;
+import com.securegate.iam.audit.application.port.AuditRecord;
+import com.securegate.iam.audit.application.port.AuditTrail;
 import com.securegate.iam.identity.application.port.IdentityLookup;
 import com.securegate.iam.identity.application.port.LoginRiskHistory;
 import com.securegate.iam.policy.application.port.RiskEvidence;
 import com.securegate.iam.policy.domain.NetworkCidr;
+import com.securegate.iam.policy.domain.RiskCalculator;
 import com.securegate.iam.policy.domain.RiskSignals;
 import com.securegate.iam.shared.application.ConcurrentUpdateException;
 import com.securegate.iam.shared.application.ResourceNotFoundException;
+import com.securegate.iam.shared.application.port.OperationContext;
 import com.securegate.iam.shared.application.port.UnitOfWork;
 import java.sql.Timestamp;
 import java.time.Clock;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 public final class JdbcRiskEvidence implements RiskEvidence {
@@ -20,18 +28,24 @@ public final class JdbcRiskEvidence implements RiskEvidence {
   private final LoginRiskHistory history;
   private final IdentityLookup identities;
   private final UnitOfWork transactions;
+  private final AuditTrail audit;
+  private final Supplier<OperationContext> eventContext;
 
   public JdbcRiskEvidence(
       JdbcTemplate jdbc,
       Clock clock,
       LoginRiskHistory history,
       IdentityLookup identities,
-      UnitOfWork transactions) {
+      UnitOfWork transactions,
+      AuditTrail audit,
+      Supplier<OperationContext> eventContext) {
     this.jdbc = jdbc;
     this.clock = clock;
     this.history = history;
     this.identities = identities;
     this.transactions = transactions;
+    this.audit = audit;
+    this.eventContext = eventContext;
   }
 
   @Override
@@ -63,8 +77,8 @@ public final class JdbcRiskEvidence implements RiskEvidence {
           int changed =
               jdbc.update(
                   """
-          INSERT INTO iam_policy.browser_contexts(id,user_id,identity_version,device_id,remote_address,observed_at)
-          VALUES (?,?,?,?,?::inet,?) ON CONFLICT(id) DO UPDATE SET remote_address=excluded.remote_address,observed_at=excluded.observed_at
+          INSERT INTO iam_policy.browser_contexts(id,user_id,identity_version,device_id,remote_address,observed_at,login_assessed)
+          VALUES (?,?,?,?,?::inet,?,false) ON CONFLICT(id) DO UPDATE SET remote_address=excluded.remote_address,observed_at=excluded.observed_at
           WHERE browser_contexts.user_id=excluded.user_id AND browser_contexts.identity_version=excluded.identity_version
             AND browser_contexts.device_id=excluded.device_id AND browser_contexts.closed_at IS NULL
           """,
@@ -77,17 +91,71 @@ public final class JdbcRiskEvidence implements RiskEvidence {
           if (changed != 1) {
             throw new IllegalStateException("Risk context cannot be reassigned or reopened");
           }
+          if (jdbc.update(
+                  "UPDATE iam_policy.browser_contexts SET login_assessed=true WHERE id=? AND NOT login_assessed",
+                  context)
+              == 1) {
+            var assessment =
+                new RiskCalculator().assess(collect(user, "auth:login", context), clock.instant());
+            if (assessment.score() >= 70) {
+              var data =
+                  new HashMap<>(
+                      Map.of(
+                          "userId",
+                          user.toString(),
+                          "version",
+                          Long.toString(version),
+                          "sid",
+                          context.toString(),
+                          "riskScore",
+                          Integer.toString(assessment.score()),
+                          "reasons",
+                          String.join(",", assessment.reasons())));
+              String observedAddress = NetworkCidr.address(remote);
+              if (observedAddress != null) {
+                data.put("remoteAddress", observedAddress);
+              }
+              audit.record(
+                  new AuditRecord(
+                      new SecurityEventType("auth.login.suspicious"),
+                      "auth:login",
+                      new OperationContext(user.toString(), eventContext.get().correlationId()),
+                      data));
+            }
+          }
           return device;
         });
   }
 
   @Override
   public void close(UUID user, UUID context) {
-    jdbc.update(
-        "UPDATE iam_policy.browser_contexts SET closed_at=? WHERE id=? AND user_id=? AND closed_at IS NULL",
-        Timestamp.from(clock.instant()),
-        context,
-        user);
+    transactions.execute(
+        () -> {
+          var versions =
+              jdbc.query(
+                  "UPDATE iam_policy.browser_contexts SET closed_at=? WHERE id=? AND user_id=? AND closed_at IS NULL RETURNING identity_version",
+                  (rs, row) -> rs.getLong(1),
+                  Timestamp.from(clock.instant()),
+                  context,
+                  user);
+          if (!versions.isEmpty()) {
+            audit.record(
+                new AuditRecord(
+                    new SecurityEventType("session.terminated"),
+                    context.toString(),
+                    new OperationContext(user.toString(), eventContext.get().correlationId()),
+                    Map.of(
+                        "userId",
+                        user.toString(),
+                        "version",
+                        versions.getFirst().toString(),
+                        "sid",
+                        context.toString(),
+                        "reason",
+                        "BROWSER_CLOSED")));
+          }
+          return null;
+        });
   }
 
   @Override
