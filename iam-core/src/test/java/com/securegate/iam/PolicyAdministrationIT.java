@@ -701,6 +701,7 @@ class PolicyAdministrationIT {
             .target("5")
             .load();
     flywayV5.migrate();
+    UUID legacyAudit = UUID.randomUUID();
     try (var connection =
             java.sql.DriverManager.getConnection(
                 url, DATABASE.getUsername(), DATABASE.getPassword());
@@ -711,13 +712,32 @@ class PolicyAdministrationIT {
       insert.setString(
           2, json.writeValueAsString(document("invoices", "ALLOW", Set.of(), Set.of(), null)));
       insert.executeUpdate();
+      try (var auditInsert =
+          connection.prepareStatement(
+              "INSERT INTO iam_audit.security_events(id,actor,event_type,resource,correlation_id,details) VALUES (?,'test','policy.created','legacy-policy','legacy-test','{}')")) {
+        auditInsert.setObject(1, legacyAudit);
+        auditInsert.executeUpdate();
+      }
     }
     var upgraded =
         org.flywaydb.core.Flyway.configure()
             .dataSource(url, DATABASE.getUsername(), DATABASE.getPassword())
             .load();
-    assertEquals(3, upgraded.migrate().migrationsExecuted);
+    assertEquals(4, upgraded.migrate().migrationsExecuted);
     upgraded.validate();
+    try (var connection =
+            java.sql.DriverManager.getConnection(
+                url, DATABASE.getUsername(), DATABASE.getPassword());
+        var statement =
+            connection.prepareStatement(
+                "SELECT (SELECT count(*) FROM iam_audit.security_events WHERE id=?), (SELECT count(*) FROM iam_audit.outbox_events)")) {
+      statement.setObject(1, legacyAudit);
+      try (var row = statement.executeQuery()) {
+        assertTrue(row.next());
+        assertEquals(1, row.getInt(1));
+        assertEquals(0, row.getInt(2));
+      }
+    }
     try (var connection =
             java.sql.DriverManager.getConnection(
                 url, DATABASE.getUsername(), DATABASE.getPassword());

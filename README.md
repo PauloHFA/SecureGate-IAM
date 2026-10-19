@@ -20,6 +20,8 @@ A 5D1 exige política para emissão e renovação de tokens de usuário: alvo `o
 
 A 5D2 integra o desafio MFA à navegação de autorização, antes do consentimento e novamente na aprovação. O retorno exige CSRF, ticket de uso único, prazo e a mesma identidade/sessão; preserva state, nonce e PKCE e revalida a autorização. A 5D3 acrescenta a API Bearer por operação, descrita abaixo. Consulte o [guia do desafio MFA](docs/runbooks/desafio-mfa-local.md) e as [evidências 5D2](docs/evidencias/etapa-05d2.md).
 
+A 6A1 adiciona o envelope de eventos v1 e a Outbox PostgreSQL: cada nova auditoria produz um evento na mesma transação, com ID/horário compartilhados e rollback conjunto. Os eventos ficam pendentes; ainda não há envio RabbitMQ. Consulte o [guia da Outbox](docs/runbooks/outbox-local.md), a [ADR-018](docs/adr/018-envelope-e-outbox-transacional.md) e as [evidências 6A1](docs/evidencias/etapa-06a1.md).
+
 ## Decisões aprovadas
 
 - Java 21, Spring Boot e Spring Authorization Server.
@@ -55,7 +57,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Seguir para a 6A: contrato versionado dos eventos e gravação transacional na Outbox. A 5D3 implementa o recurso local e o contrato com o enforcer; consumo/Redis e propagação distribuída continuam na etapa 7. O [PR #4](https://github.com/PauloHFA/SecureGate-IAM/pull/4) reúne as etapas 0–2. A base até a 5A (`8f5666d`) foi publicada em `feat/policy-foundation`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831). As entregas 5B/5C/5D1 estão em commits locais, incluindo a 5D1 (`31984bd`); a 5D2 está no commit `df0d1c9` e a 5D3 na branch `feat/resource-operation-authorization`. Essas entregas aguardam publicação/CI remota. Revisão e merge continuam pendentes.
+Próxima entrega: **6A2**, dados e produtores dos seis eventos de integração; depois, publicação RabbitMQ na 6B e operação/recuperação na 6C. A base até a 5D3 (`7713a94`) está publicada em `feat/resource-operation-authorization`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). A 6A1 está na branch `feat/security-event-outbox`, sem commit/publicação/CI remota. Revisão e merge continuam pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
@@ -91,7 +93,7 @@ Para corrigir formatação Java, execute `.\mvnw.cmd spotless:apply` no Windows 
 | `iam-core` | Identity/Access, políticas e simulação administrativa, auditoria básica, OAuth/OIDC com refresh, Transit/JWKS, Actuator e Flyway |
 | `policy-enforcer` | Módulo reservado para o consumidor; implementação na etapa 7 |
 
-O contrato inicial `SecurityEventType` aceita segmentos minúsculos separados por ponto, até 128 caracteres, e rejeita curingas de binding (`*` e `#`). O envelope versionado e a mensageria serão implementados na etapa 6. Relatórios de teste ficam em `libs/security-events/target/surefire-reports/`.
+O contrato inicial `SecurityEventType` aceita segmentos minúsculos separados por ponto, até 128 caracteres, e rejeita curingas de binding (`*` e `#`). O envelope v1 e a persistência transacional estão na 6A1; produtores dos seis eventos de integração e mensageria continuam nas entregas 6A2/6B. Relatórios de teste ficam em `libs/security-events/target/surefire-reports/`.
 
 ## Infraestrutura local
 

@@ -74,7 +74,7 @@ class IamCoreIT {
   @Test
   void startsWithPostgresAndAppliesTheVersionedMigrationOnlyOnce() {
     assertEquals(1, jdbc.queryForObject("SELECT 1", Integer.class));
-    assertEquals("8", flyway.info().current().getVersion().getVersion());
+    assertEquals("9", flyway.info().current().getVersion().getVersion());
     var schemas =
         jdbc.queryForList(
             "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'iam_%'",

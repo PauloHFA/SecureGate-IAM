@@ -66,8 +66,8 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 2 | Esqueleto e CI | 0–1 | Concluída; validação local e CI GitHub aprovadas |
 | 3 | Identity e Access | 2 | Incluída na base publicada 5A, com CI aprovada; revisão/merge pendentes |
 | 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | 4A–4D2 publicadas na base 5A, com CI aprovada; revisão/merge pendentes |
-| 5 | Políticas, risco e MFA | 3–4 | Funcionalidade local implementada até 5D3; publicação/CI, revisão e merge pendentes |
-| 6 | Eventos e Outbox | 2–5 | Pendente |
+| 5 | Políticas, risco e MFA | 3–4 | Implementada e publicada até 5D3, CI aprovada; revisão e merge pendentes |
+| 6 | Eventos e Outbox | 2–5 | Em andamento: 6A1 local; 6A2, 6B e 6C pendentes |
 | 7 | Enforcer e revogação | 4–6 | Pendente |
 | 8 | Auditoria e desempenho | 6–7 | Pendente |
 | 9 | Vault avançado e PAM | 4–8 | Pendente |
@@ -194,21 +194,21 @@ Subdivisão da etapa:
 - **5D2 — Navegação e desafio:** orientação real antes de consentimento e nova checagem ao aprová-lo, desafio local, retorno de cinco minutos vinculado a usuário/versão/sid, uso único por POST/CSRF, parâmetros normalizados e revalidação. Ativação preserva exibição de recuperação; prompt=none não inicia interação. Ver [ADR-016](adr/016-desafio-mfa-na-autorizacao.md), [guia](runbooks/desafio-mfa-local.md) e [evidências](evidencias/etapa-05d2.md).
 - **5D3 — Recursos:** API Bearer stateless `GET /api/resources/account`, alvo/ação/escopo fixos, JWT e grant atual, identidade/versão, política real por chamada, prova do sid original, interseção e TTL contado desde iat, auditoria antes da resposta e contrato interno com o enforcer. Ver [ADR-017](adr/017-autorizacao-por-operacao-nos-recursos.md), [guia](runbooks/recursos-local.md) e [evidências](evidencias/etapa-05d3.md).
 
-A 5D3 conclui o escopo funcional local da etapa 5; aceite remoto, revisão e merge continuam pendentes. Evaluate/simulate continuam prévias administrativas; navegação e emissão usam avaliação real, papéis atuais, sid do servidor e `MfaProofs` quando exigido. Não há ALLOW automático nem prova sintética. O desafio orienta a autorização, sem bloquear toda verificação de senha ou substituir a barreira final dos tokens da 5D1. O recurso local aplica decisões por operação; recursos externos e revogação distribuída dependem da etapa 7. Client Credentials não recebe política de identidade humana. Remoção/substituição de fator ativo e regeneração de códigos permanecem fora do escopo atual. Confiança de navegador não é atestação de hardware; rede corresponde ao par conectado, sem confiar em forwarded headers. O contador de falhas de login tem aquecimento/cobertura local; tentativas MFA são persistidas por conta. Sessões e retornos de navegação continuam locais à instância. Operação multi-instância, revogação distribuída e retenção/expurgo precisam das entregas operacionais. A base até a 5A foi publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39159901831), com 243 testes; entregas posteriores ainda aguardam publicação/CI remota. Revisão/merge continuam pendentes.
+A 5D3 conclui o escopo funcional local da etapa 5 e passou na CI remota; revisão e merge continuam pendentes. Evaluate/simulate continuam prévias administrativas; navegação e emissão usam avaliação real, papéis atuais, sid do servidor e `MfaProofs` quando exigido. Não há ALLOW automático nem prova sintética. O desafio orienta a autorização, sem bloquear toda verificação de senha ou substituir a barreira final dos tokens da 5D1. O recurso local aplica decisões por operação; recursos externos e revogação distribuída dependem da etapa 7. Client Credentials não recebe política de identidade humana. Remoção/substituição de fator ativo e regeneração de códigos permanecem fora do escopo atual. Confiança de navegador não é atestação de hardware; rede corresponde ao par conectado, sem confiar em forwarded headers. O contador de falhas de login tem aquecimento/cobertura local; tentativas MFA são persistidas por conta. Sessões e retornos de navegação continuam locais à instância. Operação multi-instância, revogação distribuída e retenção/expurgo precisam das entregas operacionais. A base até a 5D3 (`7713a94`) foi publicada em `feat/resource-operation-authorization`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069) e 401 testes. A 6A1 ainda aguarda commit/publicação/CI remota. Revisão/merge continuam pendentes.
 
 ## Etapa 6 — Eventos e Outbox
 
-- [ ] Criar envelope versionado e testes de contrato em `security-events`.
-- [ ] Incluir identificador, tipo, versão, horário, correlação, ator, contexto e dados necessários.
+- [x] Criar envelope versionado e testes de contrato em `security-events` (6A1).
+- [x] Incluir identificador, tipo, versão, horário, correlação, ator, contexto e metadados dos eventos já auditados (6A1); dados dos seis produtores de integração permanecem na 6A2.
 - [ ] Cobrir `auth.login.suspicious`, `auth.login.failed`, `token.revoked`, `session.terminated`, `policy.changed` e `user.locked`.
-- [ ] Gravar Outbox na mesma transação da mudança de estado.
+- [x] Gravar Outbox na mesma transação das mudanças já auditadas, com rollback do par e payload imutável (6A1). Novos produtores devem preservar essa garantia na 6A2.
 - [ ] Publicar com confirmação, retry e tratamento de mensagens não roteadas.
 - [ ] Validar topologia RabbitMQ, TTL e DLQ.
 - [ ] Definir limpeza, retenção e métricas da Outbox.
 
 **Aceite:** rollback não publica mudança não confirmada; queda do broker não perde evento persistido; recuperação publica pendências; produtor e consumidores respeitam o contrato.
 
-Subdivisão prevista: **6A** — envelope versionado, testes de contrato e gravação transacional na Outbox; **6B** — publicação RabbitMQ com confirmação, retry e mensagens não roteadas; **6C** — retenção, métricas e cenários de indisponibilidade/recuperação. As três entregas continuam pendentes.
+Subdivisão: **6A1** — envelope v1, contrato JSON, V9 e Outbox atômica com eventos já auditados, implementada localmente na branch `feat/security-event-outbox`; ver [ADR-018](adr/018-envelope-e-outbox-transacional.md), [guia](runbooks/outbox-local.md) e [evidências](evidencias/etapa-06a1.md). **6A2** — definir dados e integrar os seis produtores de segurança aos fluxos reais; pendente. **6B** — publicação RabbitMQ com confirmação, retry e mensagens não roteadas; pendente. **6C** — retenção, métricas e cenários de indisponibilidade/recuperação; pendente. A 6A1 não conclui a etapa 6 e não publica mensagens no broker.
 
 ## Etapa 7 — Enforcer, Redis e revogação
 
@@ -329,4 +329,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a 6A: envelope versionado em `security-events`, contratos e Outbox gravada na mesma transação da mudança. A publicação RabbitMQ com confirmação/retry será a 6B; retenção/métricas e testes de recuperação, a 6C. A 5D3 está na branch `feat/resource-operation-authorization`; a 5D2 está no commit local `df0d1c9`; a 5D1 está no commit local `31984bd`; a 5C2, em `9039107`; a 5C1, em `90282bb`. A 5A (`8f5666d`) foi publicada em `feat/policy-foundation` e passou na CI. A 5B1 está no commit local `738c660`; a 5B2 está no commit local `3e6b136`; push e CI remota dessas entregas pendentes. Revisão e merge continuam pendentes.
+Seguir para a 6A2: definir os dados necessários e integrar `auth.login.suspicious`, `auth.login.failed`, `token.revoked`, `session.terminated`, `policy.changed` e `user.locked` aos fluxos reais, com as transações e limites apropriados. O envelope e a Outbox dos eventos já auditados estão implementados na 6A1, branch `feat/security-event-outbox`. A publicação RabbitMQ será a 6B e a operação/recuperação, a 6C. A base até a 5D3 (`7713a94`) foi publicada em `feat/resource-operation-authorization`, com [CI aprovada](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069); a 6A1 aguarda commit/publicação/CI remota. Revisão/merge continuam pendentes.
