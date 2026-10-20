@@ -69,7 +69,7 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 5 | Políticas, risco e MFA | 3–4 | Implementada e publicada até 5D3, CI aprovada; revisão e merge pendentes |
 | 6 | Eventos e Outbox | 2–5 | 6A–6C publicadas; CI/revisão pendentes |
 | 7 | Enforcer e revogação | 4–6 | Escopo funcional local concluído; publicação 7D/CI/revisão pendentes |
-| 8 | Auditoria e desempenho | 6–7 | 8A1 local; 8A2/8B/8C/8D pendentes |
+| 8 | Auditoria e desempenho | 6–7 | 8A1/8A2 locais; 8B/8C/8D pendentes |
 | 9 | Vault avançado e PAM | 4–8 | Pendente |
 | 10 | Carga | 5–9 | Pendente |
 | 11 | Entrega e hardening | 0–10 | Pendente |
@@ -232,7 +232,7 @@ Subdivisão: **7A** — bootstrap opcional do `policy-enforcer`, fila `enforcer.
 - [x] Criar área de ingestão de auditoria particionada por mês em `occurred_at` com Flyway (8A1; auditoria produtora legada preservada).
 - [x] Usar chave `(id, occurred_at)` e criar partições futuras automaticamente (8A1; worker opcional, horizonte inicial Flyway).
 - [x] Garantir deduplicação global de evento apesar das restrições de unicidade de tabelas particionadas; documentar a solução (8A1; recibo global transacional e fingerprint).
-- [ ] Restringir identidade de ingestão a INSERT/SELECT e separar permissões operacionais.
+- [x] Restringir identidade de ingestão a INSERT/SELECT e separar permissões operacionais (8A2; pools dedicados; conexão principal proprietária preservada).
 - [ ] Implementar consumidor com lote e recuperação de falhas.
 - [ ] Criar consulta por cursor estável, filtros e índices.
 - [ ] Definir retenção/arquivamento preservando imutabilidade.
@@ -240,7 +240,7 @@ Subdivisão: **7A** — bootstrap opcional do `policy-enforcer`, fila `enforcer.
 
 **Aceite:** duplicação não cria múltiplos registros; aplicação não altera/exclui auditoria; cursor lida com timestamps iguais; planos e medições documentados.
 
-Subdivisão: **8A1** — V13 aditiva, `event_log` mensal, recibos globais, porta/adaptador de gravação e manutenção opcional, implementada localmente em `feat/partitioned-audit-foundation`. Ver [ADR-028](adr/028-base-auditoria-particionada.md), [guia](runbooks/auditoria-particionada-local.md) e [evidências](evidencias/etapa-08a1.md). **8A2** — identidades separadas, permissões e timeouts operacionais antes de ligar ingestão. **8B** — consumidor em lote, confirmação após commit e recuperação. **8C** — consulta por cursor/filtros. **8D** — retenção/arquivamento e planos/carga. A 8A1 não migra a auditoria legada, não conecta consumidor e não conclui o aceite da etapa 8. Proprietário/superusuário ainda pode alterar DDL; deduplicação não dispensa a próxima separação de privilégios.
+Subdivisão: **8A1** — V13 aditiva, `event_log` mensal, recibos globais, porta/adaptador de gravação e manutenção opcional, implementada localmente em `feat/partitioned-audit-foundation`. Ver [ADR-028](adr/028-base-auditoria-particionada.md), [guia](runbooks/auditoria-particionada-local.md) e [evidências](evidencias/etapa-08a1.md). **8A2** — V14, logins/pools dedicados, provisionamento administrativo separado, permissões e timeouts; implementada localmente em `feat/audit-database-privileges`. Ver [ADR-029](adr/029-identidades-auditoria.md), [guia](runbooks/identidades-auditoria-local.md) e [evidências](evidencias/etapa-08a2.md). **8B** — consumidor em lote, confirmação após commit e recuperação. **8C** — consulta por cursor/filtros. **8D** — retenção/arquivamento e planos/carga. A 8A1 não migra a auditoria legada, não conecta consumidor e não conclui o aceite da etapa 8. Proprietário/superusuário ainda pode alterar DDL; a conexão principal do IAM continua proprietária/migradora, enquanto os caminhos dedicados são restritos. Não há consumidor automático nesta entrega.
 
 ## Etapa 9 — Vault avançado e PAM
 
@@ -335,4 +335,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a **8A2**: identidades de ingestão/manutenção separadas, permissões e timeouts, antes de conectar o consumidor. A 8A1 está em `feat/partitioned-audit-foundation`; V13 cria área de ingestão nova e preserva auditoria produtora/Outbox. A 7D1 (`70e7f4a`) e a 7D2 (`9be334b`) continuam locais, sem publicação/CI remota. A base publicada vai até a 7C2 (`15dfbf8`). Revisão/merge continuam pendentes; a base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
+Seguir para a **8B**: consumidor em lote de auditoria, confirmação após commit e recuperação usando a identidade de ingestão. A 8A1 está em `de02855`; a 8A2 está em `feat/audit-database-privileges`, sem commit. Ambas preservam auditoria produtora/Outbox e não ligam consumidor. Publicação/CI remota das 7D/8A e revisão/merge continuam pendentes; a base publicada vai até a 7C2 (`15dfbf8`). A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).

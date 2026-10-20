@@ -1,10 +1,6 @@
 package com.securegate.iam.audit.infrastructure;
 
 import io.micrometer.core.instrument.MeterRegistry;
-import java.sql.Date;
-import java.time.Clock;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -14,7 +10,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 public final class AuditPartitionMaintenance implements AutoCloseable {
   private final JdbcTemplate jdbc;
   private final MeterRegistry meters;
-  private final Clock clock;
   private final int monthsAhead;
   private final int pollMillis;
   private volatile boolean available;
@@ -27,10 +22,9 @@ public final class AuditPartitionMaintenance implements AutoCloseable {
           });
 
   public AuditPartitionMaintenance(
-      JdbcTemplate jdbc, MeterRegistry meters, Clock clock, int monthsAhead, int pollMillis) {
+      JdbcTemplate jdbc, MeterRegistry meters, int monthsAhead, int pollMillis) {
     this.jdbc = jdbc;
     this.meters = meters;
-    this.clock = clock;
     this.monthsAhead = monthsAhead;
     this.pollMillis = pollMillis;
     meters.gauge("iam.audit.partitions.available", this, worker -> worker.available ? 1 : 0);
@@ -42,14 +36,9 @@ public final class AuditPartitionMaintenance implements AutoCloseable {
 
   public void runOnce() {
     try {
-      LocalDate first =
-          LocalDate.ofInstant(clock.instant(), ZoneOffset.UTC).withDayOfMonth(1).minusMonths(1);
       Integer created =
           jdbc.queryForObject(
-              "SELECT iam_audit.ensure_event_partitions(?,?)",
-              Integer.class,
-              Date.valueOf(first),
-              monthsAhead + 2);
+              "SELECT iam_audit.maintain_event_partitions(?)", Integer.class, monthsAhead);
       if (created == null) {
         throw new IllegalStateException();
       }

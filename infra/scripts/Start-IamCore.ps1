@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement, [switch]$EnableAuditPartitions)
+param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement, [switch]$EnableAuditPartitions, [switch]$EnableAuditIngestion)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LocalEnvironment.ps1')
@@ -13,6 +13,12 @@ if ($EnableBootstrap -and (-not $settings.ContainsKey('IAM_BOOTSTRAP_TOKEN') -or
 $jarPath = Join-Path $projectPath 'iam-core/target/iam-core-0.1.0-SNAPSHOT.jar'
 $roleIdPath = Join-Path $projectPath 'infra/.local/iam-core-role-id'
 $secretIdPath = Join-Path $projectPath 'infra/.local/iam-core-secret-id'
+$auditIngestPath = Join-Path $projectPath 'infra/.local/audit-ingest-password'
+$auditMaintenancePath = Join-Path $projectPath 'infra/.local/audit-maintenance-password'
+if (($EnableAuditPartitions -and -not (Test-Path -LiteralPath $auditMaintenancePath)) -or
+    ($EnableAuditIngestion -and -not (Test-Path -LiteralPath $auditIngestPath))) {
+  throw 'Credenciais dedicadas de auditoria ausentes. Aplique V14 e execute Provision-AuditDatabase.ps1.'
+}
 if ($EnableTransit -and (-not (Test-Path -LiteralPath $roleIdPath) -or -not (Test-Path -LiteralPath $secretIdPath))) {
   throw 'Arquivos AppRole ausentes. Execute o bootstrap Vault documentado em infra/README.md.'
 }
@@ -21,6 +27,12 @@ if (-not (Test-Path -LiteralPath $jarPath)) {
 }
 $applicationEnvironment = @{
   IAM_AUDIT_PARTITIONS_ENABLED = $(if ($EnableAuditPartitions) { 'true' } else { 'false' })
+  IAM_AUDIT_INGESTION_ENABLED = $(if ($EnableAuditIngestion) { 'true' } else { 'false' })
+  IAM_AUDIT_DATABASE_URL = 'jdbc:postgresql://127.0.0.1:' + $settings.POSTGRES_PORT + '/' + $settings.POSTGRES_DB
+  IAM_AUDIT_INGEST_USERNAME = 'securegate_audit_ingest_login'
+  IAM_AUDIT_MAINTENANCE_USERNAME = 'securegate_audit_maintenance_login'
+  IAM_AUDIT_INGEST_PASSWORD_FILE = $auditIngestPath
+  IAM_AUDIT_MAINTENANCE_PASSWORD_FILE = $auditMaintenancePath
   IAM_DATABASE_URL = 'jdbc:postgresql://127.0.0.1:' + $settings.POSTGRES_PORT + '/' + $settings.POSTGRES_DB
   IAM_DATABASE_USERNAME = $settings.POSTGRES_USER
   IAM_DATABASE_PASSWORD = $settings.POSTGRES_PASSWORD

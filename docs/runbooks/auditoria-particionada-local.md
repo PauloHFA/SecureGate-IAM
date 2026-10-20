@@ -18,7 +18,7 @@ Com JAR e infraestrutura atualizados:
 .\infra\scripts\Start-IamCore.ps1 -EnableAuditPartitions
 ```
 
-O switch controla somente o worker de partições; não ativa OAuth, publicador ou consumidor. Não exige segredo novo. Usa a conexão atual do IAM, que ainda tem privilégios de migração; a separação operacional pertence à 8A2.
+O switch controla somente o worker de partições; não ativa OAuth, publicador ou consumidor. A 8A2 passou a exigir a identidade dedicada: aplique V14 e siga o [provisionamento](identidades-auditoria-local.md) antes de ativar o switch. Não há fallback para a conexão principal.
 
 V13 cria mês anterior, atual e três futuros em UTC. O worker mantém esse horizonte a cada hora e logo ao iniciar. Propriedades `iam.audit.partitions.months-ahead` (1–12, padrão 3) e `poll-millis` (1.000–86.400.000, padrão 3.600.000) limitam horizonte/frequência. Sem switch, só a criação inicial Flyway ocorre.
 
@@ -36,10 +36,10 @@ A função é idempotente e aceita até 24 meses por chamada, com bounds UTC. Pr
 
 Mês ausente ou INSERT inválido não deixa recibo confirmado. Corrigida a causa, o mesmo evento pode ser reapresentado. EventId já registrado com timestamp/payload diferentes é conflito, não sucesso de deduplicação. Não apague recibos para contornar conflito.
 
-UPDATE/DELETE/TRUNCATE são recusados no log, partições e recibos. Ainda não há identidade de ingestão restrita: proprietário/superusuário continua capaz de alterar DDL. Não conecte um consumidor de produção presumindo que os privilégios da 8A2 já existem.
+UPDATE/DELETE/TRUNCATE são recusados no log, partições e recibos. A [8A2](identidades-auditoria-local.md) acrescenta logins restritos e pools dedicados. Proprietário/superusuário continua capaz de alterar DDL, e a conexão principal mantém esses privilégios; não há consumidor ligado nesta entrega.
 
 ## O que vem depois
 
-8A2: separar identidade de migração/manutenção e ingestão, testar privilégios e timeouts. 8B: conectar consumidor com lote, confirmação após commit e recuperação. Consulta por cursor estável, retenção/arquivamento e planos/carga continuam posteriores.
+8A2: identidades/pools dedicados, privilégios e timeouts implementados, conforme o [guia](identidades-auditoria-local.md). 8B: conectar consumidor com lote, confirmação após commit e recuperação. Consulta por cursor estável, retenção/arquivamento e planos/carga continuam posteriores.
 
 Os recibos globais permanecem sem expurgo; não há política segura de detach/drop/backfill automático nesta entrega. Leia a [ADR-028](../adr/028-base-auditoria-particionada.md) e as [evidências](../evidencias/etapa-08a1.md).

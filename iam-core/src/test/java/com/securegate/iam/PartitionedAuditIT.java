@@ -10,9 +10,7 @@ import com.securegate.iam.audit.infrastructure.AuditPartitionMaintenance;
 import com.securegate.iam.audit.infrastructure.JdbcAuditEventStore;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.sql.Date;
-import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -75,7 +73,7 @@ class PartitionedAuditIT {
 
   @Test
   void upgradesV12WithoutMovingOrLosingTheLegacyAuditAndOutbox() {
-    assertEquals("13", flyway.info().current().getVersion().getVersion());
+    assertEquals("14", flyway.info().current().getVersion().getVersion());
     assertEquals(
         1,
         jdbc.queryForObject(
@@ -275,21 +273,29 @@ class PartitionedAuditIT {
   }
 
   @Test
-  void maintenanceCreatesAheadOfTheClockWithoutQueryingOnMetricScrape() {
+  void maintenanceCreatesAheadOfDatabaseUtcTimeWithoutQueryingOnMetricScrape() {
     var meters = new SimpleMeterRegistry();
-    try (var worker =
-        new AuditPartitionMaintenance(
-            jdbc,
-            meters,
-            Clock.fixed(Instant.parse("2033-12-31T23:59:59Z"), ZoneOffset.UTC),
-            3,
-            1000)) {
+    var month =
+        jdbc.queryForObject(
+                "SELECT (date_trunc('month', clock_timestamp() AT TIME ZONE 'UTC') - interval '1 month')::date",
+                Date.class)
+            .toLocalDate();
+    int missing = 0;
+    for (int i = 0; i < 8; i++) {
+      String name =
+          "iam_audit.event_log_"
+              + month.plusMonths(i).format(java.time.format.DateTimeFormatter.ofPattern("yyyyMM"));
+      if (jdbc.queryForObject("SELECT to_regclass(?) IS NULL", Boolean.class, name)) {
+        missing++;
+      }
+    }
+    try (var worker = new AuditPartitionMaintenance(jdbc, meters, 6, 1000)) {
       worker.runOnce();
       assertEquals(1.0, meters.get("iam.audit.partitions.available").gauge().value());
-      assertEquals(5.0, meters.get("iam.audit.partitions.created").counter().count());
+      assertEquals((double) missing, meters.get("iam.audit.partitions.created").counter().count());
       worker.runOnce();
-      assertEquals(5.0, meters.get("iam.audit.partitions.created").counter().count());
-      assertEquals(0, ensure("2033-11-01", 5));
+      assertEquals((double) missing, meters.get("iam.audit.partitions.created").counter().count());
+      assertEquals(0, ensure(month.toString(), 8));
     }
   }
 
