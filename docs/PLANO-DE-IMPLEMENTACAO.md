@@ -244,7 +244,7 @@ Subdivisão: **8A1** — V13 aditiva, `event_log` mensal, recibos globais, porta
 
 ## Etapa 9 — Vault avançado e PAM
 
-- [ ] Integrar KV e credenciais temporárias de banco.
+- [ ] Integrar KV e credenciais temporárias de banco (KV no IAM implementado na 9A1; credenciais dinâmicas pendentes na 9A2).
 - [ ] Renovar tokens, credenciais e leases, recuperando falhas de renovação.
 - [ ] Testar rotação de credenciais com pool de conexões.
 - [ ] Criar endpoint de acesso privilegiado com autorização, justificativa e TTL limitado.
@@ -253,6 +253,8 @@ Subdivisão: **8A1** — V13 aditiva, `event_log` mensal, recibos globais, porta
 - [ ] Criar runbook de indisponibilidade e recuperação.
 
 **Aceite:** leases expiram/renovam corretamente; pedido não autorizado falha; segredos não ficam em arquivos versionados, imagens ou logs.
+
+Subdivisão: **9A1** — snapshot KV v2 opcional no startup do IAM, AppRole por arquivo, precedência para credenciais permitidas, falha sem fallback e revogação do token de leitura; implementada localmente em `feat/vault-kv-bootstrap`. Ver [ADR-034](adr/034-bootstrap-kv-vault.md), [guia](runbooks/vault-kv-local.md) e [evidências](evidencias/etapa-09a1.md). **9A2** — credenciais PostgreSQL temporárias, separação migração/runtime, leases e renovação/rotação dos pools. **9B** — acesso privilegiado com autorização, justificativa e TTL. **9C** — auditoria operacional e recuperação integrada. A 9A1 não renova segredos em execução, não integra KV no enforcer e não conclui o aceite da etapa 9.
 
 ## Etapa 10 — Carga e observabilidade
 
@@ -335,4 +337,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a **etapa 9**, começando pela 9A: integração de segredos KV e credenciais temporárias de banco no Vault, com estratégia de renovação/rotação dos pools. A 8D2 está implementada e medida localmente em `perf/audit-scale-measurements`, sem commit. A base local inclui 8C (`7962347`) e 8D1 (`d7311d0`); somente a base até a 8B (`f005334`) foi publicada. CI remota dessas entregas e revisão/merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
+Seguir para a **9A2**: credenciais temporárias PostgreSQL, separação migração/runtime, leases e renovação/rotação dos pools. A 9A1 está implementada localmente em `feat/vault-kv-bootstrap`, sem commit. A base local inclui 8C (`7962347`), 8D1 (`d7311d0`) e 8D2 (`d6b2af0`, medida com milhões de eventos); somente a base até a 8B (`f005334`) foi publicada. CI remota dessas entregas e revisão/merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).

@@ -52,6 +52,8 @@ A 8D1 acrescenta arquivamento administrativo de meses antigos no mesmo PostgreSQ
 
 A 8D2 adiciona um benchmark optativo de ingestão JDBC e consultas com milhões de eventos sintéticos, planos SQL e contagem de SELECTs por página. Execute `Measure-Audit.ps1`; consulte o [guia](docs/runbooks/medicao-auditoria-local.md), a [ADR-033](docs/adr/033-medicao-auditoria-em-escala.md) e as [evidências 8D2](docs/evidencias/etapa-08d2.md).
 
+A 9A1 adiciona leitura opcional de segredos KV v2 antes da criação das conexões do IAM, com AppRole, snapshot validado e revogação do token de leitura. Use `Start-IamCore.ps1 -EnableVaultKv`. Consulte o [guia](docs/runbooks/vault-kv-local.md), a [ADR-034](docs/adr/034-bootstrap-kv-vault.md) e as [evidências 9A1](docs/evidencias/etapa-09a1.md).
+
 ## Decisões aprovadas
 
 - Java 21, Spring Boot e Spring Authorization Server.
@@ -87,7 +89,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **etapa 9**, iniciando integração Vault KV/credenciais temporárias de banco e renovação/rotação dos pools. A 8D2 foi medida localmente com 2.030.000 eventos/recibos e está em `perf/audit-scale-measurements`, sem commit. A 8D1 está no commit local `d7311d0`. A 8C está no commit local `7962347`. A base até a 8B (`f005334`), incluindo 7D/8A, foi publicada em `feat/audit-batch-consumer`; CI remota dessa base, revisão e merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
+Próxima entrega: **9A2**, credenciais PostgreSQL temporárias, separação migração/runtime e renovação/rotação dos pools. A 9A1 está implementada localmente em `feat/vault-kv-bootstrap`, sem commit. A base inclui 8D2 (`d6b2af0`, medida com 2.030.000 eventos/recibos), 8D1 (`d7311d0`) e 8C (`7962347`). A base até a 8B (`f005334`), incluindo 7D/8A, foi publicada em `feat/audit-batch-consumer`; CI remota dessa base, revisão e merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement, [switch]$EnableAuditPartitions, [switch]$EnableAuditIngestion, [switch]$EnableAuditConsumer, [switch]$EnableAuditQuery)
+param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement, [switch]$EnableAuditPartitions, [switch]$EnableAuditIngestion, [switch]$EnableAuditConsumer, [switch]$EnableAuditQuery, [switch]$EnableVaultKv)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LocalEnvironment.ps1')
@@ -20,7 +20,7 @@ if (($EnableAuditPartitions -and -not (Test-Path -LiteralPath $auditMaintenanceP
     ($EnableAuditIngestion -and -not (Test-Path -LiteralPath $auditIngestPath))) {
   throw 'Credenciais dedicadas de auditoria ausentes. Aplique V14 e execute Provision-AuditDatabase.ps1.'
 }
-if ($EnableTransit -and (-not (Test-Path -LiteralPath $roleIdPath) -or -not (Test-Path -LiteralPath $secretIdPath))) {
+if (($EnableTransit -or $EnableVaultKv) -and (-not (Test-Path -LiteralPath $roleIdPath) -or -not (Test-Path -LiteralPath $secretIdPath))) {
   throw 'Arquivos AppRole ausentes. Execute o bootstrap Vault documentado em infra/README.md.'
 }
 if (-not (Test-Path -LiteralPath $jarPath)) {
@@ -37,14 +37,15 @@ $applicationEnvironment = @{
   IAM_AUDIT_INGEST_PASSWORD_FILE = $auditIngestPath
   IAM_AUDIT_MAINTENANCE_PASSWORD_FILE = $auditMaintenancePath
   IAM_DATABASE_URL = 'jdbc:postgresql://127.0.0.1:' + $settings.POSTGRES_PORT + '/' + $settings.POSTGRES_DB
-  IAM_DATABASE_USERNAME = $settings.POSTGRES_USER
-  IAM_DATABASE_PASSWORD = $settings.POSTGRES_PASSWORD
+  IAM_VAULT_KV_ENABLED = $(if ($EnableVaultKv) { 'true' } else { 'false' })
+  IAM_DATABASE_USERNAME = $(if ($EnableVaultKv) { '' } else { $settings.POSTGRES_USER })
+  IAM_DATABASE_PASSWORD = $(if ($EnableVaultKv) { '' } else { $settings.POSTGRES_PASSWORD })
   IAM_PORT = [string]$Port
   IAM_BIND_ADDRESS = '127.0.0.1'
   IAM_RESOURCE_ENFORCEMENT_ENABLED = $(if ($EnableResourceEnforcement) { 'true' } else { 'false' })
   IAM_ENFORCEMENT_REDIS_HOST = '127.0.0.1'
   IAM_ENFORCEMENT_REDIS_PORT = $settings.REDIS_PORT
-  IAM_ENFORCEMENT_REDIS_PASSWORD = $(if ($EnableResourceEnforcement) { $settings.REDIS_PASSWORD } else { '' })
+  IAM_ENFORCEMENT_REDIS_PASSWORD = $(if ($EnableResourceEnforcement -and -not $EnableVaultKv) { $settings.REDIS_PASSWORD } else { '' })
   IAM_TRANSIT_ENABLED = $(if ($EnableTransit) { 'true' } else { 'false' })
   IAM_AUTHORIZATION_ENABLED = $(if ($EnableAuthorization) { 'true' } else { 'false' })
   IAM_ISSUER = 'http://127.0.0.1:' + $Port
@@ -58,8 +59,8 @@ $applicationEnvironment = @{
   IAM_RABBITMQ_HOST = '127.0.0.1'
   IAM_RABBITMQ_PORT = $settings.RABBITMQ_PORT
   IAM_RABBITMQ_VHOST = $settings.RABBITMQ_VHOST
-  IAM_RABBITMQ_USERNAME = $(if ($EnableOutboxPublisher -or $EnableAuditConsumer) { $settings.RABBITMQ_USER } else { '' })
-  IAM_RABBITMQ_PASSWORD = $(if ($EnableOutboxPublisher -or $EnableAuditConsumer) { $settings.RABBITMQ_PASSWORD } else { '' })
+  IAM_RABBITMQ_USERNAME = $(if (($EnableOutboxPublisher -or $EnableAuditConsumer) -and -not $EnableVaultKv) { $settings.RABBITMQ_USER } else { '' })
+  IAM_RABBITMQ_PASSWORD = $(if (($EnableOutboxPublisher -or $EnableAuditConsumer) -and -not $EnableVaultKv) { $settings.RABBITMQ_PASSWORD } else { '' })
 }
 $previousValues = @{}
 try {

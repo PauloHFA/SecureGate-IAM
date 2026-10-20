@@ -85,7 +85,7 @@ As filas locais são classic em um único nó; isso não demonstra alta disponib
 
 Os tokens de aplicação têm TTL de 1 hora e máximo de 4 horas. Os SecretIDs têm TTL de 24 horas e são reutilizáveis no ambiente local. RoleID e SecretID ficam em `infra/.local/<serviço>-role-id` e `<serviço>-secret-id`, ignorados pelo Git. O script aplica `umask 077`; no Windows, a proteção efetiva também depende das permissões NTFS da pasta.
 
-As credenciais persistidas no KV são a base local para integração futura, não uma integração já implementada nos serviços Java. As contas de banco/broker ainda são contas de bootstrap local; separação completa de migração, aplicação e operação será feita nas etapas de persistência e hardening.
+O `iam-core` pode ler as credenciais KV no startup com `Start-IamCore.ps1 -EnableVaultKv` (9A1); consulte o [guia de operação](../docs/runbooks/vault-kv-local.md). O enforcer ainda recebe credenciais pelo ambiente. As contas principais de banco/broker continuam sendo contas de bootstrap local; credenciais dinâmicas, renovação e separação migração/runtime ficam para a 9A2. Os pools de auditoria da etapa 8 preservam suas contas dedicadas por arquivo.
 
 Produção exige Vault persistente, TLS, unseal, recuperação e entrega protegida das credenciais iniciais. O modo dev pode registrar o token administrativo no log de inicialização; não compartilhe esses logs. A tarefa `vault-init` não imprime segredos.
 
