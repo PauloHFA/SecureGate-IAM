@@ -48,6 +48,8 @@ A 8B conecta o consumidor opcional de `audit.persist` ao pool dedicado: JDBC bat
 
 A 8C acrescenta consulta administrativa opcional por cursor estável e filtros exatos, usando transações somente leitura no pool de auditoria. Use `-EnableAuditQuery` com bootstrap administrativo. A V15 adiciona índices para ator/correlação. Consulte o [guia](docs/runbooks/consulta-auditoria-local.md), a [ADR-031](docs/adr/031-consulta-auditoria-por-cursor.md) e as [evidências 8C](docs/evidencias/etapa-08c.md).
 
+A 8D1 acrescenta arquivamento administrativo de meses antigos no mesmo PostgreSQL, com catálogo imutável, preservação de recibos e tratamento de replays/eventos tardios. Não remove dados nem reduz disco. O script opera em modo de plano por padrão; consulte o [guia](docs/runbooks/arquivamento-auditoria-local.md), a [ADR-032](docs/adr/032-arquivamento-mensal-auditoria.md) e as [evidências 8D1](docs/evidencias/etapa-08d1.md).
+
 ## Decisões aprovadas
 
 - Java 21, Spring Boot e Spring Authorization Server.
@@ -83,7 +85,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **8D**, retenção/arquivamento de auditoria e planos/medições de desempenho; o escopo pode ser dividido em entregas menores. A 8C está implementada localmente em `feat/audit-cursor-query`, sem commit. A base até a 8B (`f005334`), incluindo 7D/8A, foi publicada em `feat/audit-batch-consumer`; CI remota dessa base, revisão e merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
+Próxima entrega: **8D2**, planos SQL, verificação de N+1 e medições de ingestão/consulta com milhões de registros. A 8D1 está implementada localmente em `feat/audit-monthly-archive`, sem commit. A 8C está no commit local `7962347`. A base até a 8B (`f005334`), incluindo 7D/8A, foi publicada em `feat/audit-batch-consumer`; CI remota dessa base, revisão e merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

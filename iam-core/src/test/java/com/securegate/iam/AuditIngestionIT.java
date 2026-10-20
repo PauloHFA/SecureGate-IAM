@@ -318,6 +318,71 @@ class AuditIngestionIT {
     assertEquals(0, ready("audit.persist.dlq"));
   }
 
+  @Test
+  void archivedReplayIsAckedAndNewLateFactIsIsolatedToDlq() throws Exception {
+    var month =
+        owner.queryForObject(
+            "SELECT (date_trunc('month',clock_timestamp() AT TIME ZONE 'UTC')-INTERVAL '12 months')::date",
+            java.time.LocalDate.class);
+    owner.queryForObject(
+        "SELECT iam_audit.ensure_event_partitions(?,1)",
+        Integer.class,
+        java.sql.Date.valueOf(month));
+    var original =
+        new SecurityEvent(
+            UUID.randomUUID(),
+            "test.audit",
+            1,
+            month.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant(),
+            "iam-core",
+            "synthetic",
+            "original",
+            Map.of("resource", "synthetic"),
+            Map.of());
+    store.append(original);
+    assertEquals(
+        1,
+        owner.queryForObject(
+            "SELECT iam_audit.archive_event_month(?,6)", Long.class, java.sql.Date.valueOf(month)));
+    var conflict =
+        new SecurityEvent(
+            original.eventId(),
+            original.eventType(),
+            1,
+            original.occurredAt(),
+            original.producer(),
+            original.correlationId(),
+            "changed",
+            original.context(),
+            original.data());
+    var late =
+        new SecurityEvent(
+            UUID.randomUUID(),
+            original.eventType(),
+            1,
+            original.occurredAt(),
+            original.producer(),
+            original.correlationId(),
+            "late",
+            original.context(),
+            original.data());
+    var current = event();
+    publish(current);
+    publish(late);
+    publish(original);
+    publish(conflict);
+    worker.runOnce();
+    assertEquals(1, rows(current));
+    assertEquals(0, rows(original));
+    assertEquals(1, receipts(original));
+    assertEquals(0, receipts(late));
+    assertEquals(1, count("LATE"));
+    assertEquals(1, count("DUPLICATE"));
+    assertEquals(1, count("CONFLICT"));
+    assertEquals(2, deadLetters());
+    assertEquals(0, ready("audit.persist"));
+  }
+
   private ConnectionFactory factory() {
     var result = new ConnectionFactory();
     result.setHost(RABBIT.getHost());

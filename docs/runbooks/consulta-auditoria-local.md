@@ -65,3 +65,5 @@ Cada item contém `id`, `occurredAt` e `receivedAt` do banco, além de `event`, 
 - Resultado vazio pode significar que os eventos ainda não foram ingeridos, estão fora da janela, não correspondem aos filtros ou pertencem somente à auditoria legada. Verifique a fila/Outbox conforme 8B; esta API só lê `iam_audit.event_log`.
 
 O cursor evita o custo de OFFSET e resolve empates. Não mantém snapshot: inserções posteriores acima do cursor não entram na continuação; chegadas tardias abaixo dele podem entrar. Não há contagem total nem busca adicional por item. Os índices disponíveis são registrados na [ADR-031](../adr/031-consulta-auditoria-por-cursor.md); desempenho sob carga e retenção pertencem à 8D.
+
+Após a 8D1, meses arquivados ficam fora do parent e desta API. A navegação não mantém snapshot diante de detach; análise do arquivo exige leitura administrativa separada. Consulte o [guia de arquivo](arquivamento-auditoria-local.md).

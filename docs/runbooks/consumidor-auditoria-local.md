@@ -50,3 +50,5 @@ ORDER BY occurred_at DESC, id DESC LIMIT 20;
 ```
 
 `Ctrl+C` encerra o processo e devolve mensagens ainda não confirmadas. O intervalo limita repetição por instância; não há fila de retry com TTL neste caminho nem limite de tentativas. As garantias de DLX são as da topologia local clássica, sem validação de alta disponibilidade. [ADR-030](../adr/030-consumidor-auditoria-em-lote.md) registra os demais limites.
+
+A 8D1 acrescenta o resultado **LATE** para um evento novo em mês arquivado: isolamento e DLQ, preservando os vizinhos do lote. Replay idêntico arquivado continua DUPLICATE/ACK; conflito continua CONFLICT/DLQ. Após V16, reaplique o provisionamento de permissões antes de reiniciar a ingestão. Consulte o [guia de arquivamento](arquivamento-auditoria-local.md).

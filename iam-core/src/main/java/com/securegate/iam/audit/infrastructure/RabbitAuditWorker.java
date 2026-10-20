@@ -5,6 +5,7 @@ import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import com.securegate.events.SecurityEvent;
+import com.securegate.iam.audit.application.ArchivedAuditMonthException;
 import com.securegate.iam.audit.application.port.AuditEventStore;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.io.IOException;
@@ -105,7 +106,7 @@ public final class RabbitAuditWorker implements AutoCloseable {
     List<AuditEventStore.Result> results;
     try {
       results = store.appendBatch(pending.stream().map(Pending::event).toList());
-    } catch (DuplicateKeyException conflict) {
+    } catch (DuplicateKeyException | ArchivedAuditMonthException conflict) {
       // The batch rolled back. Isolate the poison identity so adjacent valid events can progress.
       isolate(pending);
       return;
@@ -137,6 +138,10 @@ public final class RabbitAuditWorker implements AutoCloseable {
       } catch (DuplicateKeyException conflict) {
         channel.basicReject(message.tag(), false);
         count("CONFLICT");
+        continue;
+      } catch (ArchivedAuditMonthException late) {
+        channel.basicReject(message.tag(), false);
+        count("LATE");
         continue;
       } catch (RuntimeException unavailable) {
         retry(pending.subList(i, pending.size()));

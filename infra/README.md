@@ -126,3 +126,5 @@ O switch `-EnableAuditPartitions` de `Start-IamCore.ps1` habilita somente a manu
 O consumidor da **8B** é opcional: `Start-IamCore.ps1 -EnableAuditConsumer -EnableAuditPartitions` usa as credenciais dedicadas provisionadas na 8A2. Acrescente `-EnableOutboxPublisher` para publicar novos eventos localmente. Consulte o [guia de consumo em lote](../docs/runbooks/consumidor-auditoria-local.md); não há ativação automática ou alteração da stack persistente pelo build.
 
 A consulta da **8C** usa `Start-IamCore.ps1 -EnableBootstrap -EnableAuditQuery`, sem iniciar consumidor/publicador. V15 adiciona índices de ator/correlação e a API exige janela limitada e cursor; consulte o [guia de consulta](../docs/runbooks/consulta-auditoria-local.md).
+
+Após V16, reaplique `Provision-AuditDatabase.ps1` para conceder o verificador de replay à ingestão. A **8D1** usa `Archive-AuditMonth.ps1 -Month yyyy-MM -HotMonths 6` em modo de plano; `-Apply` arquiva explicitamente um mês elegível no mesmo banco, sem apagar recibos/dados. Consulte o [guia de arquivo](../docs/runbooks/arquivamento-auditoria-local.md).

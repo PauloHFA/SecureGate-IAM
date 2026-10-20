@@ -89,6 +89,23 @@ class RabbitAuditWorkerTest {
   }
 
   @Test
+  void archivedLateFactDoesNotBlockItsValidNeighbor() throws Exception {
+    when(store.appendBatch(anyList()))
+        .thenThrow(new com.securegate.iam.audit.application.ArchivedAuditMonthException());
+    when(store.append(first))
+        .thenThrow(new com.securegate.iam.audit.application.ArchivedAuditMonthException());
+    when(store.append(second)).thenReturn(AuditEventStore.Result.APPENDED);
+    try (var worker = worker()) {
+      worker.runOnce();
+      verify(channel).basicReject(1, false);
+      verify(channel).basicAck(2, false);
+      verify(channel, never()).basicNack(anyLong(), anyBoolean(), anyBoolean());
+      assertEquals(
+          1, meters.get("iam.audit.consumer.messages").tag("result", "LATE").counter().count());
+    }
+  }
+
+  @Test
   void uncertainAckClosesConnectionAndReconnectsWithoutRejectingCommittedEvents() throws Exception {
     when(store.appendBatch(anyList()))
         .thenReturn(List.of(AuditEventStore.Result.APPENDED, AuditEventStore.Result.APPENDED));
