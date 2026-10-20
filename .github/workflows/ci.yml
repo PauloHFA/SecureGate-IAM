@@ -43,5 +43,6 @@ jobs:
             **/target/failsafe-reports/**
             **/target/site/jacoco/**
             integration-tests/target/e2e/propagation.csv
+            integration-tests/target/e2e/resilience.csv
           if-no-files-found: warn
           retention-days: 7

@@ -52,4 +52,4 @@ Conectividade/senha/timeout e validação estrita usam as mesmas configurações
 
 Os testes usam Redis/PostgreSQL/Vault descartáveis, projeções compatíveis aplicadas diretamente e prova MFA real. A cadeia completa Outbox → RabbitMQ → enforcer → HTTP e sua latência ainda serão medidas na 7D. Veja [ADR-025](../adr/025-enforcement-login-emissao.md) e [evidências](../evidencias/etapa-07c2.md).
 
-A [7D1](propagacao-ponta-a-ponta-local.md) acrescenta a medição de revogação/logout na cadeia completa. Falhas, replay/reordenação e bloqueios por limiar integrados continuam na 7D2.
+A [7D1](propagacao-ponta-a-ponta-local.md) acrescenta a medição de revogação/logout na cadeia completa. Falhas, replay/reordenação e bloqueios por limiar integrados estão descritos na [7D2](resiliencia-ponta-a-ponta-local.md).

@@ -27,16 +27,22 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.web.util.HtmlUtils;
 
 /** HTTP -> transaction/outbox -> publisher -> RabbitMQ -> enforcer -> Redis -> HTTP. */
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class PropagationIT {
   private static final PropagationEnvironment ENV = new PropagationEnvironment();
   private static final String USER_PASSWORD = "Synthetic-propagation-password-123!";
   private static final String CALLBACK = "http://127.0.0.1:18090/callback";
   private static final Path RESULTS = Path.of("target/e2e/propagation.csv");
+  private static final Path RESILIENCE = Path.of("target/e2e/resilience.csv");
 
   @BeforeAll
   static void start() throws Exception {
@@ -44,6 +50,7 @@ class PropagationIT {
     Files.writeString(
         RESULTS,
         "target,sample,event_id,correlation_id,elapsed_ms,projection_ttl_ms,http_status\n");
+    Files.writeString(RESILIENCE, "scenario,result\n");
     policy("account:self", "read");
     // Explicit low-risk test network/profile: no synthetic proof or deletion of risk projections.
     admin("/api/admin/risk/networks", Map.of("cidr", "127.0.0.0/24"));
@@ -62,6 +69,7 @@ class PropagationIT {
   }
 
   @ParameterizedTest
+  @Order(1)
   @EnumSource(Target.class)
   void propagatesConfirmedRevocationWithTraceAndRejectsPreviouslyAcceptedToken(Target target)
       throws Exception {
@@ -201,6 +209,413 @@ class PropagationIT {
     }
   }
 
+  @Test
+  @Order(2)
+  void stoppedEnforcerRetainsPublishedRevocationAndExactReplayDoesNotChangeItsEffect()
+      throws Exception {
+    var flow = issue(false);
+    String token = access(flow);
+    var claims = claims(token);
+    String key = SecurityProjectionKeys.key("revocation", "jti", claims.path("jti").asText());
+    assertEquals(200, resource(token).statusCode());
+    ENV.stopEnforcer();
+    JsonNode fact;
+    try {
+      fact = revoke(flow, token);
+      published(fact);
+      assertFalse(Boolean.TRUE.equals(ENV.redis.hasKey(key)));
+      assertTrue(queueDepth("enforcer.revocation") > 0);
+    } finally {
+      ENV.restartEnforcer(Map.of());
+    }
+    converged(fact, key, token);
+    String value = ENV.redis.opsForValue().get(key);
+    String eventMarker = "securegate:{revocation}:event:" + fact.path("eventId").asText();
+    String fingerprint = ENV.redis.opsForValue().get(eventMarker);
+    var wire = ENV.capture(fact.path("eventId").asText());
+    ENV.replay(wire, 3);
+    // A later real logout in the same FIFO queue fences processing of all preceding copies.
+    var closed = logout(flow);
+    String sidKey = SecurityProjectionKeys.key("revocation", "sid", claims.path("sid").asText());
+    converged(closed, sidKey, token);
+    assertEquals(value, ENV.redis.opsForValue().get(key));
+    assertEquals(fingerprint, ENV.redis.opsForValue().get(eventMarker));
+    assertEquals(0, queueDepth("enforcer.revocation.dlq"));
+    passed("enforcer_restart_and_exact_revocation_replay");
+  }
+
+  @Test
+  @Order(3)
+  void brokerOutageKeepsTheCommittedFactPendingAndRecoversWithoutAnotherRevocation()
+      throws Exception {
+    var flow = issue(false);
+    String token = access(flow);
+    String key =
+        SecurityProjectionKeys.key("revocation", "jti", claims(token).path("jti").asText());
+    assertEquals(200, resource(token).statusCode());
+    ENV.brokerApplication(false);
+    JsonNode fact;
+    try {
+      fact = revoke(flow, token);
+      String id = fact.path("eventId").asText();
+      await(
+          "persisted publication failure",
+          Duration.ofSeconds(15),
+          () ->
+              ENV.jdbc.queryForObject(
+                  "SELECT published_at IS NULL AND last_error_code IS NOT NULL FROM iam_audit.outbox_events WHERE event_id=?",
+                  Boolean.class,
+                  UUID.fromString(id)));
+      assertFalse(Boolean.TRUE.equals(ENV.redis.hasKey(key)));
+    } finally {
+      ENV.brokerApplication(true);
+    }
+    converged(fact, key, token);
+    assertEquals(
+        1,
+        ENV.jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.outbox_events WHERE event_id=?",
+            Integer.class,
+            UUID.fromString(fact.path("eventId").asText())));
+    passed("broker_outage_and_persisted_retry");
+  }
+
+  @Test
+  @Order(4)
+  void redisOutageFailsResourceClosedAndLeavesDeliveryRecoverable() throws Exception {
+    var flow = issue(false);
+    String token = access(flow);
+    String key =
+        SecurityProjectionKeys.key("revocation", "jti", claims(token).path("jti").asText());
+    assertEquals(200, resource(token).statusCode());
+    ENV.pauseRedis(true);
+    JsonNode fact;
+    try {
+      var unavailable = resource(token);
+      assertEquals(503, unavailable.statusCode());
+      assertFalse(unavailable.body().contains("Redis"));
+      fact = revoke(flow, token);
+      published(fact);
+      Thread.sleep(3000); // Longer than the real enforcer command timeout; Redis remains paused.
+      await(
+          "delivery remains pending while Redis is paused",
+          Duration.ofSeconds(5),
+          () -> queueDepth("enforcer.revocation") > 0);
+    } finally {
+      ENV.pauseRedis(false);
+    }
+    converged(fact, key, token);
+    assertEquals(0, queueDepth("enforcer.revocation.dlq"));
+    passed("redis_outage_fail_closed_and_delivery_recovery");
+  }
+
+  @Test
+  @Order(5)
+  void olderPolicyEventsDeliveredAfterNewerAllowCannotReintroduceStaleDenial() throws Exception {
+    var flow = issue(false);
+    String token = access(flow);
+    assertEquals(200, resource(token).statusCode());
+    var initial = policy("account:self", "read");
+    String policyId = initial.path("id").asText();
+    var created = policyFact(policyId, 0);
+    consumedBlock(created);
+    var olderAllow = ENV.capture(created.path("eventId").asText());
+    var denied = updatePolicy(initial, "DENY");
+    var deniedFact = policyFact(policyId, denied.path("version").asLong());
+    consumedBlock(deniedFact);
+    assertEquals(403, resource(token).statusCode());
+    var olderDeny = ENV.capture(deniedFact.path("eventId").asText());
+    var allowed = updatePolicy(denied, "ALLOW");
+    consumedBlock(policyFact(policyId, allowed.path("version").asLong()));
+    String key = SecurityProjectionKeys.key("block-policy", "policy", policyId);
+    String fresh = ENV.redis.opsForValue().get(key);
+    assertTrue(
+        fresh.startsWith(
+            String.format(java.util.Locale.ROOT, "%019d|true|", allowed.path("version").asLong())));
+    assertEquals(200, resource(token).statusCode());
+    ENV.replay(olderDeny, 2);
+    ENV.replay(olderAllow, 2);
+    blockFence();
+    assertEquals(fresh, ENV.redis.opsForValue().get(key));
+    assertEquals(200, resource(token).statusCode());
+    assertEquals(0, queueDepth("enforcer.block-policy.dlq"));
+    passed("out_of_order_policy_replay_preserves_newer_allow");
+  }
+
+  @Test
+  @Order(99)
+  void realFailuresDeduplicateAndReachAccountAndIpLimitsThenExpireNaturally() throws Exception {
+    // Only the block duration changes for this final scenario; defaults 5/20 and window 300s stay.
+    ENV.restartEnforcer(Map.of("ENFORCER_BLOCKPOLICY_BLOCKSECONDS", "3"));
+    var flow = issue(true);
+    String token = access(flow);
+    var claims = claims(token);
+    String user = claims.path("sub").asText();
+    long version =
+        ENV.jdbc.queryForObject(
+            "SELECT version FROM iam_identity.users WHERE id=?", Long.class, UUID.fromString(user));
+    String subject = user + ":" + version;
+    String counter = SecurityProjectionKeys.key("block-policy", "attempts:account", subject);
+    String account = SecurityProjectionKeys.key("block-policy", "blocked:account", subject);
+    String ip = SecurityProjectionKeys.key("block-policy", "blocked:ip", "127.0.0.1");
+    var browser =
+        HttpClient.newBuilder()
+            .cookieHandler(new CookieManager(null, CookiePolicy.ACCEPT_ALL))
+            .build();
+    String correlation = UUID.randomUUID().toString();
+    assertEquals(
+        302, login(browser, flow.email, "synthetic-wrong-password", correlation).statusCode());
+    var failure = fact("auth.login.failed", correlation);
+    consumedBlock(failure);
+    var original = ENV.capture(failure.path("eventId").asText());
+    ENV.replay(original, 3);
+    blockFence();
+    assertEquals(1L, ENV.redis.opsForZSet().zCard(counter));
+    assertFalse(Boolean.TRUE.equals(ENV.redis.hasKey(account)));
+    for (int i = 0; i < 4; i++) {
+      assertEquals(302, login(browser, flow.email, "synthetic-wrong-password", null).statusCode());
+    }
+    await(
+        "account threshold projection",
+        Duration.ofSeconds(10),
+        () -> Boolean.TRUE.equals(ENV.redis.hasKey(account)));
+    assertEquals(5L, ENV.redis.opsForZSet().zCard(counter));
+    assertEquals(429, resource(token).statusCode());
+    var deniedLogin = login(browser, flow.email, USER_PASSWORD, null);
+    assertEquals(302, deniedLogin.statusCode());
+    assertEquals(ENV.base.resolve("/login?error").toString(), location(deniedLogin));
+    assertEquals(302, get(browser, "/mfa").statusCode());
+    var refused =
+        json(
+            oauth(
+                flow,
+                "/oauth2/token",
+                Map.of(
+                    "grant_type",
+                    "refresh_token",
+                    "refresh_token",
+                    flow.tokens.path("refresh_token").asText()),
+                null),
+            400);
+    assertEquals("invalid_grant", refused.path("error").asText());
+    await(
+        "natural account block expiry",
+        Duration.ofSeconds(12),
+        () ->
+            !Boolean.TRUE.equals(ENV.redis.hasKey(account)) && resource(token).statusCode() == 200);
+    // Retained failure history counts toward the default shared IP threshold of twenty.
+    for (int i = 0; i < 25 && !Boolean.TRUE.equals(ENV.redis.hasKey(ip)); i++) {
+      var attempt =
+          login(
+              browser,
+              "unknown-" + UUID.randomUUID() + "@example.test",
+              "synthetic-wrong-password",
+              null);
+      assertTrue(attempt.statusCode() == 302 || attempt.statusCode() == 429);
+    }
+    await(
+        "IP threshold projection",
+        Duration.ofSeconds(10),
+        () -> Boolean.TRUE.equals(ENV.redis.hasKey(ip)));
+    assertEquals(
+        20L,
+        ENV.redis
+            .opsForZSet()
+            .zCard(SecurityProjectionKeys.key("block-policy", "attempts:ip", "127.0.0.1")));
+    int before = failureCount();
+    assertEquals(429, login(browser, flow.email, USER_PASSWORD, null).statusCode());
+    assertEquals(
+        429, login(browser, "unknown@example.test", "synthetic-wrong-password", null).statusCode());
+    assertEquals(before, failureCount());
+    assertEquals(429, resource(token).statusCode());
+    assertEquals(
+        "invalid_grant",
+        json(
+                oauth(
+                    flow,
+                    "/oauth2/token",
+                    Map.of(
+                        "grant_type",
+                        "refresh_token",
+                        "refresh_token",
+                        flow.tokens.path("refresh_token").asText()),
+                    null),
+                400)
+            .path("error")
+            .asText());
+    await(
+        "natural IP block expiry",
+        Duration.ofSeconds(12),
+        () -> !Boolean.TRUE.equals(ENV.redis.hasKey(ip)) && resource(token).statusCode() == 200);
+    assertEquals(
+        200,
+        oauth(
+                flow,
+                "/oauth2/token",
+                Map.of(
+                    "grant_type",
+                    "refresh_token",
+                    "refresh_token",
+                    flow.tokens.path("refresh_token").asText()),
+                null)
+            .statusCode());
+    assertEquals(0, queueDepth("enforcer.block-policy.dlq"));
+    passed("real_account_ip_thresholds_replay_and_expiry");
+  }
+
+  private static JsonNode claims(String token) throws Exception {
+    return JSON.readTree(Base64.getUrlDecoder().decode(token.split("\\.")[1]));
+  }
+
+  private static String access(Flow flow) {
+    return flow.tokens.path("access_token").asText();
+  }
+
+  private static JsonNode fact(String type, String correlation) throws Exception {
+    var rows =
+        ENV.jdbc.queryForList(
+            "SELECT payload::text FROM iam_audit.outbox_events WHERE event_type=? AND payload->>'correlationId'=?",
+            String.class,
+            type,
+            correlation);
+    assertEquals(1, rows.size());
+    return JSON.readTree(rows.getFirst());
+  }
+
+  private static JsonNode revoke(Flow flow, String token) throws Exception {
+    String correlation = UUID.randomUUID().toString();
+    assertEquals(
+        200, oauth(flow, "/oauth2/revoke", Map.of("token", token), correlation).statusCode());
+    return fact("token.revoked", correlation);
+  }
+
+  private static JsonNode logout(Flow flow) throws Exception {
+    String correlation = UUID.randomUUID().toString();
+    assertEquals(
+        302,
+        post(
+                flow.browser,
+                "/logout",
+                Map.of("_csrf", hidden(get(flow.browser, "/mfa").body(), "_csrf")),
+                null,
+                correlation)
+            .statusCode());
+    return fact("session.terminated", correlation);
+  }
+
+  private static void published(JsonNode fact) throws Exception {
+    await(
+        "confirmed outbox publication",
+        Duration.ofSeconds(45),
+        () ->
+            ENV.jdbc.queryForObject(
+                "SELECT published_at IS NOT NULL FROM iam_audit.outbox_events WHERE event_id=?",
+                Boolean.class,
+                UUID.fromString(fact.path("eventId").asText())));
+  }
+
+  private static void converged(JsonNode fact, String key, String token) throws Exception {
+    published(fact);
+    await(
+        "recovery projection and HTTP rejection",
+        Duration.ofSeconds(45),
+        () ->
+            Boolean.TRUE.equals(
+                    ENV.redis.hasKey(
+                        "securegate:{revocation}:event:" + fact.path("eventId").asText()))
+                && Boolean.TRUE.equals(ENV.redis.hasKey(key))
+                && resource(token).statusCode() == 401);
+  }
+
+  private static int queueDepth(String queue) throws Exception {
+    try (var connection = ENV.rabbitConnection();
+        var channel = connection.createChannel()) {
+      return channel.queueDeclarePassive(queue).getMessageCount();
+    }
+  }
+
+  private static JsonNode policyFact(String id, long version) throws Exception {
+    var rows =
+        ENV.jdbc.queryForList(
+            "SELECT payload::text FROM iam_audit.outbox_events WHERE event_type='policy.changed' AND payload->'data'->>'policyId'=? AND payload->'data'->>'version'=?",
+            String.class,
+            id,
+            Long.toString(version));
+    assertEquals(1, rows.size());
+    return JSON.readTree(rows.getFirst());
+  }
+
+  private static void consumedBlock(JsonNode fact) throws Exception {
+    published(fact);
+    await(
+        "block/policy effect completion",
+        Duration.ofSeconds(15),
+        () ->
+            Boolean.TRUE.equals(
+                ENV.redis.hasKey(
+                    "securegate:{block-policy}:event:" + fact.path("eventId").asText())));
+  }
+
+  private static void blockFence() throws Exception {
+    var created = policy("e2e:fence", "read");
+    consumedBlock(policyFact(created.path("id").asText(), 0));
+  }
+
+  private static JsonNode updatePolicy(JsonNode policy, String effect) throws Exception {
+    var document = policy.path("document").deepCopy();
+    ((com.fasterxml.jackson.databind.node.ObjectNode) document).put("effect", effect);
+    var response =
+        HTTP.send(
+            HttpRequest.newBuilder(
+                    ENV.base.resolve("/api/admin/policies/" + policy.path("id").asText()))
+                .timeout(Duration.ofSeconds(5))
+                .header("Authorization", "Bearer " + ENV.admin)
+                .header("Content-Type", "application/json")
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        JSON.writeValueAsString(
+                            Map.of(
+                                "name",
+                                policy.path("name").asText(),
+                                "priority",
+                                policy.path("priority").asInt(),
+                                "enabled",
+                                true,
+                                "document",
+                                document,
+                                "version",
+                                policy.path("version").asLong()))))
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    return json(response, 200);
+  }
+
+  private static HttpResponse<String> login(
+      HttpClient browser, String email, String password, String correlation) throws Exception {
+    return post(
+        browser,
+        "/login",
+        Map.of(
+            "username",
+            email,
+            "password",
+            password,
+            "_csrf",
+            hidden(get(browser, "/login").body(), "_csrf")),
+        null,
+        correlation);
+  }
+
+  private static int failureCount() {
+    return ENV.jdbc.queryForObject(
+        "SELECT count(*) FROM iam_audit.outbox_events WHERE event_type='auth.login.failed'",
+        Integer.class);
+  }
+
+  private static void passed(String scenario) throws Exception {
+    Files.writeString(RESILIENCE, scenario + ",PASS\n", StandardOpenOption.APPEND);
+  }
+
   private static Flow issue(boolean refresh) throws Exception {
     String suffix = UUID.randomUUID().toString().replace("-", "");
     String client = "e2e-" + suffix;
@@ -241,7 +656,7 @@ class PropagationIT {
             .connectTimeout(Duration.ofSeconds(2))
             .cookieHandler(new CookieManager(null, CookiePolicy.ACCEPT_ALL))
             .build();
-    var flow = new Flow(client, registered.path("clientSecret").asText(), browser);
+    var flow = new Flow(client, registered.path("clientSecret").asText(), browser, email);
     var initial =
         get(
             browser,
@@ -311,8 +726,8 @@ class PropagationIT {
     return flow;
   }
 
-  private static void policy(String resource, String action) throws Exception {
-    admin(
+  private static JsonNode policy(String resource, String action) throws Exception {
+    return admin(
         "/api/admin/policies",
         Map.of(
             "name",
@@ -443,12 +858,14 @@ class PropagationIT {
     final String client;
     final String secret;
     final HttpClient browser;
+    final String email;
     JsonNode tokens;
 
-    Flow(String client, String secret, HttpClient browser) {
+    Flow(String client, String secret, HttpClient browser, String email) {
       this.client = client;
       this.secret = secret;
       this.browser = browser;
+      this.email = email;
     }
 
     @Override

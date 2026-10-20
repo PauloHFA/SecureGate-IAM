@@ -68,4 +68,4 @@ O health agregado pode refletir Redis no modo ativo. A readiness existente conti
 
 Os testes usam Redis, PostgreSQL e Vault temporários e não interrompem a stack persistente. Eles aplicam projeções compatíveis com o protocolo diretamente no Redis; a medição da cadeia Outbox → RabbitMQ → enforcer → recurso continua na 7D. Veja [ADR-024](../adr/024-consulta-redis-no-recurso.md) e [evidências 7C1](../evidencias/etapa-07c1.md).
 
-A [7D1](propagacao-ponta-a-ponta-local.md) acrescenta a medição de revogação/logout na cadeia completa. Falhas, replay/reordenação e bloqueios por limiar integrados continuam na 7D2.
+A [7D1](propagacao-ponta-a-ponta-local.md) acrescenta a medição de revogação/logout na cadeia completa. Falhas, replay/reordenação e bloqueios por limiar integrados estão descritos na [7D2](resiliencia-ponta-a-ponta-local.md).

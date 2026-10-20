@@ -61,6 +61,8 @@ final class PropagationEnvironment implements AutoCloseable {
           .withExposedPorts(8200)
           .waitingFor(Wait.forHttp("/v1/sys/health").forStatusCode(200));
   private final List<Process> processes = new ArrayList<>();
+  private Process enforcer;
+  private Map<String, String> enforcerEnvironment;
   private Path credentials;
   private LettuceConnectionFactory redisFactory;
   StringRedisTemplate redis;
@@ -215,8 +217,92 @@ final class PropagationEnvironment implements AutoCloseable {
     Files.createDirectories(Path.of("target/e2e"));
     builder
         .redirectErrorStream(true)
-        .redirectOutput(Path.of("target/e2e", module + ".log").toFile());
-    processes.add(builder.start());
+        .redirectOutput(
+            ProcessBuilder.Redirect.appendTo(Path.of("target/e2e", module + ".log").toFile()));
+    var process = builder.start();
+    processes.add(process);
+    if (module.equals("policy-enforcer")) {
+      enforcer = process;
+      enforcerEnvironment = Map.copyOf(environment);
+    }
+  }
+
+  void stopEnforcer() throws Exception {
+    enforcer.destroy();
+    if (!enforcer.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) {
+      enforcer.destroyForcibly();
+      assertTrue(enforcer.waitFor(10, java.util.concurrent.TimeUnit.SECONDS));
+    }
+    assertFalse(enforcer.isAlive());
+  }
+
+  void restartEnforcer(Map<String, String> overrides) throws Exception {
+    stopEnforcer();
+    var environment = new java.util.HashMap<>(enforcerEnvironment);
+    environment.putAll(overrides);
+    launch("policy-enforcer", environment);
+  }
+
+  com.rabbitmq.client.Connection rabbitConnection() throws Exception {
+    var factory = new ConnectionFactory();
+    factory.setHost(rabbit.getHost());
+    factory.setPort(rabbit.getMappedPort(5672));
+    factory.setUsername("propagation_test");
+    factory.setPassword(password);
+    factory.setVirtualHost("securegate");
+    factory.setConnectionTimeout(2000);
+    factory.setHandshakeTimeout(2000);
+    factory.setChannelRpcTimeout(2000);
+    factory.setAutomaticRecoveryEnabled(false);
+    return factory.newConnection();
+  }
+
+  record Wire(com.rabbitmq.client.AMQP.BasicProperties properties, byte[] body) {
+    @Override
+    public String toString() {
+      return "Wire[REDACTED]";
+    }
+  }
+
+  Wire capture(String eventId) throws Exception {
+    // Only the disposable audit queue is drained, never an enforcer queue.
+    try (var connection = rabbitConnection();
+        var channel = connection.createChannel()) {
+      for (int i = 0; i < 1000; i++) {
+        var message = channel.basicGet("audit.persist", true);
+        assertNotNull(message, "Published event must have reached the disposable audit queue");
+        if (eventId.equals(message.getProps().getMessageId())) {
+          return new Wire(message.getProps(), message.getBody());
+        }
+      }
+    }
+    throw new AssertionError("Event not found in disposable audit queue");
+  }
+
+  void replay(Wire wire, int times) throws Exception {
+    try (var connection = rabbitConnection();
+        var channel = connection.createChannel()) {
+      channel.confirmSelect();
+      for (int i = 0; i < times; i++) {
+        channel.basicPublish(
+            "security.events", wire.properties().getType(), wire.properties(), wire.body());
+      }
+      channel.waitForConfirmsOrDie(2000);
+    }
+  }
+
+  void brokerApplication(boolean start) throws Exception {
+    assertEquals(
+        0, rabbit.execInContainer("rabbitmqctl", start ? "start_app" : "stop_app").getExitCode());
+  }
+
+  void pauseRedis(boolean pause) {
+    var docker = org.testcontainers.DockerClientFactory.instance().client();
+    if (pause) {
+      docker.pauseContainerCmd(redisContainer.getContainerId()).exec();
+    } else {
+      docker.unpauseContainerCmd(redisContainer.getContainerId()).exec();
+    }
   }
 
   private String vaultAddress() {

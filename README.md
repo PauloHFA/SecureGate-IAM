@@ -38,6 +38,8 @@ A 7C2 aplica sinais Redis no login e na emissão/refresh, preserva códigos e re
 
 A 7D1 acrescenta o módulo de testes ponta a ponta, executando IAM/enforcer empacotados com infraestrutura descartável. Mede revogação por jti, família após refresh e logout, correlacionando Outbox, Redis e rejeição HTTP. Consulte o [guia](docs/runbooks/propagacao-ponta-a-ponta-local.md), a [ADR-026](docs/adr/026-medicao-ponta-a-ponta.md) e as [evidências 7D1](docs/evidencias/etapa-07d1.md).
 
+A 7D2 valida reinício do enforcer, indisponibilidade do broker/Redis, replay exato, política fora de ordem e bloqueios reais por conta/IP com expiração. Consulte o [guia](docs/runbooks/resiliencia-ponta-a-ponta-local.md), a [ADR-027](docs/adr/027-resiliencia-ponta-a-ponta.md) e as [evidências 7D2](docs/evidencias/etapa-07d2.md).
+
 ## Decisões aprovadas
 
 - Java 21, Spring Boot e Spring Authorization Server.
@@ -73,7 +75,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **7D2**, falhas, duplicação, reordenação e bloqueios por limiar na cadeia completa. A 7D1 está implementada localmente em `feat/end-to-end-propagation`. A 7C2 (`15dfbf8`) e seus commits ancestrais foram publicados em `feat/authentication-redis-enforcement`; CI remota, revisão e merge das etapas 6/7 continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
+Próxima entrega: **8A**, modelagem e particionamento da auditoria. O escopo funcional da etapa 7 está validado localmente; publicação, CI remota e revisão/merge continuam pendentes. A 7D1 está no commit local `70e7f4a`; a 7D2 está em `feat/end-to-end-resilience`. A base publicada das etapas 6/7 vai até a 7C2 (`15dfbf8`), em `feat/authentication-redis-enforcement`. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

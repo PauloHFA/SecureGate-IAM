@@ -32,4 +32,4 @@ Falha no startup: consulte logs e disponibilidade de Docker/memória. Falha de p
 
 O 401 pode ocorrer primeiro pela barreira local do IAM. Por isso o teste exige também a projeção Redis e publicação confirmada. O tempo representa um limite superior observado da convergência, sem atribuir a recusa exclusivamente ao Redis. Nove amostras em ambiente ocioso não demonstram latência de produção ou sob carga.
 
-Falhas/replay/reordenação e bloqueios por limiar na cadeia completa ficam na **7D2**. Consulte [ADR-026](../adr/026-medicao-ponta-a-ponta.md) e [evidências](../evidencias/etapa-07d1.md).
+Os cenários de falha/replay/reordenação e bloqueios por limiar estão no [guia 7D2](resiliencia-ponta-a-ponta-local.md). Consulte [ADR-026](../adr/026-medicao-ponta-a-ponta.md) e [evidências](../evidencias/etapa-07d1.md).
