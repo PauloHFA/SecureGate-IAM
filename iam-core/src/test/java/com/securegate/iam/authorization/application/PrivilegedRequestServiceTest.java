@@ -100,6 +100,30 @@ class PrivilegedRequestServiceTest {
   }
 
   @Test
+  void expirationObservationPreservesCorrelationAndRecordsOnlyOneTransition() {
+    UUID id = UUID.randomUUID();
+    var entry =
+        new PrivilegedRequests.Entry(
+            id,
+            user,
+            "database:diagnostics",
+            "Investigar incidente",
+            now.minusSeconds(60),
+            now,
+            null,
+            "request-origin");
+    when(requests.expired(now)).thenReturn(List.of(entry));
+    when(requests.recordExpiration(id, now)).thenReturn(true, false);
+    service.observeExpirations();
+    service.observeExpirations();
+    var capture = ArgumentCaptor.forClass(AuditRecord.class);
+    verify(audit).record(capture.capture());
+    assertEquals("pam.request.expired", capture.getValue().type().value());
+    assertEquals("request-origin", capture.getValue().context().correlationId());
+    assertEquals("LOGICAL_DEADLINE", capture.getValue().details().get("meaning"));
+  }
+
+  @Test
   void expirationAndRevocationAreTerminalAndDoNotMoveDeadline() {
     UUID id = UUID.randomUUID();
     var expired =

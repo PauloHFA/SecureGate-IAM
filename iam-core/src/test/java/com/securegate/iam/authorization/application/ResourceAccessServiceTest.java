@@ -194,6 +194,36 @@ class ResourceAccessServiceTest {
   }
 
   @Test
+  void privilegedIssuanceRequiresItsOwnScopeAndMandatoryMfa() {
+    when(tokens.resolve("token", "test-api"))
+        .thenReturn(
+            Optional.of(
+                new ResourceTokens.Subject(
+                    user,
+                    4,
+                    sid,
+                    "jti",
+                    Set.of("pam:issue"),
+                    now.minusSeconds(10),
+                    now.plusSeconds(290))));
+    when(policies.decide(eq(user), eq("database:diagnostics"), eq("issue"), anySet(), eq(sid)))
+        .thenReturn(
+            new PolicyDecisions.Decision(false, Set.of("pam:issue"), 300, false, List.of(), 20));
+    assertEquals(
+        "mfa_required",
+        assertThrows(
+                ResourceAccessService.Rejected.class,
+                () -> service.authorize("token", ResourceAccessService.Operation.PRIVILEGED_ISSUE))
+            .code());
+    when(proofs.current(user, 4, sid))
+        .thenReturn(
+            Optional.of(new MfaProofs.Proof("TOTP", now.minusSeconds(5), now.plusSeconds(15))));
+    assertEquals(
+        now.plusSeconds(15),
+        service.authorize("token", ResourceAccessService.Operation.PRIVILEGED_ISSUE).expiresAt());
+  }
+
+  @Test
   void dependencyFailurePropagatesInsteadOfCreatingPermit() {
     when(policies.decide(any(), anyString(), anyString(), anySet(), any()))
         .thenThrow(new IllegalStateException("synthetic"));

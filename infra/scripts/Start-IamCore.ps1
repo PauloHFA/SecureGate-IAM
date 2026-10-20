@@ -1,10 +1,11 @@
 [CmdletBinding()]
-param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement, [switch]$EnableAuditPartitions, [switch]$EnableAuditIngestion, [switch]$EnableAuditConsumer, [switch]$EnableAuditQuery, [switch]$EnableVaultKv, [switch]$EnableVaultDatabase, [switch]$EnablePam)
+param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement, [switch]$EnableAuditPartitions, [switch]$EnableAuditIngestion, [switch]$EnableAuditConsumer, [switch]$EnableAuditQuery, [switch]$EnableVaultKv, [switch]$EnableVaultDatabase, [switch]$EnablePam, [switch]$EnablePamCredentials)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LocalEnvironment.ps1')
 $projectPath = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $settings = Read-LocalEnvironment (Join-Path $projectPath '.env')
+if ($EnablePamCredentials) { $EnablePam = $true }
 if ($EnableVaultDatabase) { $EnableVaultKv = $true }
 if ($EnableAuditConsumer -or $EnableAuditQuery) { $EnableAuditIngestion = $true }
 if ($EnableResourceEnforcement -or $EnablePam) { $EnableAuthorization = $true }
@@ -16,6 +17,10 @@ $jarPath = Join-Path $projectPath 'iam-core/target/iam-core-0.1.0-SNAPSHOT.jar'
 $vaultRole = if ($EnableVaultDatabase) { 'iam-runtime' } else { 'iam-core' }
 $roleIdPath = Join-Path $projectPath ('infra/.local/' + $vaultRole + '-role-id')
 $secretIdPath = Join-Path $projectPath ('infra/.local/' + $vaultRole + '-secret-id')
+if ($EnablePamCredentials -and (-not (Test-Path -LiteralPath (Join-Path $projectPath 'infra/.local/iam-pam-role-id')) -or
+    -not (Test-Path -LiteralPath (Join-Path $projectPath 'infra/.local/iam-pam-secret-id')))) {
+  throw 'Arquivos AppRole PAM ausentes. Reaplique vault-init antes de ativar a emissao.'
+}
 $auditIngestPath = Join-Path $projectPath 'infra/.local/audit-ingest-password'
 $auditMaintenancePath = Join-Path $projectPath 'infra/.local/audit-maintenance-password'
 if (($EnableAuditPartitions -and -not (Test-Path -LiteralPath $auditMaintenancePath)) -or
@@ -60,6 +65,9 @@ if ($EnableAuditConsumer) { 'true' } else { 'false' })
   IAM_ENFORCEMENT_REDIS_PASSWORD = $(if ($EnableResourceEnforcement -and -not $EnableVaultKv) { $settings.REDIS_PASSWORD } else { '' })
   IAM_TRANSIT_ENABLED = $(if ($EnableTransit) { 'true' } else { 'false' })
   IAM_AUTHORIZATION_ENABLED = $(if ($EnableAuthorization) { 'true' } else { 'false' })
+  IAM_PAM_CREDENTIALS_ENABLED = $(if ($EnablePamCredentials) { 'true' } else { 'false' })
+  IAM_PAM_VAULT_ROLE_ID_FILE = (Join-Path $projectPath 'infra/.local/iam-pam-role-id')
+  IAM_PAM_VAULT_SECRET_ID_FILE = (Join-Path $projectPath 'infra/.local/iam-pam-secret-id')
   IAM_PAM_ENABLED = $(if ($EnablePam) { 'true' } else { 'false' })
   IAM_ISSUER = 'http://127.0.0.1:' + $Port
   IAM_VAULT_ADDRESS = 'http://127.0.0.1:' + $settings.VAULT_PORT

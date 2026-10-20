@@ -3,6 +3,7 @@ package com.securegate.iam.bootstrap;
 import com.securegate.events.SecurityEventType;
 import com.securegate.iam.audit.application.port.AuditRecord;
 import com.securegate.iam.audit.application.port.AuditTrail;
+import com.securegate.iam.authorization.application.PamAudit;
 import com.securegate.iam.authorization.application.ResourceAccessService;
 import com.securegate.iam.authorization.application.port.ResourceEnforcement;
 import com.securegate.iam.authorization.application.port.ResourceTokens;
@@ -69,7 +70,8 @@ public class ResourceSecurityConfiguration {
       HttpSecurity http,
       ResourceAccessService access,
       AuditTrail audit,
-      @Value("${iam.pam.enabled:false}") boolean pamEnabled)
+      @Value("${iam.pam.enabled:false}") boolean pamEnabled,
+      @Value("${iam.pam.credentials.enabled:false}") boolean credentialsEnabled)
       throws Exception {
     return http.securityMatcher("/api/resources/**", "/api/pam/**")
         .csrf(AbstractHttpConfigurer::disable)
@@ -84,6 +86,10 @@ public class ResourceSecurityConfiguration {
                     .requestMatchers(HttpMethod.GET, "/api/pam/requests/*")
                     .authenticated()
                     .requestMatchers(HttpMethod.DELETE, "/api/pam/requests/*")
+                    .authenticated()
+                    .requestMatchers(HttpMethod.POST, "/api/pam/requests/*/credentials")
+                    .authenticated()
+                    .requestMatchers(HttpMethod.GET, "/api/pam/requests/*/credentials")
                     .authenticated()
                     .anyRequest()
                     .denyAll())
@@ -113,18 +119,27 @@ public class ResourceSecurityConfiguration {
                                                         || "DELETE".equals(method))
                                                     && path.matches(
                                                         "/api/pam/requests/[0-9a-fA-F-]{36}")));
-                                    if (!account && !pam) {
+                                    boolean credentials =
+                                        pamEnabled
+                                            && credentialsEnabled
+                                            && ("GET".equals(method) || "POST".equals(method))
+                                            && path.matches(
+                                                "/api/pam/requests/[0-9a-fA-F-]{36}/credentials");
+                                    if (!account && !pam && !credentials) {
                                       throw new ResourceAccessService.Rejected(
                                           "insufficient_scope");
                                     }
                                     var permit =
                                         access.authorize(
                                             token,
-                                            pam
-                                                ? ResourceAccessService.Operation.PRIVILEGED_REQUEST
-                                                : ResourceAccessService.Operation.ACCOUNT_READ,
+                                            credentials
+                                                ? ResourceAccessService.Operation.PRIVILEGED_ISSUE
+                                                : pam
+                                                    ? ResourceAccessService.Operation
+                                                        .PRIVILEGED_REQUEST
+                                                    : ResourceAccessService.Operation.ACCOUNT_READ,
                                             current.getRequest().getRemoteAddr());
-                                    if (pam) {
+                                    if (pam || credentials) {
                                       return new DefaultOAuth2AuthenticatedPrincipal(
                                           permit.userId().toString(),
                                           Map.of("pam_permit", permit),
@@ -171,6 +186,38 @@ public class ResourceSecurityConfiguration {
                                             permit.expiresAt().toString()),
                                         List.of());
                                   } catch (ResourceAccessService.Rejected rejected) {
+                                    var attributes = RequestContextHolder.getRequestAttributes();
+                                    if (pamEnabled
+                                        && rejected.userId() != null
+                                        && attributes instanceof ServletRequestAttributes current
+                                        && current
+                                            .getRequest()
+                                            .getServletPath()
+                                            .startsWith("/api/pam/")) {
+                                      try {
+                                        new PamAudit(audit)
+                                            .denied(
+                                                rejected.userId(),
+                                                (String)
+                                                    current
+                                                        .getRequest()
+                                                        .getAttribute(
+                                                            CorrelationIdFilter.ATTRIBUTE),
+                                                current
+                                                        .getRequest()
+                                                        .getServletPath()
+                                                        .endsWith("/credentials")
+                                                    ? ResourceAccessService.Operation
+                                                        .PRIVILEGED_ISSUE
+                                                    : ResourceAccessService.Operation
+                                                        .PRIVILEGED_REQUEST,
+                                                rejected.code(),
+                                                PamAudit.Stage.AUTHORIZATION);
+                                      } catch (RuntimeException failure) {
+                                        throw new OAuth2AuthenticationException(
+                                            "temporarily_unavailable");
+                                      }
+                                    }
                                     throw new OAuth2AuthenticationException(rejected.code());
                                   } catch (RuntimeException unavailable) {
                                     throw new OAuth2AuthenticationException(

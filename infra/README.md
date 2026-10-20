@@ -136,3 +136,7 @@ Após V16, reaplique `Provision-AuditDatabase.ps1` para conceder o verificador d
 A **8D2** usa `Measure-Audit.ps1` para benchmark optativo com PostgreSQL descartável, limitado a quatro CPUs/4 GiB, e JVM de 1 GiB. O padrão é dois milhões de eventos mais amostras; a execução não lê `.env` nem acessa a stack persistente. Consulte o [guia de medição](../docs/runbooks/medicao-auditoria-local.md) e preserve relatórios antes de `clean`.
 
 A 9B1 oferece `Start-IamCore.ps1 -EnablePam`, que ativa Authorization/Transit e registra pedidos com MFA e TTL. Aplicar V18 e reaplicar o perfil runtime antes do modo dinâmico; ver o [guia PAM](../docs/runbooks/pedidos-privilegiados-local.md). Esta fase não emite credenciais humanas no Vault.
+
+A 9B2 usa `Provision-PamDatabase.ps1` após V19 e `Start-IamCore.ps1 -EnablePamCredentials`. O bootstrap entrega AppRole iam-pam separado; o provisionador configura mount/emissor exclusivos e visão de diagnóstico. Consulte o [guia de credenciais PAM](../docs/runbooks/credenciais-pam-local.md), incluindo o limite de sessões já abertas durante falhas do Vault.
+
+A 9C1 exige V20 e reaplicação das concessões com processos PAM parados. `-EnablePam` observa expiração de pedidos; a emissão observa também o prazo das credenciais e preserva a correlação original nos fatos. Consulte o [guia de auditoria PAM](../docs/runbooks/auditoria-pam-local.md); expiração lógica não confirma revogação pelo Vault.

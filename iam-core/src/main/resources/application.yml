@@ -26,6 +26,11 @@ spring:
 iam:
   pam:
     enabled: ${IAM_PAM_ENABLED:false}
+    credentials:
+      enabled: ${IAM_PAM_CREDENTIALS_ENABLED:false}
+      address: ${IAM_PAM_VAULT_ADDRESS:${IAM_VAULT_ADDRESS:http://127.0.0.1:8200}}
+      role-id-file: ${IAM_PAM_VAULT_ROLE_ID_FILE:infra/.local/iam-pam-role-id}
+      secret-id-file: ${IAM_PAM_VAULT_SECRET_ID_FILE:infra/.local/iam-pam-secret-id}
   database:
     vault:
       enabled: ${IAM_DATABASE_VAULT_ENABLED:false}

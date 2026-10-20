@@ -2,6 +2,8 @@
 
 Plataforma de identidade e acesso baseada em Zero Trust, com provisionamento, OAuth/OIDC, políticas contextuais, eventos de segurança e auditoria.
 
+Documentação: [índice](docs/README.md), [implementação passo a passo e subdivisões](docs/GUIA-DE-IMPLEMENTACAO.md) e [plano com critérios de aceite](docs/PLANO-DE-IMPLEMENTACAO.md).
+
 ## Estado atual
 
 Fundação, infraestrutura e API administrativa de Identity/Access implementadas. O core gerencia usuários, credenciais Argon2id, grupos, papéis, permissões e auditoria transacional. Administração fica desabilitada por padrão e exige ativação explícita com token bootstrap temporário. A etapa 3 teve 106 testes no aceite original e está incluída na base publicada até a 5A. Consulte as [evidências históricas](docs/evidencias/etapa-03.md).
@@ -60,7 +62,11 @@ A 9A2b integra credenciais PostgreSQL temporárias do Vault com `-EnableVaultDat
 
 A 9A2c renova token e lease do pool, valida novas credenciais antes da troca e drena a geração anterior com prazo limitado. Em indisponibilidade, fecha sessões ao vencer o prazo confirmado e pode reconstruir o pool após recuperação do Vault, sem reiniciar. Consulte o [guia de renovação](docs/runbooks/vault-database-renovacao-local.md), a [ADR-037](docs/adr/037-renovacao-e-troca-de-pools.md) e as [evidências](docs/evidencias/etapa-09a2c.md).
 
-A 9B1 adiciona pedidos de acesso privilegiado com escopo dedicado, MFA obrigatório, justificativa, expiração e revogação pelo proprietário, com auditoria/Outbox atômicas. A emissão de credenciais Vault fica na 9B2. Consulte o [guia](docs/runbooks/pedidos-privilegiados-local.md), a [ADR-038](docs/adr/038-pedidos-de-acesso-privilegiado.md) e as [evidências](docs/evidencias/etapa-09b1.md).
+A 9B1 adiciona pedidos de acesso privilegiado com escopo dedicado, MFA obrigatório, justificativa, expiração e revogação pelo proprietário, com auditoria/Outbox atômicas. A 9B2 abaixo acrescenta a emissão de credenciais Vault. Consulte o [guia](docs/runbooks/pedidos-privilegiados-local.md), a [ADR-038](docs/adr/038-pedidos-de-acesso-privilegiado.md) e as [evidências](docs/evidencias/etapa-09b1.md).
+
+A 9B2 emite uma única credencial de diagnóstico por pedido, com escopo/MFA e reautorização, Vault/AppRole e emissor separados, prazo SQL limitado e revogação recuperável. Senhas não são persistidas; sessões abertas podem ultrapassar o TTL durante indisponibilidade do Vault. Consulte o [guia](docs/runbooks/credenciais-pam-local.md), a [ADR-039](docs/adr/039-emissao-pam-no-vault.md) e as [evidências](docs/evidencias/etapa-09b2.md).
+
+A 9C1 acrescenta auditoria de expiração lógica de pedidos/credenciais, correlação de origem e recusas autenticadas com códigos fixos. Expiração observada não é confirmação de revogação pelo Vault. Consulte o [guia](docs/runbooks/auditoria-pam-local.md), a [ADR-040](docs/adr/040-auditoria-operacional-pam.md) e as [evidências](docs/evidencias/etapa-09c1.md).
 
 ## Decisões aprovadas
 
@@ -97,7 +103,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **9B2**, emissão de credenciais PAM no Vault para alvo dedicado, reautorização/consumo do pedido e ciclo de revogação. A 9B1 está implementada localmente em `feat/privileged-access-requests`, com commit local. A base local é a 9A2c (`17aea1c`); publicação e CI remota das entregas desde 8C continuam pendentes. A 9C completará auditoria operacional integrada; KV do enforcer e aceite final da etapa 9 também permanecem pendentes.
+Próxima entrega: **9C2**, recuperação/observabilidade da fila operacional; depois 9C3, aceite integrado. A 9C1 está implementada localmente em `feat/pam-operational-audit`, junto à 9B2 e à consolidação documental no commit desta entrega, sobre a base 9B1 (`feaf718`). KV do enforcer, hardening e aceite final da etapa 9 permanecem pendentes. Publicação/CI remota desde 8C também permanecem pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

@@ -11,7 +11,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Map;
 
-final class VaultDatabaseSession implements AutoCloseable {
+public final class VaultDatabaseSession implements AutoCloseable {
   private static final ObjectMapper JSON = new ObjectMapper();
   private final HttpClient http =
       HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
@@ -22,7 +22,7 @@ final class VaultDatabaseSession implements AutoCloseable {
   private long ttl;
   private boolean renewable;
 
-  VaultDatabaseSession(URI address, Path roleFile, Path secretFile) {
+  public VaultDatabaseSession(URI address, Path roleFile, Path secretFile) {
     this.address = address;
     try {
       boolean local =
@@ -58,7 +58,7 @@ final class VaultDatabaseSession implements AutoCloseable {
     }
   }
 
-  long deadline() {
+  public long deadline() {
     return deadline;
   }
 
@@ -84,7 +84,7 @@ final class VaultDatabaseSession implements AutoCloseable {
     }
   }
 
-  synchronized JsonNode request(String path, Object body) {
+  public synchronized JsonNode request(String path, Object body) {
     try {
       var builder =
           HttpRequest.newBuilder(address.resolve("/v1/" + path))
@@ -129,7 +129,7 @@ final class VaultDatabaseSession implements AutoCloseable {
     http.close();
   }
 
-  static String text(JsonNode node, String field) {
+  public static String text(JsonNode node, String field) {
     JsonNode value = node.path(field);
     if (!value.isTextual()
         || value.asText().isBlank()
@@ -163,6 +163,12 @@ final class VaultDatabaseSession implements AutoCloseable {
       token = null;
       http.close();
     }
+  }
+
+  /** Drop the local client after delivery; Vault retains the bounded parent token until expiry. */
+  public synchronized void detach() {
+    token = null;
+    http.close();
   }
 
   static Unavailable unavailable() {

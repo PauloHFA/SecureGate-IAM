@@ -206,6 +206,10 @@ class RuntimeDatabasePrivilegesIT {
         "UPDATE iam_authorization.privileged_requests SET justification=justification WHERE false",
         "UPDATE iam_authorization.privileged_requests SET expires_at=expires_at WHERE false",
         "DELETE FROM iam_authorization.privileged_requests WHERE false",
+        "DELETE FROM iam_authorization.privileged_issuances WHERE false",
+        "UPDATE iam_authorization.privileged_issuances SET request_id=request_id WHERE false",
+        "UPDATE iam_authorization.privileged_requests SET origin_correlation_id=origin_correlation_id WHERE false",
+        "UPDATE iam_authorization.privileged_issuances SET origin_correlation_id=origin_correlation_id WHERE false",
         "INSERT INTO iam_audit.outbox_operations(event_id,action,reason) VALUES (gen_random_uuid(),'QUARANTINE','OPERATOR')",
         "TRUNCATE iam_audit.outbox_operations"
       })
@@ -239,6 +243,36 @@ class RuntimeDatabasePrivilegesIT {
     assertTrue(repository.revoke(id, userId, now));
     assertFalse(repository.revoke(id, userId, now));
     assertEquals(now, repository.find(id, userId).orElseThrow().revokedAt());
+    var issuances =
+        new com.securegate.iam.authorization.infrastructure.JdbcPrivilegedIssuances(jdbc);
+    assertTrue(issuances.start(id, now));
+    assertFalse(issuances.start(id, now));
+    assertTrue(issuances.finish(id, "synthetic-pam-lease", now.plusSeconds(10)));
+    assertTrue(issuances.revoking(id));
+    assertFalse(issuances.recordExpiration(id, now));
+    assertTrue(issuances.recordExpiration(id, now.plusSeconds(10)));
+    assertFalse(issuances.recordExpiration(id, now.plusSeconds(10)));
+    assertEquals("REVOKING", issuances.find(id).orElseThrow().state());
+    assertTrue(issuances.pending(now).stream().anyMatch(entry -> entry.requestId().equals(id)));
+    assertTrue(issuances.revoked(id));
+    assertFalse(issuances.revoked(id));
+    UUID expired = UUID.randomUUID();
+    repository.insert(
+        new com.securegate.iam.authorization.application.port.PrivilegedRequests.Entry(
+            expired,
+            userId,
+            "database:diagnostics",
+            "Investigar incidente de teste",
+            now.minusSeconds(60),
+            now.minusSeconds(1),
+            null,
+            "runtime-request-correlation"));
+    assertTrue(repository.expired(now).stream().anyMatch(entry -> entry.id().equals(expired)));
+    assertTrue(repository.recordExpiration(expired, now));
+    assertFalse(repository.recordExpiration(expired, now));
+    assertEquals(
+        "runtime-request-correlation",
+        repository.find(expired, userId).orElseThrow().originCorrelationId());
   }
 
   @Test

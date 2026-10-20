@@ -1,6 +1,6 @@
 # Pedidos de acesso privilegiado — 9B1
 
-Esta entrega registra autorização de pedidos. **Não emite credenciais nem libera conexão ao banco**; essa integração será feita na 9B2. Ver [ADR-038](../adr/038-pedidos-de-acesso-privilegiado.md) e [evidências](../evidencias/etapa-09b1.md).
+Esta entrega registra autorização de pedidos. **Não emite credenciais nem libera conexão ao banco**; a emissão opcional está disponível na [9B2](credenciais-pam-local.md). Ver [ADR-038](../adr/038-pedidos-de-acesso-privilegiado.md) e [evidências](../evidencias/etapa-09b1.md).
 
 ## Preparar
 

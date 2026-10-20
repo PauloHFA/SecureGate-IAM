@@ -57,7 +57,8 @@ public final class PrivilegedRequestService {
             justification.strip(),
             now,
             expiry,
-            null);
+            null,
+            correlationId);
     return transactions.execute(
         () -> {
           requests.insert(entry);
@@ -83,6 +84,47 @@ public final class PrivilegedRequestService {
 
   private PrivilegedRequests.Entry required(UUID id, UUID userId) {
     return requests.find(id, userId).orElseThrow(ResourceNotFoundException::new);
+  }
+
+  public void observeExpirations() {
+    Instant now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    for (var entry : requests.expired(now)) {
+      transactions.execute(
+          () -> {
+            if (requests.recordExpiration(entry.id(), now)) {
+              audit.record(
+                  new AuditRecord(
+                      new SecurityEventType("pam.request.expired"),
+                      entry.target(),
+                      new OperationContext("pam-maintenance", entry.originCorrelationId()),
+                      Map.of(
+                          "requestId",
+                          entry.id().toString(),
+                          "expiresAt",
+                          entry.expiresAt().toString(),
+                          "meaning",
+                          "LOGICAL_DEADLINE")));
+            }
+            return null;
+          });
+    }
+  }
+
+  public View revokeAdministratively(UUID id, OperationContext operator) {
+    return transactions.execute(
+        () -> {
+          var entry = requests.forAdministration(id).orElseThrow(ResourceNotFoundException::new);
+          // Administrative revocation also queues cleanup after logical expiry.
+          if (requests.revoke(id, entry.userId(), clock.instant())) {
+            audit.record(
+                new AuditRecord(
+                    new SecurityEventType("pam.request.revoked"),
+                    entry.target(),
+                    operator,
+                    Map.of("requestId", id.toString())));
+          }
+          return view(required(id, entry.userId()));
+        });
   }
 
   private View view(PrivilegedRequests.Entry entry) {

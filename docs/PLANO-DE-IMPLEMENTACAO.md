@@ -6,6 +6,8 @@ Decisões aprovadas: Java 21, Spring Boot, Maven e Vault Transit desde a etapa d
 
 ## Como acompanhar
 
+O [guia de implementação passo a passo](GUIA-DE-IMPLEMENTACAO.md) consolida todas as subdivisões executadas, suas sequências, links de operação/evidências e propostas para 9C/etapas futuras. O [índice da documentação](README.md) organiza os documentos. Atualizar esses registros a cada entrega e nova divisão, preservando a distinção entre trabalho proposto, implementado, testado e publicado.
+
 1. Executar as etapas na ordem indicada e respeitar suas dependências.
 2. Trabalhar em branches curtas; cada PR descreve objetivo, comportamento, validação e limitações.
 3. Marcar tarefas somente depois de implementar e verificar o entregável.
@@ -70,7 +72,7 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 6 | Eventos e Outbox | 2–5 | 6A–6C publicadas; CI/revisão pendentes |
 | 7 | Enforcer e revogação | 4–6 | Escopo funcional publicado na base 8B; CI/revisão pendentes |
 | 8 | Auditoria e desempenho | 6–7 | Escopo local até 8D2 concluído; publicação 8C/8D, CI/revisão pendentes |
-| 9 | Vault avançado e PAM | 4–8 | Em andamento; 9A/9B1 locais, emissão PAM e aceite pendentes |
+| 9 | Vault avançado e PAM | 4–8 | Em andamento; 9A/9B locais, auditoria operacional e aceite pendentes |
 | 10 | Carga | 5–9 | Pendente |
 | 11 | Entrega e hardening | 0–10 | Pendente |
 | 12 | Gateway e demonstração | 11 | Opcional, pendente |
@@ -247,9 +249,10 @@ Subdivisão: **8A1** — V13 aditiva, `event_log` mensal, recibos globais, porta
 - [x] Integrar KV e credenciais temporárias de banco (KV no IAM na 9A1; AppRole runtime/KV separado e pool temporário na 9A2b; KV do enforcer ainda pendente).
 - [x] Renovar token/lease do pool PostgreSQL e reemitir credenciais após limites/falhas (9A2c; ciclos Transit/KV independentes).
 - [x] Testar rotação de credenciais com pool de conexões (9A2c, incluindo transação fixada e drenagem limitada).
-- [ ] Concluir acesso privilegiado com emissão de credenciais Vault, autorização, justificativa e TTL limitado (9B2).
+- [x] Emitir credenciais Vault para diagnóstico restrito com escopo/MFA, justificativa, TTL e revogação recuperável (9B2; sessões abertas dependem da recuperação do Vault para revogação sob falha).
 - [x] Registrar pedidos autorizados com justificativa, MFA obrigatório, TTL, consulta/revogação próprias e auditoria transacional (9B1).
-- [ ] Auditar emissão, expiração e revogação sem registrar o segredo.
+- [x] Auditar fatos PAM de emissão, expiração lógica, falha, recusa autenticada e confirmação de revogação sem registrar segredo (9C1).
+- [ ] Completar recuperação/observabilidade e aceite integrado da auditoria operacional (9C2/9C3).
 - [x] Documentar entrega local da credencial inicial de autenticação do serviço no Vault (arquivos AppRole; entrega de produção depende de hardening).
 - [x] Criar runbook de indisponibilidade e recuperação (9A2c; pausa/retomada medida, perda do Vault dev exige ação administrativa).
 
@@ -263,7 +266,11 @@ A **9A2b** acrescenta modo opcional de DataSource temporário, AppRole runtime s
 
 A **9A2c** substitui o ciclo de lease único: renova token/lease, reautentica após limite/falha, troca gerações validadas e drena pools por prazo limitado. Watchdog e limites de gerações mantêm falha fechada, com recuperação local após pausa do Vault. Implementada localmente em `feat/vault-database-lease-lifecycle`. Ver [ADR-037](adr/037-renovacao-e-troca-de-pools.md), [guia](runbooks/vault-database-renovacao-local.md) e [evidências](evidencias/etapa-09a2c.md). Não exige reiniciar a cada TTL, mas não garante transações longas ou disponibilidade sob falhas persistentes de limpeza. PAM, auditoria operacional integrada, KV do enforcer e aceite final da etapa 9 continuam pendentes.
 
-A **9B1** acrescenta pedidos persistidos com V18, escopo `pam:request`, alvo `database:diagnostics` e MFA obrigatório do sid original; criação e revogação possuem auditoria/Outbox atômicas, sem justificativa nos eventos. Implementada localmente em `feat/privileged-access-requests`, com commit local. Ver [ADR-038](adr/038-pedidos-de-acesso-privilegiado.md), [guia](runbooks/pedidos-privilegiados-local.md) e [evidências](evidencias/etapa-09b1.md). A **9B2** fará a emissão em alvo dedicado no Vault, consumo/reautorização do pedido e revogação real; `AUTHORIZED` na 9B1 não concede acesso PostgreSQL nem é uma credencial.
+A **9B1** acrescenta pedidos persistidos com V18, escopo `pam:request`, alvo `database:diagnostics` e MFA obrigatório do sid original; criação e revogação possuem auditoria/Outbox atômicas, sem justificativa nos eventos. Implementada localmente em `feat/privileged-access-requests`, com commit local. Ver [ADR-038](adr/038-pedidos-de-acesso-privilegiado.md), [guia](runbooks/pedidos-privilegiados-local.md) e [evidências](evidencias/etapa-09b1.md). A **9B2** abaixo acrescenta a emissão em alvo dedicado no Vault, consumo/reautorização do pedido e revogação real; `AUTHORIZED` na 9B1 não concede acesso PostgreSQL nem é uma credencial.
+
+A **9B2** acrescenta V19, emissão única concorrente com reautorização e escopo `pam:issue`, AppRole/mount/emissor separados e diagnóstico restrito. Há revogação administrativa e worker que retoma leases conhecidos após falhas/reinício. Implementada inicialmente em `feat/pam-vault-credentials`, sobre `feaf718`, e incluída com a 9C1 no commit de `feat/pam-operational-audit`. Ver [ADR-039](adr/039-emissao-pam-no-vault.md), [guia](runbooks/credenciais-pam-local.md) e [evidências](evidencias/etapa-09b2.md). Senhas não são persistidas nem reentregues. VALID UNTIL limita novas autenticações; uma sessão ativa pode ultrapassar o prazo com Vault indisponível. O diagnóstico não recebe privilégios do runtime e não é superusuário. A 9C e o aceite final continuam pendentes.
+
+A **9C1** acrescenta V20, origem de correlação e marcadores transacionais de expiração de pedidos/credenciais, fatos de prazo lógico separados do reconhecimento do Vault e recusas de ator verificado com códigos fixos. Implementada localmente em `feat/pam-operational-audit`, incluída no mesmo commit da 9B2 e da consolidação documental, sobre a base `feaf718`. Ver [ADR-040](adr/040-auditoria-operacional-pam.md), [guia](runbooks/auditoria-pam-local.md) e [evidências](evidencias/etapa-09c1.md). A **9C2** tratará recuperação/observabilidade; a **9C3** validará ingestão/consulta e jornada integrada. KV do enforcer e aceite final da etapa 9 também continuam pendentes.
 
 ## Etapa 10 — Carga e observabilidade
 
@@ -346,4 +353,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a **9B2**: emissão PAM no Vault com alvo/ACL dedicados, reautorização e consumo do pedido, TTL real e revogação. A 9B1 está implementada localmente em `feat/privileged-access-requests`, com commit local, sobre a 9A2c (`17aea1c`). A 9C completará auditoria operacional integrada. KV do enforcer e aceite final da etapa 9 continuam pendentes; publicação/CI remota desde 8C e revisão/merge também permanecem pendentes.
+Seguir para a **9C2**, recuperação/observabilidade operacional, depois **9C3**, aceite integrado. A 9C1 está implementada localmente em `feat/pam-operational-audit`; 9B2, consolidação documental e 9C1 integram o commit desta entrega sobre a base 9B1 (`feaf718`). KV do enforcer, hardening e aceite final continuam pendentes, assim como publicação/CI remota desde 8C.
