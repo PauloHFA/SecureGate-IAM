@@ -62,6 +62,8 @@ final class PropagationEnvironment implements AutoCloseable {
           .waitingFor(Wait.forHttp("/v1/sys/health").forStatusCode(200));
   private final List<Process> processes = new ArrayList<>();
   private Process enforcer;
+  private Process iam;
+  private Map<String, String> iamEnvironment;
   private Map<String, String> enforcerEnvironment;
   private Path credentials;
   private LettuceConnectionFactory redisFactory;
@@ -225,6 +227,42 @@ final class PropagationEnvironment implements AutoCloseable {
       enforcer = process;
       enforcerEnvironment = Map.copyOf(environment);
     }
+    if (module.equals("iam-core")) {
+      iam = process;
+      iamEnvironment = Map.copyOf(environment);
+    }
+  }
+
+  long iamPid() {
+    return iam.pid();
+  }
+
+  void stopIam() throws Exception {
+    iam.destroy();
+    if (!iam.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) {
+      iam.destroyForcibly();
+      assertTrue(iam.waitFor(10, java.util.concurrent.TimeUnit.SECONDS));
+    }
+    assertFalse(iam.isAlive());
+  }
+
+  void startIam(Map<String, String> overrides) throws Exception {
+    assertFalse(iam.isAlive());
+    var environment = new java.util.HashMap<>(iamEnvironment);
+    environment.putAll(overrides);
+    launch("iam-core", environment);
+    await(
+        "restarted IAM readiness",
+        Duration.ofSeconds(60),
+        () ->
+            HTTP.send(
+                        HttpRequest.newBuilder(base.resolve("/actuator/health/readiness"))
+                            .timeout(Duration.ofSeconds(2))
+                            .GET()
+                            .build(),
+                        HttpResponse.BodyHandlers.discarding())
+                    .statusCode()
+                == 200);
   }
 
   void stopEnforcer() throws Exception {

@@ -53,7 +53,8 @@ public final class JdbcPrivilegedRequests implements PrivilegedRequests {
             : rows.getTimestamp("revoked_at").toInstant(),
         rows.getString("origin_correlation_id") == null
             ? rows.getObject("id", UUID.class).toString()
-            : rows.getString("origin_correlation_id"));
+            : rows.getString("origin_correlation_id"),
+        rows.getInt("observation_attempts"));
   }
 
   @Override
@@ -87,8 +88,9 @@ public final class JdbcPrivilegedRequests implements PrivilegedRequests {
   @Override
   public List<Entry> expired(Instant now) {
     return jdbc.query(
-        "SELECT * FROM iam_authorization.privileged_requests WHERE expires_at<=? AND revoked_at IS NULL AND expiration_recorded_at IS NULL ORDER BY expires_at,id LIMIT 20",
+        "SELECT * FROM iam_authorization.privileged_requests WHERE expires_at<=? AND next_observation_at<=? AND revoked_at IS NULL AND expiration_recorded_at IS NULL ORDER BY GREATEST(next_observation_at,expires_at),id LIMIT 20",
         JdbcPrivilegedRequests::row,
+        Timestamp.from(now),
         Timestamp.from(now));
   }
 
@@ -100,5 +102,50 @@ public final class JdbcPrivilegedRequests implements PrivilegedRequests {
             id,
             Timestamp.from(now))
         == 1;
+  }
+
+  @Override
+  public boolean deferObservation(
+      UUID id, int expectedAttempts, Instant failedAt, Instant retryAt) {
+    return jdbc.update(
+            """
+        UPDATE iam_authorization.privileged_requests SET
+          observation_attempts=LEAST(30,observation_attempts+1),
+          next_observation_at=GREATEST(next_observation_at,?),
+          last_observation_failure_at=?,last_observation_failure_code='OBSERVATION_FAILED'
+        WHERE id=? AND observation_attempts=? AND expires_at<=? AND revoked_at IS NULL
+          AND expiration_recorded_at IS NULL
+        """,
+            Timestamp.from(retryAt),
+            Timestamp.from(failedAt),
+            id,
+            expectedAttempts,
+            Timestamp.from(failedAt))
+        == 1;
+  }
+
+  @Override
+  public Observation operations(Instant now) {
+    return jdbc.queryForObject(
+        """
+        SELECT COUNT(*) AS pending,
+          COUNT(*) FILTER (WHERE next_observation_at<=?) AS ready,
+          COUNT(*) FILTER (WHERE next_observation_at>?) AS deferred,
+          COUNT(*) FILTER (WHERE observation_attempts>0) AS retrying,
+          GREATEST(0,COALESCE(EXTRACT(EPOCH FROM (? - MIN(expires_at))),0)) AS oldest
+        FROM iam_authorization.privileged_requests
+        WHERE expires_at<=? AND revoked_at IS NULL AND expiration_recorded_at IS NULL
+        """,
+        (rows, index) ->
+            new Observation(
+                rows.getLong("pending"),
+                rows.getLong("ready"),
+                rows.getLong("deferred"),
+                rows.getLong("retrying"),
+                rows.getDouble("oldest")),
+        Timestamp.from(now),
+        Timestamp.from(now),
+        Timestamp.from(now),
+        Timestamp.from(now));
   }
 }

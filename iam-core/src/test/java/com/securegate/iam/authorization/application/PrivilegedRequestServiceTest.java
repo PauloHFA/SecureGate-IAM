@@ -124,6 +124,37 @@ class PrivilegedRequestServiceTest {
   }
 
   @Test
+  void failedObservationSchedulesBoundedRetryAndDoesNotStopOtherRequests() {
+    UUID failed = UUID.randomUUID(), healthy = UUID.randomUUID();
+    var first =
+        new PrivilegedRequests.Entry(
+            failed,
+            user,
+            "database:diagnostics",
+            "Investigar incidente",
+            now.minusSeconds(60),
+            now,
+            null,
+            "original",
+            30);
+    var second =
+        new PrivilegedRequests.Entry(
+            healthy,
+            user,
+            "database:diagnostics",
+            "Investigar incidente",
+            now.minusSeconds(60),
+            now,
+            null);
+    when(requests.expired(now)).thenReturn(List.of(first, second));
+    when(requests.recordExpiration(failed, now))
+        .thenThrow(new IllegalStateException("synthetic database outage"));
+    assertThrows(IllegalStateException.class, service::observeExpirations);
+    verify(requests).deferObservation(failed, 30, now, now.plusSeconds(60));
+    verify(requests).recordExpiration(healthy, now);
+  }
+
+  @Test
   void expirationAndRevocationAreTerminalAndDoNotMoveDeadline() {
     UUID id = UUID.randomUUID();
     var expired =

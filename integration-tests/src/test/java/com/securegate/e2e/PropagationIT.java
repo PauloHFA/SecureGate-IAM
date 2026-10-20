@@ -68,6 +68,119 @@ class PropagationIT {
     SESSION
   }
 
+  @Test
+  @Order(100)
+  void pamRequestObserverRecoversAfterAuditFailureAndRealJvmRestart() throws Exception {
+    ENV.stopIam();
+    UUID user = UUID.randomUUID(), request = UUID.randomUUID();
+    var expiry =
+        java.time.Instant.now().minusSeconds(1).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    ENV.jdbc.update(
+        "INSERT INTO iam_identity.users(id,email,display_name,status) VALUES (?,?,?,'ACTIVE')",
+        user,
+        user + "@example.test",
+        "Synthetic PAM operator");
+    ENV.jdbc.update(
+        """
+        INSERT INTO iam_authorization.privileged_requests
+        (id,user_id,target,justification,created_at,expires_at,origin_correlation_id)
+        VALUES (?,?,'database:diagnostics','Synthetic restart diagnostic',?,?, 'pam-jvm-restart')
+        """,
+        request,
+        user,
+        java.sql.Timestamp.from(expiry.minusSeconds(60)),
+        java.sql.Timestamp.from(expiry));
+    ENV.jdbc.execute(
+        "ALTER TABLE iam_audit.security_events ADD CONSTRAINT synthetic_pam_audit_outage CHECK (event_type <> 'pam.request.expired') NOT VALID");
+    try {
+      ENV.startIam(Map.of("IAM_PAM_ENABLED", "true"));
+      await(
+          "durable observation retry",
+          Duration.ofSeconds(15),
+          () ->
+              ENV.jdbc.queryForObject(
+                      "SELECT observation_attempts FROM iam_authorization.privileged_requests WHERE id=?",
+                      Integer.class,
+                      request)
+                  > 0);
+      assertNull(
+          ENV.jdbc.queryForObject(
+              "SELECT expiration_recorded_at FROM iam_authorization.privileged_requests WHERE id=?",
+              java.sql.Timestamp.class,
+              request));
+      long previousPid = ENV.iamPid();
+      ENV.stopIam();
+      int attempts =
+          ENV.jdbc.queryForObject(
+              "SELECT observation_attempts FROM iam_authorization.privileged_requests WHERE id=?",
+              Integer.class,
+              request);
+      var scheduled =
+          ENV.jdbc.queryForObject(
+              "SELECT next_observation_at FROM iam_authorization.privileged_requests WHERE id=?",
+              java.sql.Timestamp.class,
+              request);
+      ENV.jdbc.execute(
+          "ALTER TABLE iam_audit.security_events DROP CONSTRAINT synthetic_pam_audit_outage");
+      ENV.startIam(Map.of());
+      assertNotEquals(previousPid, ENV.iamPid());
+      await(
+          "expiration after JVM restart",
+          Duration.ofSeconds(70),
+          () ->
+              ENV.jdbc.queryForObject(
+                      "SELECT count(*) FROM iam_audit.security_events WHERE event_type='pam.request.expired' AND details->>'requestId'=?",
+                      Integer.class,
+                      request.toString())
+                  == 1);
+      assertEquals(
+          attempts,
+          ENV.jdbc.queryForObject(
+              "SELECT observation_attempts FROM iam_authorization.privileged_requests WHERE id=?",
+              Integer.class,
+              request));
+      assertEquals(
+          scheduled,
+          ENV.jdbc.queryForObject(
+              "SELECT next_observation_at FROM iam_authorization.privileged_requests WHERE id=?",
+              java.sql.Timestamp.class,
+              request));
+      assertEquals(
+          expiry,
+          ENV.jdbc
+              .queryForObject(
+                  "SELECT expires_at FROM iam_authorization.privileged_requests WHERE id=?",
+                  java.sql.Timestamp.class,
+                  request)
+              .toInstant());
+      assertEquals(
+          "pam-jvm-restart",
+          ENV.jdbc.queryForObject(
+              "SELECT correlation_id FROM iam_audit.security_events WHERE event_type='pam.request.expired' AND details->>'requestId'=?",
+              String.class,
+              request.toString()));
+      assertEquals(
+          1,
+          ENV.jdbc.queryForObject(
+              "SELECT count(*) FROM iam_audit.outbox_events WHERE event_type='pam.request.expired' AND payload->'data'->>'requestId'=?",
+              Integer.class,
+              request.toString()));
+      var metrics =
+          HTTP.send(
+              HttpRequest.newBuilder(
+                      ENV.base.resolve("/actuator/metrics/iam.pam.expiration.pending"))
+                  .header("Authorization", "Bearer " + ENV.admin)
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString());
+      assertEquals(200, metrics.statusCode());
+      passed("pam_observer_audit_outage_and_real_jvm_restart");
+    } finally {
+      ENV.jdbc.execute(
+          "ALTER TABLE iam_audit.security_events DROP CONSTRAINT IF EXISTS synthetic_pam_audit_outage");
+    }
+  }
+
   @ParameterizedTest
   @Order(1)
   @EnumSource(Target.class)

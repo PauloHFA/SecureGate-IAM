@@ -71,6 +71,9 @@ DO $$ BEGIN
   IF to_regclass('iam_authorization.privileged_requests') IS NOT NULL THEN
     GRANT SELECT, INSERT ON iam_authorization.privileged_requests TO securegate_iam_runtime;
     GRANT UPDATE (revoked_at) ON iam_authorization.privileged_requests TO securegate_iam_runtime;
+    IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='iam_authorization' AND table_name='privileged_requests' AND column_name='observation_attempts') THEN
+      GRANT UPDATE (observation_attempts,next_observation_at,last_observation_failure_at,last_observation_failure_code) ON iam_authorization.privileged_requests TO securegate_iam_runtime;
+    END IF;
     IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='iam_authorization' AND table_name='privileged_requests' AND column_name='expiration_recorded_at') THEN
       GRANT UPDATE (expiration_recorded_at) ON iam_authorization.privileged_requests TO securegate_iam_runtime;
     END IF;

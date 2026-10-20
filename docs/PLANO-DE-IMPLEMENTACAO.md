@@ -253,7 +253,8 @@ Subdivisão: **8A1** — V13 aditiva, `event_log` mensal, recibos globais, porta
 - [x] Registrar pedidos autorizados com justificativa, MFA obrigatório, TTL, consulta/revogação próprias e auditoria transacional (9B1).
 - [x] Auditar fatos PAM de emissão, expiração lógica, falha, recusa autenticada e confirmação de revogação sem registrar segredo (9C1).
 - [x] Persistir retries da limpeza PAM e medir pendências/resultados incertos sem descartar leases (9C2a).
-- [ ] Completar recuperação do observador de pedidos/exercícios operacionais e aceite integrado da auditoria (9C2b/9C3).
+- [x] Recuperar observador de pedidos e testar falha de auditoria/reinício real da JVM preservando agenda, prazo e correlação (9C2b).
+- [ ] Completar jornada PAM HTTP/credencial/ingestão/consulta e aceite integrado da auditoria (9C3).
 - [x] Documentar entrega local da credencial inicial de autenticação do serviço no Vault (arquivos AppRole; entrega de produção depende de hardening).
 - [x] Criar runbook de indisponibilidade e recuperação (9A2c; pausa/retomada medida, perda do Vault dev exige ação administrativa).
 
@@ -273,7 +274,9 @@ A **9B2** acrescenta V19, emissão única concorrente com reautorização e esco
 
 A **9C1** acrescenta V20, origem de correlação e marcadores transacionais de expiração de pedidos/credenciais, fatos de prazo lógico separados do reconhecimento do Vault e recusas de ator verificado com códigos fixos. Implementada localmente em `feat/pam-operational-audit`, incluída no mesmo commit da 9B2 e da consolidação documental, sobre a base `feaf718`. Ver [ADR-040](adr/040-auditoria-operacional-pam.md), [guia](runbooks/auditoria-pam-local.md) e [evidências](evidencias/etapa-09c1.md). A **9C2** tratará recuperação/observabilidade; a **9C3** validará ingestão/consulta e jornada integrada. KV do enforcer e aceite final da etapa 9 também continuam pendentes.
 
-A **9C2a** acrescenta V21, intervalos persistidos de retry de 2–60 s, seleção de itens elegíveis, avanço do lote durante falhas e métricas de fila com disponibilidade/frescor do snapshot. Implementada localmente em `feat/pam-cleanup-recovery`, incluída no commit desta entrega, sobre `54b5bea`. Ver [ADR-041](adr/041-recuperacao-da-limpeza-pam.md), [guia](runbooks/recuperacao-pam-local.md) e [evidências](evidencias/etapa-09c2a.md). O contador satura sem descartar o lease; recuperação não reemite senha nem reabre estado terminal. A divisão **9C2b** tratará o observador de pedidos e exercícios operacionais restantes; a 9C3 continua responsável pelo aceite integrado. Não há reconciliação automática após perda do Vault dev nem retenção automática de metadados.
+A **9C2a** acrescenta V21, intervalos persistidos de retry de 2–60 s, seleção de itens elegíveis, avanço do lote durante falhas e métricas de fila com disponibilidade/frescor do snapshot. Implementada em `feat/pam-cleanup-recovery`, versionada localmente em `f11e18d`, sobre `54b5bea`. Ver [ADR-041](adr/041-recuperacao-da-limpeza-pam.md), [guia](runbooks/recuperacao-pam-local.md) e [evidências](evidencias/etapa-09c2a.md). O contador satura sem descartar o lease; recuperação não reemite senha nem reabre estado terminal. A divisão **9C2b** abaixo completa o observador de pedidos e o exercício de reinício da JVM; a 9C3 continua responsável pelo aceite integrado. Não há reconciliação automática após perda do Vault dev nem retenção automática de metadados.
+
+A **9C2b** acrescenta V22 e retry persistido por pedido, isolamento transacional/continuidade do lote e métricas do observador. O teste com JAR real provoca falha de auditoria, confirma agenda/rollback, encerra a JVM e inicia outra no mesmo banco/Vault, preservando prazo/correlação e produzindo um fato com Outbox. Implementada localmente em `feat/pam-request-recovery`, incluída no commit desta entrega, sobre `f11e18d`. Ver [ADR-042](adr/042-recuperacao-do-observador-pam.md), [guia](runbooks/recuperacao-pam-local.md) e [evidências](evidencias/etapa-09c2b.md). O exercício usa fixture SQL com emissão desabilitada; a jornada humana HTTP/credencial/ingestão/consulta permanece na 9C3. A 9C2 está implementada localmente por 9C2a/9C2b, sem concluir o aceite da etapa 9.
 
 ## Etapa 10 — Carga e observabilidade
 
@@ -356,4 +359,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a **9C2b**, recuperação do observador de pedidos/exercícios operacionais, depois **9C3**, aceite integrado. A 9C2a está implementada localmente em `feat/pam-cleanup-recovery`, incluída no commit desta entrega, sobre `54b5bea` (9B2/9C1 e consolidação documental). KV do enforcer, hardening e aceite final continuam pendentes, assim como publicação/CI remota desde 8C.
+Seguir para a **9C3**, jornada PAM HTTP/credencial/ingestão/consulta e aceite integrado. A 9C2b está implementada localmente em `feat/pam-request-recovery`, incluída no commit desta entrega, sobre `f11e18d` (9C2a). KV do enforcer, hardening e aceite final continuam pendentes, assim como publicação/CI remota desde 8C.

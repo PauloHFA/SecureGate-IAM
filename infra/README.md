@@ -143,3 +143,5 @@ A 9C1 exige V20 e reaplicação das concessões com processos PAM parados. `-Ena
 ## Recuperação da limpeza PAM — 9C2a
 
 A V21 acrescenta agenda persistida e metadados de retry da limpeza; o migrador reaplica as concessões runtime para esses campos. Parar workers antigos antes da atualização: eles ignoram a agenda nova. A flag `-EnablePamCredentials` continua suficiente. Consultar o [runbook de recuperação](../docs/runbooks/recuperacao-pam-local.md) para métricas, reinício do IAM, resultado incerto e limites de perda do Vault dev. Esta entrega não altera a stack persistente automaticamente.
+
+Na 9C2b, a V22 acrescenta agenda e metadados de retry do observador de pedidos. O perfil runtime reaplicado permite atualizar somente esses campos adicionais. Parar workers antigos e manter banco/Vault ao reiniciar o IAM. `-EnablePam` já ativa observador/métricas mesmo sem emissão; não há flag adicional. O teste de reinício usa o JAR real e infraestrutura descartável, conforme [evidências 9C2b](../docs/evidencias/etapa-09c2b.md).

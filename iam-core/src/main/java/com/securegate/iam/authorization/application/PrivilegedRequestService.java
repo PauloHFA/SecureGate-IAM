@@ -88,26 +88,51 @@ public final class PrivilegedRequestService {
 
   public void observeExpirations() {
     Instant now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    RuntimeException unavailable = null;
     for (var entry : requests.expired(now)) {
-      transactions.execute(
-          () -> {
-            if (requests.recordExpiration(entry.id(), now)) {
-              audit.record(
-                  new AuditRecord(
-                      new SecurityEventType("pam.request.expired"),
-                      entry.target(),
-                      new OperationContext("pam-maintenance", entry.originCorrelationId()),
-                      Map.of(
-                          "requestId",
-                          entry.id().toString(),
-                          "expiresAt",
-                          entry.expiresAt().toString(),
-                          "meaning",
-                          "LOGICAL_DEADLINE")));
-            }
-            return null;
-          });
+      try {
+        transactions.execute(
+            () -> {
+              if (requests.recordExpiration(entry.id(), now)) {
+                audit.record(
+                    new AuditRecord(
+                        new SecurityEventType("pam.request.expired"),
+                        entry.target(),
+                        new OperationContext("pam-maintenance", entry.originCorrelationId()),
+                        Map.of(
+                            "requestId",
+                            entry.id().toString(),
+                            "expiresAt",
+                            entry.expiresAt().toString(),
+                            "meaning",
+                            "LOGICAL_DEADLINE")));
+              }
+              return null;
+            });
+      } catch (RuntimeException failure) {
+        unavailable = failure;
+        try {
+          Instant failedAt = clock.instant();
+          long delay = Math.min(60, 1L << Math.min(6, entry.observationAttempts() + 1));
+          transactions.execute(
+              () ->
+                  requests.deferObservation(
+                      entry.id(),
+                      entry.observationAttempts(),
+                      failedAt,
+                      failedAt.plusSeconds(delay)));
+        } catch (RuntimeException retryFailure) {
+          failure.addSuppressed(retryFailure);
+        }
+      }
     }
+    if (unavailable != null) {
+      throw unavailable;
+    }
+  }
+
+  public PrivilegedRequests.Observation observation() {
+    return requests.operations(clock.instant());
   }
 
   public View revokeAdministratively(UUID id, OperationContext operator) {

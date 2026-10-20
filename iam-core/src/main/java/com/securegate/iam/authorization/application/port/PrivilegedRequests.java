@@ -20,6 +20,13 @@ public interface PrivilegedRequests {
 
   boolean recordExpiration(UUID id, Instant now);
 
+  boolean deferObservation(UUID id, int expectedAttempts, Instant failedAt, Instant retryAt);
+
+  Observation operations(Instant now);
+
+  record Observation(
+      long pending, long ready, long deferred, long retrying, double oldestOverdueSeconds) {}
+
   record Entry(
       UUID id,
       UUID userId,
@@ -28,7 +35,29 @@ public interface PrivilegedRequests {
       Instant createdAt,
       Instant expiresAt,
       Instant revokedAt,
-      String originCorrelationId) {
+      String originCorrelationId,
+      int observationAttempts) {
+    public Entry(
+        UUID id,
+        UUID userId,
+        String target,
+        String justification,
+        Instant createdAt,
+        Instant expiresAt,
+        Instant revokedAt,
+        String originCorrelationId) {
+      this(
+          id,
+          userId,
+          target,
+          justification,
+          createdAt,
+          expiresAt,
+          revokedAt,
+          originCorrelationId,
+          0);
+    }
+
     public Entry(
         UUID id,
         UUID userId,

@@ -29,7 +29,8 @@ public class PrivilegedRequestConfiguration {
 
   @Bean(destroyMethod = "shutdown")
   ScheduledExecutorService pamRequestExpirationAudit(
-      PrivilegedRequestService service, MeterRegistry metrics) {
+      PrivilegedRequestService service, MeterRegistry metrics, Clock clock) {
+    var observation = new PamRequestObservationMetrics(metrics, clock);
     var worker =
         Executors.newSingleThreadScheduledExecutor(
             task -> {
@@ -47,6 +48,17 @@ public class PrivilegedRequestConfiguration {
         },
         500,
         500,
+        TimeUnit.MILLISECONDS);
+    worker.scheduleWithFixedDelay(
+        () -> {
+          try {
+            observation.refresh(service::observation);
+          } catch (RuntimeException failure) {
+            metrics.counter("iam.pam.expiration.snapshot.failures").increment();
+          }
+        },
+        500,
+        5000,
         TimeUnit.MILLISECONDS);
     return worker;
   }

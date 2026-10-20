@@ -277,8 +277,14 @@ class RuntimeDatabasePrivilegesIT {
             null,
             "runtime-request-correlation"));
     assertTrue(repository.expired(now).stream().anyMatch(entry -> entry.id().equals(expired)));
+    assertTrue(repository.deferObservation(expired, 0, now, now.plusSeconds(2)));
+    assertFalse(repository.deferObservation(expired, 0, now, now.plusSeconds(2)));
+    assertEquals(1, repository.find(expired, userId).orElseThrow().observationAttempts());
+    assertTrue(repository.expired(now).stream().noneMatch(entry -> entry.id().equals(expired)));
+    assertTrue(repository.operations(now).deferred() >= 1);
     assertTrue(repository.recordExpiration(expired, now));
     assertFalse(repository.recordExpiration(expired, now));
+    assertFalse(repository.deferObservation(expired, 1, now, now.plusSeconds(4)));
     assertEquals(
         "runtime-request-correlation",
         repository.find(expired, userId).orElseThrow().originCorrelationId());

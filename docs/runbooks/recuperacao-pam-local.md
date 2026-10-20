@@ -1,11 +1,11 @@
-# Recuperação da limpeza PAM — 9C2a
+# Recuperação PAM — 9C2a/9C2b
 
-Pré-requisitos: [emissão PAM](credenciais-pam-local.md), [auditoria PAM](auditoria-pam-local.md) e [ADR-041](../adr/041-recuperacao-da-limpeza-pam.md). Esta divisão cobre credenciais; a recuperação do observador de pedidos permanece na 9C2b.
+Pré-requisitos: [emissão PAM](credenciais-pam-local.md), [auditoria PAM](auditoria-pam-local.md), [ADR-041](../adr/041-recuperacao-da-limpeza-pam.md) e [ADR-042](../adr/042-recuperacao-do-observador-pam.md). A 9C2a cobre credenciais; a 9C2b cobre o observador de pedidos e o exercício de reinício da JVM.
 
 ## Atualização
 
 1. Parar processos PAM antigos, preservando o banco e o Vault. Não reiniciar o Vault dev para atualizar o IAM.
-2. Executar a validação local e aplicar V21 com o migrador separado, que reaplica as concessões runtime.
+2. Executar a validação local e aplicar V21/V22 com o migrador separado, que reaplica as concessões runtime.
 3. Iniciar a versão nova com a flag de emissão já existente. O agendamento e os gauges não exigem outra flag.
 
 ```powershell
@@ -56,6 +56,34 @@ A amostra é atualizada a cada cinco segundos, com atraso adicional se o mesmo e
 5. Conferir redução de pendentes e o fato pam.credential.revoked com a correlação da emissão. Distinguir esse reconhecimento do prazo lógico e da confirmação administrativa de ausência de sessões.
 
 Falha de auditoria pode obrigar a repetir a revogação já executada no backend. A transação impede declarar o estado terminal sem o fato correspondente. Falha do banco ao salvar retry não perde o registro original; pode causar tentativas mais frequentes até a recuperação.
+
+## Observador de pedidos — 9C2b
+
+Com `-EnablePam`, o observador funciona mesmo sem emissão de credenciais. Não há flag nova. Aplicar V22 e reaplicar o perfil runtime com processos antigos parados; workers antigos ignoram o próximo instante persistido. São concedidos UPDATE somente em observation_attempts, next_observation_at, last_observation_failure_at e last_observation_failure_code.
+
+Cada pedido vencido é observado em uma transação curta de marcador/fato/Outbox. Em falha, o marcador volta ao estado anterior, o agendamento é salvo separadamente e os demais pedidos seguem. Os intervalos são 2–60 s com contador saturado em 30; nenhum item é descartado por atingir esse contador. O código persistido é OBSERVATION_FAILED, sem mensagem de exceção.
+
+| Métrica | Significado |
+| --- | --- |
+| iam.pam.expiration.pending | Pedidos vencidos, não revogados, ainda sem fato de expiração confirmado. |
+| iam.pam.expiration.ready | Pendentes elegíveis agora. |
+| iam.pam.expiration.deferred | Pendentes aguardando retry persistido. |
+| iam.pam.expiration.retrying | Pendentes com falha de observação registrada. |
+| iam.pam.expiration.oldest.overdue.seconds | Tempo desde o vencimento do pedido pendente mais antigo. |
+| iam.pam.expiration.snapshot.available | 1 após coleta válida; 0 em consulta indisponível/antes da primeira amostra. |
+| iam.pam.expiration.snapshot.last.success | Instante Unix do último sucesso de coleta. |
+| iam.pam.expiration.snapshot.failures | Falhas da consulta agregada. |
+| iam.pam.expiration.audit.failures | Ciclos com ao menos uma falha no processamento, inclusive falha de banco/agendamento. |
+
+Usar o mesmo acesso administrativo de métricas acima. A coleta acontece a cada cinco segundos no executor do observador, sem I/O no scrape. Verificar disponibilidade e idade do último sucesso antes de interpretar um valor; NaN não é fila vazia. Não somar snapshots de réplicas de uma mesma fila. O prazo aplicado pela API independe do atraso dessa auditoria.
+
+Para recuperar, corrigir auditoria/banco/concessões, preservar os metadados e aguardar o próximo ciclo elegível. Ao reiniciar somente o IAM, manter PostgreSQL/Vault e iniciar a versão nova com as mesmas flags. Conferir prazo/correlação preservados e um fato pam.request.expired com Outbox. Não alterar expiresAt, marcadores ou contadores para aparentar conclusão. Pedido revogado não é candidato à observação de expiração.
+
+## Exercício automatizado de reinício real
+
+Executar o build completo na raiz. `PropagationIT#pamRequestObserverRecoversAfterAuditFailureAndRealJvmRestart` usa o JAR real e infraestrutura descartável; a fixture SQL cria um pedido vencido e uma restrição temporária de INSERT para simular indisponibilidade da auditoria. Após confirmar retry e rollback do marcador, encerra a JVM, remove a falha e inicia uma JVM com PID diferente no mesmo banco/Vault. Confere agenda, prazo e correlação preservados, um fato e uma Outbox. A restrição é removida em finally; não reproduzir a injeção de falha na stack persistente.
+
+Esse teste não cria pedido pela API nem emite senha: a emissão fica desabilitada. A retomada do observador foi comprovada; reinício durante uso/entrega/revogação de uma credencial real e ingestão/consulta central integram a 9C3. Consultar as [evidências 9C2b](../evidencias/etapa-09c2b.md) para os comandos e resultados observados.
 
 ## Resultado incerto ou perda do Vault dev
 

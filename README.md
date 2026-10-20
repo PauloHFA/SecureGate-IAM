@@ -105,7 +105,9 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 A **9C2a** acrescenta V21, retry persistido de limpeza com intervalos de 2–60 s, avanço de outros itens durante falhas e métricas agregadas das pendências/resultados incertos. Consulte o [guia de recuperação PAM](docs/runbooks/recuperacao-pam-local.md), a [ADR-041](docs/adr/041-recuperacao-da-limpeza-pam.md) e as [evidências 9C2a](docs/evidencias/etapa-09c2a.md). O [passo a passo](docs/GUIA-DE-IMPLEMENTACAO.md) documenta a divisão da 9C2.
 
-Próxima entrega: **9C2b**, recuperação do observador de pedidos e exercícios operacionais; depois 9C3, aceite integrado. A 9C2a está implementada localmente em `feat/pam-cleanup-recovery`, incluída no commit desta entrega, sobre a base 9B2/9C1 (`54b5bea`). KV do enforcer, hardening e aceite final da etapa 9 permanecem pendentes. Publicação/CI remota desde 8C também permanecem pendentes.
+A **9C2b** acrescenta V22, retry persistido e isolamento por item no observador de pedidos, métricas de pendências e teste com reinício real da JVM do IAM após falha de auditoria. Consulte a [ADR-042](docs/adr/042-recuperacao-do-observador-pam.md), o [runbook](docs/runbooks/recuperacao-pam-local.md) e as [evidências 9C2b](docs/evidencias/etapa-09c2b.md). Prazo e correlação permanecem inalterados; o teste de reinício cobre o observador com fixture SQL e emissão desabilitada.
+
+Próxima entrega: **9C3**, jornada PAM HTTP/credencial/ingestão/consulta e aceite integrado. A 9C2b está implementada localmente em `feat/pam-request-recovery`, incluída no commit desta entrega, sobre a base 9C2a (`f11e18d`). KV do enforcer, hardening e aceite final da etapa 9 permanecem pendentes. Publicação/CI remota desde 8C também permanecem pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

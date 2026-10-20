@@ -10,10 +10,10 @@ Começar pelo [guia de implementação passo a passo](GUIA-DE-IMPLEMENTACAO.md):
 | [Guias operacionais](runbooks/) | Preparação, execução, flags, testes e recuperação. |
 | [Evidências](evidencias/) | Comandos executados, resultados observados, ambiente e pendências históricas. |
 
-Estado desta revisão: código implementado até **9C2a**, com **741 testes aprovados**, incluído no commit desta entrega sobre `54b5bea`. Publicação e CI remota continuam pendentes. Próximo trabalho: **9C2b**, recuperação do observador de pedidos/exercícios operacionais, seguido da 9C3; a etapa 9 ainda tem pendências.
+Estado desta revisão: código implementado até **9C2b**, com **746 testes aprovados**, incluído no commit desta entrega sobre `f11e18d`. Publicação e CI remota continuam pendentes. Próximo trabalho: **9C3**, jornada PAM HTTP/credencial/ingestão/consulta e aceite integrado; a etapa 9 ainda tem pendências.
 
-Para a entrega atual, consultar [recuperação PAM](runbooks/recuperacao-pam-local.md), [ADR-041](adr/041-recuperacao-da-limpeza-pam.md) e [evidências 9C2a](evidencias/etapa-09c2a.md). Para infraestrutura, consultar [infra/README](../infra/README.md).
+Para a entrega atual, consultar [recuperação PAM](runbooks/recuperacao-pam-local.md), [ADR-042](adr/042-recuperacao-do-observador-pam.md) e [evidências 9C2b](evidencias/etapa-09c2b.md). Para infraestrutura, consultar [infra/README](../infra/README.md).
 
 Ao implementar uma nova subdivisão, atualizar guia, plano, README, decisões aplicáveis, operação e evidências. Proposta, implementação, validação local, commit, publicação, CI e merge devem permanecer identificáveis separadamente.
 
-Revisão documental de 20/10/2026: os 41 registros de evidências de etapas estão referenciados no guia; 853 links locais foram verificados sem referências quebradas. A contagem de 741 testes corresponde ao build completo da 9C2a registrado em suas evidências, concluído às 15:38:13 UTC−03; a documentação foi validada por coerência, cobertura do histórico, links e git diff --check.
+Revisão documental de 20/10/2026: os 42 registros de evidências de etapas estão referenciados no guia; 873 links locais foram verificados sem referências quebradas. A contagem de 746 testes corresponde ao build completo da 9C2b registrado em suas evidências, concluído às 16:24:05 UTC−03; a documentação foi validada por coerência, cobertura do histórico, links e git diff --check.

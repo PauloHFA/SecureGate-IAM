@@ -6,18 +6,18 @@ Atualizado em 20/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 9C2a — retry persistido e métricas da limpeza de credenciais PAM |
-| Base anterior ao commit desta entrega | 9B2/9C1 e consolidação documental, 54b5bea |
-| Trabalho incluído no commit desta entrega | 9C2a; publicação e CI remota pendentes |
-| Branch | feat/pam-cleanup-recovery |
-| Última validação do código | clean verify aprovado em 20/10/2026 às 15:38:13 UTC−03, 741 testes, cobertura e arquitetura aprovadas |
-| Próxima entrega | 9C2b — observador de pedidos/exercícios operacionais; depois 9C3 — aceite integrado |
+| Última entrega implementada | 9C2b — recuperação/métricas do observador e reinício real da JVM |
+| Base anterior ao commit desta entrega | 9C2a, f11e18d |
+| Trabalho incluído no commit desta entrega | 9C2b; publicação e CI remota pendentes |
+| Branch | feat/pam-request-recovery |
+| Última validação do código | clean verify aprovado em 20/10/2026 às 16:24:05 UTC−03, 746 testes, cobertura e arquitetura aprovadas |
+| Próxima entrega | 9C3 — jornada PAM HTTP/credencial/ingestão/consulta e aceite integrado |
 | Outras pendências da etapa 9 | KV do enforcer, hardening e aceite integrado |
 | Etapas posteriores | 10 — carga/observabilidade; 11 — entrega/hardening; 12 — gateway/demonstração opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9C2a abaixo descrevem entregas executadas. As divisões 9C2b–9C3, 9A3 e 10–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9C2b abaixo descrevem entregas executadas. As divisões 9C3, 9A3 e 10–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -194,6 +194,21 @@ A 9C2 foi dividida para validar a fila de credenciais antes de mudar o observado
 
 Operação: [guia 9C2a](runbooks/recuperacao-pam-local.md); [ADR-041](adr/041-recuperacao-da-limpeza-pam.md); [evidências](evidencias/etapa-09c2a.md).
 
+### Passo a passo da 9C2b
+
+1. Identificar que a primeira falha de auditoria interrompia o lote de vinte pedidos vencidos.
+2. Criar V22 aditiva e concessões de coluna para contador, próxima tentativa e último código/instante de falha da observação.
+3. Isolar cada pedido em transação de marcador/fato/Outbox; após rollback, agendar retry em transação separada e continuar o lote.
+4. Selecionar somente elegíveis e ordenar por vencimento/próxima tentativa; usar intervalos de 2–60 s, contador saturado e atualização condicional que não reabre revogado/observado.
+5. Medir pendentes, prontos, adiados, retries, tempo desde vencimento e disponibilidade/idade do snapshot, sem identidade nos rótulos.
+6. Testar vinte falhas/itens posteriores, fronteira de tempo, saturação, concorrência e concessões runtime com PostgreSQL real.
+7. Empacotar o IAM e executar outro processo Java: provocar falha de auditoria em banco descartável, confirmar retry/rollback, encerrar JVM, remover falha e iniciar outra JVM no mesmo banco/Vault.
+8. Conferir PIDs distintos, agenda, prazo/correlação e uma transição auditada com Outbox; validar a suíte completa e registrar limites.
+
+A 9C2 está implementada localmente por 9C2a/9C2b. O reinício comprova o observador com fixture SQL e emissão desabilitada; a jornada humana HTTP/credencial/ingestão/consulta continua na 9C3.
+
+Operação: [guia de recuperação](runbooks/recuperacao-pam-local.md); [ADR-042](adr/042-recuperacao-do-observador-pam.md); [evidências](evidencias/etapa-09c2b.md).
+
 ### Passo a passo detalhado da 9B2
 
 1. Criar registro de emissão com chave única por pedido e estados ISSUING/ISSUED/FAILED/REVOKING/REVOKED.
@@ -213,11 +228,10 @@ Limites vigentes: senha não é recuperável por GET; resposta perdida exige rev
 
 ### Próximas divisões propostas da etapa 9
 
-A 9C2a acima foi implementada. As divisões abaixo ainda não foram implementadas; a ordem imediata é 9C2b; KV do enforcer precisa ser concluído antes do aceite final da etapa 9.
+A 9C2b acima foi implementada. As divisões abaixo ainda não foram implementadas; a ordem imediata é 9C3; KV do enforcer precisa ser concluído antes do aceite final da etapa 9.
 
 | Proposta | Passos previstos | Critério de aceite previsto |
 | --- | --- | --- |
-| 9C2b — Observador de pedidos e operação | Recuperar observação de pedidos sem bloqueio de lote → completar métricas de pedidos → exercitar reinício/indisponibilidade e verificar ações do operador descritas na 9C2a. | Falhas do observador recuperáveis, demais pedidos avançam, pendências visíveis e limites operacionais comprovados. |
 | 9C3 — Aceite integrado | Testar solicitação → emissão → uso → expiração/revogação → auditoria consultável; incluir falhas/reinício e isolamento do runtime. | Jornada reproduzível, eventos consultáveis, limitações e resultados registrados; demais pendências da etapa explicitadas. |
 | 9A3 — KV do enforcer | Integrar leitura protegida no startup do enforcer → validar campos/precedência → testar falha sem fallback e documentar operação. | Enforcer pode obter segredos pelo caminho protegido; ativação, limites e recuperação testados/documentados. |
 
@@ -268,6 +282,7 @@ O diretório [db/migration](../iam-core/src/main/resources/db/migration/) conté
 | V19 | 9B2 | Consumo e metadados de emissão PAM. |
 | V20 | 9C1 | Correlação de origem e observação transacional da expiração PAM. |
 | V21 | 9C2a | Agenda persistida e metadados de retry da limpeza PAM. |
+| V22 | 9C2b | Agenda persistida e metadados de retry da observação de pedidos PAM. |
 
 Não editar migrações já aplicadas para implementar a próxima etapa. Mudanças novas de schema devem ser aditivas/versionadas e acompanhadas de compatibilidade e atualização das concessões necessárias.
 

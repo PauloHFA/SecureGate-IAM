@@ -166,6 +166,73 @@ class PamCleanupRecoveryIT {
   }
 
   @Test
+  void twentyFailedRequestObservationsYieldToOtherRequestsAndResumeAtStoredDeadline() {
+    var requests = new JdbcPrivilegedRequests(jdbc);
+    var failing = new HashSet<UUID>();
+    for (int index = 0; index < 20; index++) {
+      failing.add(entry("ISSUING", now.minusSeconds(200 + index)));
+    }
+    UUID healthy = entry("ISSUING", now.minusSeconds(180));
+    doThrow(new IllegalStateException("synthetic audit unavailable"))
+        .when(audit)
+        .record(
+            argThat(
+                record -> failing.contains(UUID.fromString(record.details().get("requestId")))));
+    assertThrows(IllegalStateException.class, requestWorker(now)::observeExpirations);
+    assertEquals(21, requests.operations(now).pending());
+    assertEquals(20, requests.operations(now).deferred());
+    assertEquals(1, requests.operations(now).ready());
+    requestWorker(now).observeExpirations();
+    assertEquals(20, requests.operations(now).pending());
+    assertFalse(requests.recordExpiration(healthy, now));
+    assertTrue(requests.expired(now.plusMillis(1999)).isEmpty());
+    reset(audit);
+    requestWorker(now.plusSeconds(2)).observeExpirations();
+    assertEquals(0, requests.operations(now.plusSeconds(2)).pending());
+    for (UUID id : failing) {
+      assertEquals(1, requests.find(id, user).orElseThrow().observationAttempts());
+      assertFalse(requests.deferObservation(id, 1, now, now.plusSeconds(4)));
+    }
+  }
+
+  PrivilegedRequestService requestWorker(Instant at) {
+    return new PrivilegedRequestService(
+        new JdbcPrivilegedRequests(jdbc),
+        new JdbcUnitOfWork(new TransactionTemplate(new DataSourceTransactionManager(dataSource))),
+        audit,
+        Clock.fixed(at, ZoneOffset.UTC));
+  }
+
+  @Test
+  void observationRetriesCannotReopenRevokedOrObservedRequestsAndCountersSaturate()
+      throws Exception {
+    var requests = new JdbcPrivilegedRequests(jdbc);
+    UUID id = entry("ISSUING", now.minusSeconds(180));
+    try (var workers = Executors.newFixedThreadPool(2)) {
+      var gate = new CountDownLatch(1);
+      Callable<Boolean> schedule =
+          () -> {
+            gate.await();
+            return requests.deferObservation(id, 0, now, now.plusSeconds(2));
+          };
+      var first = workers.submit(schedule);
+      var second = workers.submit(schedule);
+      gate.countDown();
+      assertNotEquals(first.get(5, TimeUnit.SECONDS), second.get(5, TimeUnit.SECONDS));
+    }
+    for (int index = 1; index < 35; index++) {
+      assertTrue(requests.deferObservation(id, Math.min(30, index), now, now.plusSeconds(60)));
+    }
+    assertEquals(30, requests.find(id, user).orElseThrow().observationAttempts());
+    assertTrue(requests.recordExpiration(id, now));
+    assertFalse(requests.deferObservation(id, 30, now, now.plusSeconds(120)));
+    UUID revoked = entry("ISSUING", now.minusSeconds(30));
+    assertTrue(requests.revoke(revoked, user, now));
+    assertFalse(requests.deferObservation(revoked, 0, now.plusSeconds(120), now.plusSeconds(122)));
+    assertEquals(0, requests.operations(now.plusSeconds(120)).pending());
+  }
+
+  @Test
   void ambiguousFailuresRemainVisibleAndAreNeverReissued() {
     UUID id = entry("FAILED", now.minusSeconds(120));
     UUID stale = entry("ISSUING", now.minusSeconds(31));
