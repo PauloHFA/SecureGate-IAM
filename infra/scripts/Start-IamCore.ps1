@@ -1,10 +1,11 @@
 [CmdletBinding()]
-param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement, [switch]$EnableAuditPartitions, [switch]$EnableAuditIngestion)
+param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement, [switch]$EnableAuditPartitions, [switch]$EnableAuditIngestion, [switch]$EnableAuditConsumer)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LocalEnvironment.ps1')
 $projectPath = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $settings = Read-LocalEnvironment (Join-Path $projectPath '.env')
+if ($EnableAuditConsumer) { $EnableAuditIngestion = $true }
 if ($EnableResourceEnforcement) { $EnableAuthorization = $true }
 if ($EnableAuthorization) { $EnableTransit = $true }
 if ($EnableBootstrap -and (-not $settings.ContainsKey('IAM_BOOTSTRAP_TOKEN') -or $settings.IAM_BOOTSTRAP_TOKEN.Length -lt 32)) {
@@ -28,6 +29,7 @@ if (-not (Test-Path -LiteralPath $jarPath)) {
 $applicationEnvironment = @{
   IAM_AUDIT_PARTITIONS_ENABLED = $(if ($EnableAuditPartitions) { 'true' } else { 'false' })
   IAM_AUDIT_INGESTION_ENABLED = $(if ($EnableAuditIngestion) { 'true' } else { 'false' })
+  IAM_AUDIT_CONSUMER_ENABLED = $(if ($EnableAuditConsumer) { 'true' } else { 'false' })
   IAM_AUDIT_DATABASE_URL = 'jdbc:postgresql://127.0.0.1:' + $settings.POSTGRES_PORT + '/' + $settings.POSTGRES_DB
   IAM_AUDIT_INGEST_USERNAME = 'securegate_audit_ingest_login'
   IAM_AUDIT_MAINTENANCE_USERNAME = 'securegate_audit_maintenance_login'
@@ -55,8 +57,8 @@ $applicationEnvironment = @{
   IAM_RABBITMQ_HOST = '127.0.0.1'
   IAM_RABBITMQ_PORT = $settings.RABBITMQ_PORT
   IAM_RABBITMQ_VHOST = $settings.RABBITMQ_VHOST
-  IAM_RABBITMQ_USERNAME = $(if ($EnableOutboxPublisher) { $settings.RABBITMQ_USER } else { '' })
-  IAM_RABBITMQ_PASSWORD = $(if ($EnableOutboxPublisher) { $settings.RABBITMQ_PASSWORD } else { '' })
+  IAM_RABBITMQ_USERNAME = $(if ($EnableOutboxPublisher -or $EnableAuditConsumer) { $settings.RABBITMQ_USER } else { '' })
+  IAM_RABBITMQ_PASSWORD = $(if ($EnableOutboxPublisher -or $EnableAuditConsumer) { $settings.RABBITMQ_PASSWORD } else { '' })
 }
 $previousValues = @{}
 try {

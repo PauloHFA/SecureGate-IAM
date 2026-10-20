@@ -44,6 +44,8 @@ A 8A1 cria a área de ingestão `iam_audit.event_log` particionada por mês, rec
 
 A 8A2 acrescenta logins/pools dedicados para ingestão e manutenção, provisionamento administrativo separado do Flyway e timeouts. O login de ingestão recebe INSERT/SELECT no log; manutenção só executa uma função limitada. Consulte o [guia](docs/runbooks/identidades-auditoria-local.md), a [ADR-029](docs/adr/029-identidades-auditoria.md) e as [evidências 8A2](docs/evidencias/etapa-08a2.md).
 
+A 8B conecta o consumidor opcional de `audit.persist` ao pool dedicado: JDBC batch atômico, ACK após commit, isolamento de conflitos para DLQ e recuperação por requeue/reconexão. Use `-EnableAuditConsumer`. Consulte o [guia](docs/runbooks/consumidor-auditoria-local.md), a [ADR-030](docs/adr/030-consumidor-auditoria-em-lote.md) e as [evidências 8B](docs/evidencias/etapa-08b.md).
+
 ## Decisões aprovadas
 
 - Java 21, Spring Boot e Spring Authorization Server.
@@ -79,7 +81,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **8B**, consumidor de auditoria em lote, confirmação após commit e recuperação. A 8A1 está no commit local `de02855`; a 8A2 está em `feat/audit-database-privileges`, ainda sem commit. Publicação e CI remota dessas entregas seguem pendentes, assim como revisão/merge. A base publicada vai até a 7C2 (`15dfbf8`); 7D1 (`70e7f4a`) e 7D2 (`9be334b`) continuam locais. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
+Próxima entrega: **8C**, consulta de auditoria por cursor estável e filtros. A 8A1 está no commit local `de02855`; a 8A2 está em `155c2c1`. A 8B está implementada localmente em `feat/audit-batch-consumer`, sem commit. Publicação e CI remota dessas entregas seguem pendentes, assim como revisão/merge. A base publicada vai até a 7C2 (`15dfbf8`); 7D1 (`70e7f4a`) e 7D2 (`9be334b`) continuam locais. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

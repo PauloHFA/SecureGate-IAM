@@ -122,3 +122,5 @@ O primeiro para containers existentes; o segundo remove containers/rede e manté
 - [ADR-003: baseline da infraestrutura](../docs/adr/003-infraestrutura-local.md).
 
 O switch `-EnableAuditPartitions` de `Start-IamCore.ps1` habilita somente a manutenção opcional da [área de ingestão particionada 8A1](../docs/runbooks/auditoria-particionada-local.md). A V13 preserva auditoria produtora/Outbox. A [8A2](../docs/runbooks/identidades-auditoria-local.md) exige provisionar logins dedicados com `Provision-AuditDatabase.ps1` após V14. `-EnableAuditIngestion` disponibiliza o store restrito, sem iniciar consumidor.
+
+O consumidor da **8B** é opcional: `Start-IamCore.ps1 -EnableAuditConsumer -EnableAuditPartitions` usa as credenciais dedicadas provisionadas na 8A2. Acrescente `-EnableOutboxPublisher` para publicar novos eventos localmente. Consulte o [guia de consumo em lote](../docs/runbooks/consumidor-auditoria-local.md); não há ativação automática ou alteração da stack persistente pelo build.
