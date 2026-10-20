@@ -54,6 +54,8 @@ A 8D2 adiciona um benchmark optativo de ingestão JDBC e consultas com milhões 
 
 A 9A1 adiciona leitura opcional de segredos KV v2 antes da criação das conexões do IAM, com AppRole, snapshot validado e revogação do token de leitura. Use `Start-IamCore.ps1 -EnableVaultKv`. Consulte o [guia](docs/runbooks/vault-kv-local.md), a [ADR-034](docs/adr/034-bootstrap-kv-vault.md) e as [evidências 9A1](docs/evidencias/etapa-09a1.md).
 
+A 9A2a prepara o grupo PostgreSQL `securegate_iam_runtime`, sem login e com concessões explícitas, e valida o IAM com uma identidade de execução sem propriedade das tabelas. A V17 permite ao trigger registrar histórico da Outbox sem INSERT direto pelo runtime. O startup padrão ainda usa a conta proprietária. Consulte o [guia](docs/runbooks/permissoes-runtime-local.md), a [ADR-035](docs/adr/035-permissoes-postgresql-runtime.md) e as [evidências](docs/evidencias/etapa-09a2a.md).
+
 ## Decisões aprovadas
 
 - Java 21, Spring Boot e Spring Authorization Server.
@@ -89,7 +91,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **9A2**, credenciais PostgreSQL temporárias, separação migração/runtime e renovação/rotação dos pools. A 9A1 está implementada localmente em `feat/vault-kv-bootstrap`, sem commit. A base inclui 8D2 (`d6b2af0`, medida com 2.030.000 eventos/recibos), 8D1 (`d7311d0`) e 8C (`7962347`). A base até a 8B (`f005334`), incluindo 7D/8A, foi publicada em `feat/audit-batch-consumer`; CI remota dessa base, revisão e merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
+Próxima entrega: **9A2b**, Database Engine Vault, credenciais PostgreSQL temporárias e separação automatizada migração/runtime; seguida pela **9A2c**, renovação/rotação dos pools. A 9A2a está implementada localmente em `feat/runtime-database-privileges`, sem commit. A base inclui 9A1 (`c3d8d6b`), 8D2 (`d6b2af0`, medida com 2.030.000 eventos/recibos), 8D1 (`d7311d0`) e 8C (`7962347`). A base até a 8B (`f005334`), incluindo 7D/8A, foi publicada em `feat/audit-batch-consumer`; CI remota dessa base, revisão e merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

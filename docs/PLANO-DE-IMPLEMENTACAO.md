@@ -256,6 +256,8 @@ Subdivisão: **8A1** — V13 aditiva, `event_log` mensal, recibos globais, porta
 
 Subdivisão: **9A1** — snapshot KV v2 opcional no startup do IAM, AppRole por arquivo, precedência para credenciais permitidas, falha sem fallback e revogação do token de leitura; implementada localmente em `feat/vault-kv-bootstrap`. Ver [ADR-034](adr/034-bootstrap-kv-vault.md), [guia](runbooks/vault-kv-local.md) e [evidências](evidencias/etapa-09a1.md). **9A2** — credenciais PostgreSQL temporárias, separação migração/runtime, leases e renovação/rotação dos pools. **9B** — acesso privilegiado com autorização, justificativa e TTL. **9C** — auditoria operacional e recuperação integrada. A 9A1 não renova segredos em execução, não integra KV no enforcer e não conclui o aceite da etapa 9.
 
+A 9A2 foi dividida em **9A2a**, perfil de permissões NOLOGIN e validação do IAM sem propriedade das tabelas; **9A2b**, Database Engine Vault, emissão temporária e separação automatizada migração/runtime; e **9A2c**, leases, renovação e troca segura de pools. A 9A2a está implementada localmente em `feat/runtime-database-privileges`: SQL/script administrativo, grants explícitos e V17 para o histórico de quarentena via trigger. Ver [ADR-035](adr/035-permissoes-postgresql-runtime.md), [guia](runbooks/permissoes-runtime-local.md) e [evidências](evidencias/etapa-09a2a.md). O startup padrão ainda usa a conta proprietária; a 9A2a não emite credenciais nem integra o Database Engine.
+
 ## Etapa 10 — Carga e observabilidade
 
 - [ ] Criar planos JMeter e massa reproduzível de usuários/clientes.
@@ -337,4 +339,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a **9A2**: credenciais temporárias PostgreSQL, separação migração/runtime, leases e renovação/rotação dos pools. A 9A1 está implementada localmente em `feat/vault-kv-bootstrap`, sem commit. A base local inclui 8C (`7962347`), 8D1 (`d7311d0`) e 8D2 (`d6b2af0`, medida com milhões de eventos); somente a base até a 8B (`f005334`) foi publicada. CI remota dessas entregas e revisão/merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
+Seguir para a **9A2b**: Database Engine Vault, emissão de credenciais temporárias PostgreSQL e separação automatizada migração/runtime. A renovação/rotação dos pools fica na 9A2c. A 9A2a está implementada localmente em `feat/runtime-database-privileges`, sem commit. A base local inclui 9A1 (`c3d8d6b`), 8C (`7962347`), 8D1 (`d7311d0`) e 8D2 (`d6b2af0`, medida com milhões de eventos); somente a base até a 8B (`f005334`) foi publicada. CI remota dessas entregas e revisão/merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).

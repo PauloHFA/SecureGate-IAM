@@ -87,6 +87,8 @@ Os tokens de aplicação têm TTL de 1 hora e máximo de 4 horas. Os SecretIDs t
 
 O `iam-core` pode ler as credenciais KV no startup com `Start-IamCore.ps1 -EnableVaultKv` (9A1); consulte o [guia de operação](../docs/runbooks/vault-kv-local.md). O enforcer ainda recebe credenciais pelo ambiente. As contas principais de banco/broker continuam sendo contas de bootstrap local; credenciais dinâmicas, renovação e separação migração/runtime ficam para a 9A2. Os pools de auditoria da etapa 8 preservam suas contas dedicadas por arquivo.
 
+A 9A2a prepara o grupo NOLOGIN de execução do IAM com `Provision-RuntimeDatabase.ps1`, após aplicar V17. Não cria senha/login nem muda a conexão padrão. Consulte o [guia de permissões runtime](../docs/runbooks/permissoes-runtime-local.md); a emissão temporária pelo Vault será integrada na 9A2b.
+
 Produção exige Vault persistente, TLS, unseal, recuperação e entrega protegida das credenciais iniciais. O modo dev pode registrar o token administrativo no log de inicialização; não compartilhe esses logs. A tarefa `vault-init` não imprime segredos.
 
 ## Validação e diagnóstico
