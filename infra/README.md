@@ -120,3 +120,5 @@ O primeiro para containers existentes; o segundo remove containers/rede e manté
 - [Vault Transit API](https://developer.hashicorp.com/vault/api-docs/secret/transit).
 - [Vault AppRole API](https://developer.hashicorp.com/vault/api-docs/auth/approle).
 - [ADR-003: baseline da infraestrutura](../docs/adr/003-infraestrutura-local.md).
+
+O switch `-EnableAuditPartitions` de `Start-IamCore.ps1` habilita somente a manutenção opcional da [área de ingestão particionada 8A1](../docs/runbooks/auditoria-particionada-local.md). A V13 preserva auditoria produtora/Outbox. Não há consumidor novo nesta entrega; permissões separadas seguem na 8A2.

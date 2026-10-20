@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement)
+param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement, [switch]$EnableAuditPartitions)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LocalEnvironment.ps1')
@@ -20,6 +20,7 @@ if (-not (Test-Path -LiteralPath $jarPath)) {
   throw 'JAR ausente. Execute .\mvnw.cmd verify na raiz antes de iniciar.'
 }
 $applicationEnvironment = @{
+  IAM_AUDIT_PARTITIONS_ENABLED = $(if ($EnableAuditPartitions) { 'true' } else { 'false' })
   IAM_DATABASE_URL = 'jdbc:postgresql://127.0.0.1:' + $settings.POSTGRES_PORT + '/' + $settings.POSTGRES_DB
   IAM_DATABASE_USERNAME = $settings.POSTGRES_USER
   IAM_DATABASE_PASSWORD = $settings.POSTGRES_PASSWORD

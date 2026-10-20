@@ -40,6 +40,8 @@ A 7D1 acrescenta o módulo de testes ponta a ponta, executando IAM/enforcer empa
 
 A 7D2 valida reinício do enforcer, indisponibilidade do broker/Redis, replay exato, política fora de ordem e bloqueios reais por conta/IP com expiração. Consulte o [guia](docs/runbooks/resiliencia-ponta-a-ponta-local.md), a [ADR-027](docs/adr/027-resiliencia-ponta-a-ponta.md) e as [evidências 7D2](docs/evidencias/etapa-07d2.md).
 
+A 8A1 cria a área de ingestão `iam_audit.event_log` particionada por mês, recibos globais de deduplicação e manutenção opcional das partições futuras. Preserva a auditoria legada e a Outbox, sem conectar consumidor nesta entrega. Consulte o [guia](docs/runbooks/auditoria-particionada-local.md), a [ADR-028](docs/adr/028-base-auditoria-particionada.md) e as [evidências 8A1](docs/evidencias/etapa-08a1.md).
+
 ## Decisões aprovadas
 
 - Java 21, Spring Boot e Spring Authorization Server.
@@ -75,7 +77,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **8A**, modelagem e particionamento da auditoria. O escopo funcional da etapa 7 está validado localmente; publicação, CI remota e revisão/merge continuam pendentes. A 7D1 está no commit local `70e7f4a`; a 7D2 está em `feat/end-to-end-resilience`. A base publicada das etapas 6/7 vai até a 7C2 (`15dfbf8`), em `feat/authentication-redis-enforcement`. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
+Próxima entrega: **8A2**, separação das identidades/permissões de ingestão e manutenção antes de conectar o consumidor. A 8A1 está implementada localmente em `feat/partitioned-audit-foundation`. A etapa 7 tem aceite funcional local, com 7D1 em `70e7f4a` e 7D2 em `9be334b`, ainda sem publicação/CI remota. A base publicada vai até a 7C2 (`15dfbf8`). Revisão/merge continuam pendentes; a base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

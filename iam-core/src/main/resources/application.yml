@@ -24,6 +24,9 @@ spring:
       enabled: true
 
 iam:
+  audit:
+    partitions:
+      enabled: ${IAM_AUDIT_PARTITIONS_ENABLED:false}
   resources:
     enforcement:
       enabled: ${IAM_RESOURCE_ENFORCEMENT_ENABLED:false}
