@@ -25,6 +25,8 @@ spring:
 
 iam:
   audit:
+    query:
+      enabled: ${IAM_AUDIT_QUERY_ENABLED:false}
     consumer:
       enabled: ${IAM_AUDIT_CONSUMER_ENABLED:false}
       host: ${IAM_RABBITMQ_HOST:127.0.0.1}

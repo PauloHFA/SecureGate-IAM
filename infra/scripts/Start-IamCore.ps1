@@ -1,11 +1,11 @@
 [CmdletBinding()]
-param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement, [switch]$EnableAuditPartitions, [switch]$EnableAuditIngestion, [switch]$EnableAuditConsumer)
+param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement, [switch]$EnableAuditPartitions, [switch]$EnableAuditIngestion, [switch]$EnableAuditConsumer, [switch]$EnableAuditQuery)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LocalEnvironment.ps1')
 $projectPath = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $settings = Read-LocalEnvironment (Join-Path $projectPath '.env')
-if ($EnableAuditConsumer) { $EnableAuditIngestion = $true }
+if ($EnableAuditConsumer -or $EnableAuditQuery) { $EnableAuditIngestion = $true }
 if ($EnableResourceEnforcement) { $EnableAuthorization = $true }
 if ($EnableAuthorization) { $EnableTransit = $true }
 if ($EnableBootstrap -and (-not $settings.ContainsKey('IAM_BOOTSTRAP_TOKEN') -or $settings.IAM_BOOTSTRAP_TOKEN.Length -lt 32)) {
@@ -29,6 +29,7 @@ if (-not (Test-Path -LiteralPath $jarPath)) {
 $applicationEnvironment = @{
   IAM_AUDIT_PARTITIONS_ENABLED = $(if ($EnableAuditPartitions) { 'true' } else { 'false' })
   IAM_AUDIT_INGESTION_ENABLED = $(if ($EnableAuditIngestion) { 'true' } else { 'false' })
+  IAM_AUDIT_QUERY_ENABLED = $(if ($EnableAuditQuery) { 'true' } else { 'false' })
   IAM_AUDIT_CONSUMER_ENABLED = $(if ($EnableAuditConsumer) { 'true' } else { 'false' })
   IAM_AUDIT_DATABASE_URL = 'jdbc:postgresql://127.0.0.1:' + $settings.POSTGRES_PORT + '/' + $settings.POSTGRES_DB
   IAM_AUDIT_INGEST_USERNAME = 'securegate_audit_ingest_login'
