@@ -67,9 +67,9 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 3 | Identity e Access | 2 | Incluída na base publicada 5A, com CI aprovada; revisão/merge pendentes |
 | 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | 4A–4D2 publicadas na base 5A, com CI aprovada; revisão/merge pendentes |
 | 5 | Políticas, risco e MFA | 3–4 | Implementada e publicada até 5D3, CI aprovada; revisão e merge pendentes |
-| 6 | Eventos e Outbox | 2–5 | 6A–6C implementadas localmente; publicação/CI/revisão pendentes |
-| 7 | Enforcer e revogação | 4–6 | Em andamento: 7A/7B/7C1/7C2 locais; 7D pendente |
-| 8 | Auditoria e desempenho | 6–7 | Pendente |
+| 6 | Eventos e Outbox | 2–5 | 6A–6C publicadas; CI/revisão pendentes |
+| 7 | Enforcer e revogação | 4–6 | Escopo funcional local concluído; publicação 7D/CI/revisão pendentes |
+| 8 | Auditoria e desempenho | 6–7 | 8A1/8A2/8B locais; 8C/8D pendentes |
 | 9 | Vault avançado e PAM | 4–8 | Pendente |
 | 10 | Carga | 5–9 | Pendente |
 | 11 | Entrega e hardening | 0–10 | Pendente |
@@ -215,30 +215,32 @@ Subdivisão: **6A1** — envelope v1, contrato JSON, V9 e Outbox atômica com ev
 - [x] Implementar consumidor de revogação com ack manual e idempotência por `eventId` (7A).
 - [x] Aplicar efeito Redis antes de registrar conclusão/ACK na revogação (7A).
 - [x] Implementar consumidor de bloqueio/política com a mesma garantia (7B).
-- [ ] Atualizar sessões, bloqueios por usuário/IP e revogação por `jti`/`sid`.
-- [ ] Calcular TTL conforme expiração do token, sessão ou bloqueio.
-- [ ] Tratar duplicação e eventos fora de ordem com regras de versão/timestamp.
+- [x] Atualizar sessões, bloqueios por usuário/IP e revogação por `jti`/`sid`.
+- [x] Calcular TTL conforme expiração do token, sessão ou bloqueio.
+- [x] Tratar duplicação e eventos fora de ordem com regras de versão/timestamp.
 - [x] Consultar bloqueio/revogação no recurso do `iam-core` e impedir acesso quando Redis falha (7C1).
 - [x] Integrar sinais distribuídos e aplicação de bloqueios por limiar a login/emissão/refresh (7C2); os contadores são assíncronos, sem limite rígido de QPS.
-- [ ] Implementar rate limiting por conta/IP e logout/revogação ponta a ponta.
-- [ ] Medir propagação da confirmação da revogação até a rejeição no recurso protegido.
+- [x] Implementar rate limiting por conta/IP e logout/revogação ponta a ponta.
+- [x] Medir propagação da confirmação da revogação até projeção Redis e rejeição no recurso protegido (7D1 local; nove amostras ociosas, sem garantia de produção).
 
 **Aceite:** token anteriormente aceito passa a ser rejeitado em menos de 2 segundos no ambiente medido; integração cobre duplicação, reordenação e falhas temporárias.
 
-Subdivisão: **7A** — bootstrap opcional do `policy-enforcer`, fila `enforcer.revocation`, contrato/cabeçalhos, script Redis atômico com fingerprint por eventId, efeitos terminais jti/authorizationId/sid, ACK manual, rejeição à DLQ e recuperação de indisponibilidade; implementada localmente em `feat/enforcer-revocation-consumer`. Ver [ADR-022](adr/022-consumidor-de-revogacao.md), [guia](runbooks/enforcer-revogacao-local.md) e [evidências](evidencias/etapa-07a.md). **7B** — consumidor de bloqueio/política, estado de identidade e versões exatas, contadores de limiar por conta/versão e IP, bloqueios e risco temporários; implementada localmente em `feat/enforcer-block-policy-consumer`. Ver [ADR-023](adr/023-consumidor-bloqueio-politica.md), [guia](runbooks/enforcer-bloqueio-politica-local.md) e [evidências](evidencias/etapa-07b.md). **7C1** — consulta opcional de revogação/identidade/bloqueios/watermarks no recurso do IAM, estado estrito e falha fechada, implementada localmente em `feat/resource-redis-enforcement`. Ver [ADR-024](adr/024-consulta-redis-no-recurso.md), [guia](runbooks/recurso-enforcement-redis-local.md) e [evidências](evidencias/etapa-07c1.md). **7C2** — login/emissão/refresh, sinais distribuídos, MFA real por risco e aplicação dos bloqueios projetados; implementada localmente em `feat/authentication-redis-enforcement`. Ver [ADR-025](adr/025-enforcement-login-emissao.md), [guia](runbooks/autenticacao-enforcement-redis-local.md) e [evidências](evidencias/etapa-07c2.md). **7D** — testes ponta a ponta, reordenação/falhas e medição de propagação. As 7A/7B/7C1/7C2 não concluem a etapa 7: medição integrada permanece pendente; tombstones de sid não recebem TTL fictício sem limite confiável dos grants.
+Subdivisão: **7A** — bootstrap opcional do `policy-enforcer`, fila `enforcer.revocation`, contrato/cabeçalhos, script Redis atômico com fingerprint por eventId, efeitos terminais jti/authorizationId/sid, ACK manual, rejeição à DLQ e recuperação de indisponibilidade; implementada localmente em `feat/enforcer-revocation-consumer`. Ver [ADR-022](adr/022-consumidor-de-revogacao.md), [guia](runbooks/enforcer-revogacao-local.md) e [evidências](evidencias/etapa-07a.md). **7B** — consumidor de bloqueio/política, estado de identidade e versões exatas, contadores de limiar por conta/versão e IP, bloqueios e risco temporários; implementada localmente em `feat/enforcer-block-policy-consumer`. Ver [ADR-023](adr/023-consumidor-bloqueio-politica.md), [guia](runbooks/enforcer-bloqueio-politica-local.md) e [evidências](evidencias/etapa-07b.md). **7C1** — consulta opcional de revogação/identidade/bloqueios/watermarks no recurso do IAM, estado estrito e falha fechada, implementada localmente em `feat/resource-redis-enforcement`. Ver [ADR-024](adr/024-consulta-redis-no-recurso.md), [guia](runbooks/recurso-enforcement-redis-local.md) e [evidências](evidencias/etapa-07c1.md). **7C2** — login/emissão/refresh, sinais distribuídos, MFA real por risco e aplicação dos bloqueios projetados; implementada localmente em `feat/authentication-redis-enforcement`. Ver [ADR-025](adr/025-enforcement-login-emissao.md), [guia](runbooks/autenticacao-enforcement-redis-local.md) e [evidências](evidencias/etapa-07c2.md). **7D1** — baseline de revogação/logout com os JARs reais, correlação Outbox/Redis/HTTP e medição local; implementada em `feat/end-to-end-propagation`. Ver [ADR-026](adr/026-medicao-ponta-a-ponta.md), [guia](runbooks/propagacao-ponta-a-ponta-local.md) e [evidências](evidencias/etapa-07d1.md). **7D2** — duplicação, política fora de ordem, recuperação de falhas e bloqueios por limiar na cadeia completa, implementada localmente em `feat/end-to-end-resilience`. Ver [ADR-027](adr/027-resiliencia-ponta-a-ponta.md), [guia](runbooks/resiliencia-ponta-a-ponta-local.md) e [evidências](evidencias/etapa-07d2.md). O escopo funcional da etapa 7 está validado localmente; publicação/CI remota e revisão continuam pendentes. Tombstones de sid continuam permanentes sem limite confiável dos grants; reconstrução Redis, alta disponibilidade, sessões compartilhadas e garantias sob carga não são comprovadas. Rate limiting permanece assíncrono, sem limite rígido de QPS.
 
 ## Etapa 8 — Auditoria e otimização
 
-- [ ] Criar auditoria particionada por mês em `occurred_at` com Flyway.
-- [ ] Usar chave `(id, occurred_at)` e criar partições futuras automaticamente.
-- [ ] Garantir deduplicação global de evento apesar das restrições de unicidade de tabelas particionadas; documentar a solução.
-- [ ] Restringir identidade de ingestão a INSERT/SELECT e separar permissões operacionais.
-- [ ] Implementar consumidor com lote e recuperação de falhas.
+- [x] Criar área de ingestão de auditoria particionada por mês em `occurred_at` com Flyway (8A1; auditoria produtora legada preservada).
+- [x] Usar chave `(id, occurred_at)` e criar partições futuras automaticamente (8A1; worker opcional, horizonte inicial Flyway).
+- [x] Garantir deduplicação global de evento apesar das restrições de unicidade de tabelas particionadas; documentar a solução (8A1; recibo global transacional e fingerprint).
+- [x] Restringir identidade de ingestão a INSERT/SELECT e separar permissões operacionais (8A2; pools dedicados; conexão principal proprietária preservada).
+- [x] Implementar consumidor com lote e recuperação de falhas (8B; ACK após commit, DLQ para inválidos/conflitos).
 - [ ] Criar consulta por cursor estável, filtros e índices.
 - [ ] Definir retenção/arquivamento preservando imutabilidade.
 - [ ] Medir N+1, planos SQL e ingestão com milhões de registros.
 
 **Aceite:** duplicação não cria múltiplos registros; aplicação não altera/exclui auditoria; cursor lida com timestamps iguais; planos e medições documentados.
+
+Subdivisão: **8A1** — V13 aditiva, `event_log` mensal, recibos globais, porta/adaptador de gravação e manutenção opcional, implementada localmente em `feat/partitioned-audit-foundation`. Ver [ADR-028](adr/028-base-auditoria-particionada.md), [guia](runbooks/auditoria-particionada-local.md) e [evidências](evidencias/etapa-08a1.md). **8A2** — V14, logins/pools dedicados, provisionamento administrativo separado, permissões e timeouts; implementada localmente em `feat/audit-database-privileges`. Ver [ADR-029](adr/029-identidades-auditoria.md), [guia](runbooks/identidades-auditoria-local.md) e [evidências](evidencias/etapa-08a2.md). **8B** — consumidor opcional em lote, confirmação após commit, DLQ para inválidos/conflitos e requeue/reconexão para falhas, implementado localmente em `feat/audit-batch-consumer`. Ver [ADR-030](adr/030-consumidor-auditoria-em-lote.md), [guia](runbooks/consumidor-auditoria-local.md) e [evidências](evidencias/etapa-08b.md). **8C** — consulta por cursor/filtros. **8D** — retenção/arquivamento e planos/carga. A 8A1 não migra a auditoria legada, não conecta consumidor e não conclui o aceite da etapa 8. Proprietário/superusuário ainda pode alterar DDL; a conexão principal do IAM continua proprietária/migradora, enquanto os caminhos dedicados são restritos. O consumidor da 8B permanece desabilitado por padrão e exige ingestão dedicada.
 
 ## Etapa 9 — Vault avançado e PAM
 
@@ -333,4 +335,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a 7D: validar a cadeia completa e medir propagação, reordenação e recuperação de falhas. A 6A1 está em `2e34a88`; a 6A2, em `3159d3f`; a 6B, em `08dd420`; a 6C, em `323d06e`. A 7A está em `3a0c348`; a 7B, em `5bd4c8f`; a 7C1 está em `45926c0`; a 7C2 está implementada localmente em `feat/authentication-redis-enforcement`. Publicação/CI remota das etapas 6/7 continuam pendentes. A base publicada até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). Revisão/merge continuam pendentes. A medição de propagação permanece na 7D.
+Seguir para a **8C**: consulta de auditoria por cursor estável e filtros. A 8A1 está em `de02855`; a 8A2 em `155c2c1`. A 8B está localmente em `feat/audit-batch-consumer`, sem commit, com ativação opcional via `-EnableAuditConsumer`; preserva a auditoria produtora/Outbox. Publicação/CI remota das 7D/8A e revisão/merge continuam pendentes; a base publicada vai até a 7C2 (`15dfbf8`). A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).

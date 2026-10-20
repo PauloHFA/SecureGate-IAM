@@ -36,6 +36,16 @@ A 7C1 adiciona `-EnableResourceEnforcement`: o recurso humano consulta revogaç�
 
 A 7C2 aplica sinais Redis no login e na emissão/refresh, preserva códigos e refresh tokens após recusa transitória e exige prova MFA real diante de risco. Consulte o [guia de autenticação](docs/runbooks/autenticacao-enforcement-redis-local.md), a [ADR-025](docs/adr/025-enforcement-login-emissao.md) e as [evidências 7C2](docs/evidencias/etapa-07c2.md).
 
+A 7D1 acrescenta o módulo de testes ponta a ponta, executando IAM/enforcer empacotados com infraestrutura descartável. Mede revogação por jti, família após refresh e logout, correlacionando Outbox, Redis e rejeição HTTP. Consulte o [guia](docs/runbooks/propagacao-ponta-a-ponta-local.md), a [ADR-026](docs/adr/026-medicao-ponta-a-ponta.md) e as [evidências 7D1](docs/evidencias/etapa-07d1.md).
+
+A 7D2 valida reinício do enforcer, indisponibilidade do broker/Redis, replay exato, política fora de ordem e bloqueios reais por conta/IP com expiração. Consulte o [guia](docs/runbooks/resiliencia-ponta-a-ponta-local.md), a [ADR-027](docs/adr/027-resiliencia-ponta-a-ponta.md) e as [evidências 7D2](docs/evidencias/etapa-07d2.md).
+
+A 8A1 cria a área de ingestão `iam_audit.event_log` particionada por mês, recibos globais de deduplicação e manutenção opcional das partições futuras. Preserva a auditoria legada e a Outbox, sem conectar consumidor nesta entrega. Consulte o [guia](docs/runbooks/auditoria-particionada-local.md), a [ADR-028](docs/adr/028-base-auditoria-particionada.md) e as [evidências 8A1](docs/evidencias/etapa-08a1.md).
+
+A 8A2 acrescenta logins/pools dedicados para ingestão e manutenção, provisionamento administrativo separado do Flyway e timeouts. O login de ingestão recebe INSERT/SELECT no log; manutenção só executa uma função limitada. Consulte o [guia](docs/runbooks/identidades-auditoria-local.md), a [ADR-029](docs/adr/029-identidades-auditoria.md) e as [evidências 8A2](docs/evidencias/etapa-08a2.md).
+
+A 8B conecta o consumidor opcional de `audit.persist` ao pool dedicado: JDBC batch atômico, ACK após commit, isolamento de conflitos para DLQ e recuperação por requeue/reconexão. Use `-EnableAuditConsumer`. Consulte o [guia](docs/runbooks/consumidor-auditoria-local.md), a [ADR-030](docs/adr/030-consumidor-auditoria-em-lote.md) e as [evidências 8B](docs/evidencias/etapa-08b.md).
+
 ## Decisões aprovadas
 
 - Java 21, Spring Boot e Spring Authorization Server.
@@ -71,13 +81,13 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **7D**, validação ponta a ponta e medição da propagação. A 7C2 implementa login/emissão/refresh com sinais distribuídos e aplicação dos bloqueios projetados. A 6A1 (`2e34a88`), a 6A2 (`3159d3f`), a 6B (`08dd420`), a 6C (`323d06e`), a 7A (`3a0c348`) e a 7B (`5bd4c8f`) estão em commits locais. A 7C1 está no commit local `45926c0`. A 7C2 está implementada localmente em `feat/authentication-redis-enforcement`. Publicação/CI remota das etapas 6/7 continuam pendentes. A base até a 5D3 (`7713a94`) está publicada e passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069). Revisão e merge continuam pendentes.
+Próxima entrega: **8C**, consulta de auditoria por cursor estável e filtros. A 8A1 está no commit local `de02855`; a 8A2 está em `155c2c1`. A 8B está implementada localmente em `feat/audit-batch-consumer`, sem commit. Publicação e CI remota dessas entregas seguem pendentes, assim como revisão/merge. A base publicada vai até a 7C2 (`15dfbf8`); 7D1 (`70e7f4a`) e 7D2 (`9be334b`) continuam locais. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
 ## Build local
 
-Pré-requisitos: JDK 21, `JAVA_HOME` apontando para esse JDK, Docker Engine disponível e internet na primeira execução. O Wrapper baixa Maven 3.9.11. Testcontainers inicia PostgreSQL e Vault temporários; não é necessário subir o Compose para executar `verify`.
+Pré-requisitos: JDK 21, `JAVA_HOME` apontando para esse JDK, Docker Engine disponível e internet na primeira execução. O Wrapper baixa Maven 3.9.11. Testcontainers inicia PostgreSQL, Vault, RabbitMQ e Redis temporários; não é necessário subir o Compose para executar `verify`.
 
 Windows PowerShell:
 
@@ -106,6 +116,7 @@ Para corrigir formatação Java, execute `.\mvnw.cmd spotless:apply` no Windows 
 | `libs/security-events` | Biblioteca Java sem Spring, com validação inicial dos tipos de evento |
 | `iam-core` | Identity/Access, políticas e simulação administrativa, auditoria básica, OAuth/OIDC com refresh, Transit/JWKS, Actuator e Flyway |
 | `policy-enforcer` | Consumidores de revogação e bloqueio/política com projeções Redis, consultadas opcionalmente pelo recurso do IAM |
+| `integration-tests` | Testes ponta a ponta dos JARs com infraestrutura descartável e medição da propagação |
 
 O contrato inicial `SecurityEventType` aceita segmentos minúsculos separados por ponto, até 128 caracteres, e rejeita curingas de binding (`*` e `#`). O envelope v1 e a persistência transacional estão na 6A1; os seis produtores foram integrados na 6A2; a 6B publica no broker quando habilitada; consumidores continuam na etapa 7. Relatórios de teste ficam em `libs/security-events/target/surefire-reports/`.
 

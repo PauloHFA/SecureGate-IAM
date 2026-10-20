@@ -24,6 +24,26 @@ spring:
       enabled: true
 
 iam:
+  audit:
+    consumer:
+      enabled: ${IAM_AUDIT_CONSUMER_ENABLED:false}
+      host: ${IAM_RABBITMQ_HOST:127.0.0.1}
+      port: ${IAM_RABBITMQ_PORT:5672}
+      virtual-host: ${IAM_RABBITMQ_VHOST:securegate}
+      username: ${IAM_RABBITMQ_USERNAME:}
+      password: ${IAM_RABBITMQ_PASSWORD:}
+      batch-size: ${IAM_AUDIT_CONSUMER_BATCH_SIZE:20}
+      poll-millis: ${IAM_AUDIT_CONSUMER_POLL_MILLIS:1000}
+    partitions:
+      enabled: ${IAM_AUDIT_PARTITIONS_ENABLED:false}
+      database-url: ${IAM_AUDIT_DATABASE_URL:}
+      username: ${IAM_AUDIT_MAINTENANCE_USERNAME:}
+      password-file: ${IAM_AUDIT_MAINTENANCE_PASSWORD_FILE:}
+    ingestion:
+      enabled: ${IAM_AUDIT_INGESTION_ENABLED:false}
+      database-url: ${IAM_AUDIT_DATABASE_URL:}
+      username: ${IAM_AUDIT_INGEST_USERNAME:}
+      password-file: ${IAM_AUDIT_INGEST_PASSWORD_FILE:}
   resources:
     enforcement:
       enabled: ${IAM_RESOURCE_ENFORCEMENT_ENABLED:false}
