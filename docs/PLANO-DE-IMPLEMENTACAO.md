@@ -1,6 +1,6 @@
 # SecureGate IAM — Roteiro de implementação
 
-Atualizado em 19/10/2026. Base: documento de arquitetura e plano v0.1, outubro de 2026.
+Atualizado em 20/10/2026. Base: documento de arquitetura e plano v0.1, outubro de 2026.
 
 Decisões aprovadas: Java 21, Spring Boot, Maven e Vault Transit desde a etapa de autenticação. Consulte [ADR-001](adr/001-stack-e-organizacao.md) e [ADR-002](adr/002-assinatura-jwt-vault-transit.md).
 
@@ -69,7 +69,7 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 5 | Políticas, risco e MFA | 3–4 | Implementada e publicada até 5D3, CI aprovada; revisão e merge pendentes |
 | 6 | Eventos e Outbox | 2–5 | 6A–6C publicadas; CI/revisão pendentes |
 | 7 | Enforcer e revogação | 4–6 | Escopo funcional publicado na base 8B; CI/revisão pendentes |
-| 8 | Auditoria e desempenho | 6–7 | 8A1/8A2/8B publicadas até f005334; 8C/8D1 locais; 8D2 pendente |
+| 8 | Auditoria e desempenho | 6–7 | Escopo local até 8D2 concluído; publicação 8C/8D, CI/revisão pendentes |
 | 9 | Vault avançado e PAM | 4–8 | Pendente |
 | 10 | Carga | 5–9 | Pendente |
 | 11 | Entrega e hardening | 0–10 | Pendente |
@@ -236,11 +236,11 @@ Subdivisão: **7A** — bootstrap opcional do `policy-enforcer`, fila `enforcer.
 - [x] Implementar consumidor com lote e recuperação de falhas (8B; ACK após commit, DLQ para inválidos/conflitos).
 - [x] Criar consulta por cursor estável, filtros e índices (8C; API administrativa opcional e V15).
 - [x] Definir retenção/arquivamento preservando imutabilidade (8D1; arquivo no mesmo banco, sem exclusão/backup externo).
-- [ ] Medir N+1, planos SQL e ingestão com milhões de registros.
+- [x] Medir N+1, planos SQL e ingestão com milhões de registros (8D2; 2.030.000 eventos/recibos sintéticos e benchmark optativo).
 
 **Aceite:** duplicação não cria múltiplos registros; aplicação não altera/exclui auditoria; cursor lida com timestamps iguais; planos e medições documentados.
 
-Subdivisão: **8A1** — V13 aditiva, `event_log` mensal, recibos globais, porta/adaptador de gravação e manutenção opcional, implementada localmente em `feat/partitioned-audit-foundation`. Ver [ADR-028](adr/028-base-auditoria-particionada.md), [guia](runbooks/auditoria-particionada-local.md) e [evidências](evidencias/etapa-08a1.md). **8A2** — V14, logins/pools dedicados, provisionamento administrativo separado, permissões e timeouts; implementada localmente em `feat/audit-database-privileges`. Ver [ADR-029](adr/029-identidades-auditoria.md), [guia](runbooks/identidades-auditoria-local.md) e [evidências](evidencias/etapa-08a2.md). **8B** — consumidor opcional em lote, confirmação após commit, DLQ para inválidos/conflitos e requeue/reconexão para falhas, implementado localmente em `feat/audit-batch-consumer`. Ver [ADR-030](adr/030-consumidor-auditoria-em-lote.md), [guia](runbooks/consumidor-auditoria-local.md) e [evidências](evidencias/etapa-08b.md). **8C** — consulta administrativa opcional por cursor/filtros e índices V15, implementada localmente em `feat/audit-cursor-query`. Ver [ADR-031](adr/031-consulta-auditoria-por-cursor.md), [guia](runbooks/consulta-auditoria-local.md) e [evidências](evidencias/etapa-08c.md). **8D1** — retenção quente/arquivo mensal no PostgreSQL, preservação de recibos e isolamento de eventos tardios, implementada localmente em `feat/audit-monthly-archive`. Ver [ADR-032](adr/032-arquivamento-mensal-auditoria.md), [guia](runbooks/arquivamento-auditoria-local.md) e [evidências](evidencias/etapa-08d1.md). **8D2** — planos SQL, N+1 e medições com milhões de registros, pendente. A 8A1 não migra a auditoria legada, não conecta consumidor e não conclui o aceite da etapa 8. Proprietário/superusuário ainda pode alterar DDL; a conexão principal do IAM continua proprietária/migradora, enquanto os caminhos dedicados são restritos. O consumidor da 8B permanece desabilitado por padrão e exige ingestão dedicada.
+Subdivisão: **8A1** — V13 aditiva, `event_log` mensal, recibos globais, porta/adaptador de gravação e manutenção opcional, implementada localmente em `feat/partitioned-audit-foundation`. Ver [ADR-028](adr/028-base-auditoria-particionada.md), [guia](runbooks/auditoria-particionada-local.md) e [evidências](evidencias/etapa-08a1.md). **8A2** — V14, logins/pools dedicados, provisionamento administrativo separado, permissões e timeouts; implementada localmente em `feat/audit-database-privileges`. Ver [ADR-029](adr/029-identidades-auditoria.md), [guia](runbooks/identidades-auditoria-local.md) e [evidências](evidencias/etapa-08a2.md). **8B** — consumidor opcional em lote, confirmação após commit, DLQ para inválidos/conflitos e requeue/reconexão para falhas, implementado localmente em `feat/audit-batch-consumer`. Ver [ADR-030](adr/030-consumidor-auditoria-em-lote.md), [guia](runbooks/consumidor-auditoria-local.md) e [evidências](evidencias/etapa-08b.md). **8C** — consulta administrativa opcional por cursor/filtros e índices V15, implementada localmente em `feat/audit-cursor-query`. Ver [ADR-031](adr/031-consulta-auditoria-por-cursor.md), [guia](runbooks/consulta-auditoria-local.md) e [evidências](evidencias/etapa-08c.md). **8D1** — retenção quente/arquivo mensal no PostgreSQL, preservação de recibos e isolamento de eventos tardios, implementada localmente em `feat/audit-monthly-archive`. Ver [ADR-032](adr/032-arquivamento-mensal-auditoria.md), [guia](runbooks/arquivamento-auditoria-local.md) e [evidências](evidencias/etapa-08d1.md). **8D2** — harness optativo de ingestão/consulta, planos SQL e contagem de SELECTs, implementado e medido localmente em `perf/audit-scale-measurements`. Ver [ADR-033](adr/033-medicao-auditoria-em-escala.md), [guia](runbooks/medicao-auditoria-local.md) e [evidências](evidencias/etapa-08d2.md). A 8A1 não migra a auditoria legada, não conecta consumidor e não conclui o aceite da etapa 8. Proprietário/superusuário ainda pode alterar DDL; a conexão principal do IAM continua proprietária/migradora, enquanto os caminhos dedicados são restritos. O consumidor da 8B permanece desabilitado por padrão e exige ingestão dedicada.
 
 ## Etapa 9 — Vault avançado e PAM
 
@@ -335,4 +335,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a **8D2**: planos SQL, verificação de N+1 e medições de ingestão/consulta com milhões de registros. A 8D1 está localmente em `feat/audit-monthly-archive`, sem commit; não foi executado arquivamento na stack persistente. A 8C está no commit local `7962347`. A base até a 8B (`f005334`), incluindo 7D/8A, está publicada em `feat/audit-batch-consumer`; CI remota dessa base e revisão/merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
+Seguir para a **etapa 9**, começando pela 9A: integração de segredos KV e credenciais temporárias de banco no Vault, com estratégia de renovação/rotação dos pools. A 8D2 está implementada e medida localmente em `perf/audit-scale-measurements`, sem commit. A base local inclui 8C (`7962347`) e 8D1 (`d7311d0`); somente a base até a 8B (`f005334`) foi publicada. CI remota dessas entregas e revisão/merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
