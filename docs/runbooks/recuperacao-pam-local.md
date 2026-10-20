@@ -85,6 +85,8 @@ Executar o build completo na raiz. `PropagationIT#pamRequestObserverRecoversAfte
 
 Esse teste não cria pedido pela API nem emite senha: a emissão fica desabilitada. A retomada do observador foi comprovada; reinício durante uso/entrega/revogação de uma credencial real e ingestão/consulta central integram a 9C3. Consultar as [evidências 9C2b](../evidencias/etapa-09c2b.md) para os comandos e resultados observados.
 
+A [9C3](jornada-pam-integrada-local.md) complementa o cenário com pedido/emissão por HTTP, uso de credencial PostgreSQL, reinício com revogação conhecida pendente, falha/retomada de broker e consulta central. Não comprova recuperação de senha cuja resposta foi perdida nem perda de estado do Vault dev.
+
 ## Resultado incerto ou perda do Vault dev
 
 1. Interromper novas emissões enquanto investiga; não reutilizar o pedido consumido nem tentar recuperar a senha por GET.

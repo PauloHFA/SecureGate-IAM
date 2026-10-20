@@ -254,7 +254,7 @@ Subdivisão: **8A1** — V13 aditiva, `event_log` mensal, recibos globais, porta
 - [x] Auditar fatos PAM de emissão, expiração lógica, falha, recusa autenticada e confirmação de revogação sem registrar segredo (9C1).
 - [x] Persistir retries da limpeza PAM e medir pendências/resultados incertos sem descartar leases (9C2a).
 - [x] Recuperar observador de pedidos e testar falha de auditoria/reinício real da JVM preservando agenda, prazo e correlação (9C2b).
-- [ ] Completar jornada PAM HTTP/credencial/ingestão/consulta e aceite integrado da auditoria (9C3).
+- [x] Completar jornada PAM HTTP/credencial/ingestão/consulta e aceite local da auditoria com falhas/reinício e identidades separadas (9C3; não encerra o aceite global da etapa 9).
 - [x] Documentar entrega local da credencial inicial de autenticação do serviço no Vault (arquivos AppRole; entrega de produção depende de hardening).
 - [x] Criar runbook de indisponibilidade e recuperação (9A2c; pausa/retomada medida, perda do Vault dev exige ação administrativa).
 
@@ -276,7 +276,9 @@ A **9C1** acrescenta V20, origem de correlação e marcadores transacionais de e
 
 A **9C2a** acrescenta V21, intervalos persistidos de retry de 2–60 s, seleção de itens elegíveis, avanço do lote durante falhas e métricas de fila com disponibilidade/frescor do snapshot. Implementada em `feat/pam-cleanup-recovery`, versionada localmente em `f11e18d`, sobre `54b5bea`. Ver [ADR-041](adr/041-recuperacao-da-limpeza-pam.md), [guia](runbooks/recuperacao-pam-local.md) e [evidências](evidencias/etapa-09c2a.md). O contador satura sem descartar o lease; recuperação não reemite senha nem reabre estado terminal. A divisão **9C2b** abaixo completa o observador de pedidos e o exercício de reinício da JVM; a 9C3 continua responsável pelo aceite integrado. Não há reconciliação automática após perda do Vault dev nem retenção automática de metadados.
 
-A **9C2b** acrescenta V22 e retry persistido por pedido, isolamento transacional/continuidade do lote e métricas do observador. O teste com JAR real provoca falha de auditoria, confirma agenda/rollback, encerra a JVM e inicia outra no mesmo banco/Vault, preservando prazo/correlação e produzindo um fato com Outbox. Implementada localmente em `feat/pam-request-recovery`, incluída no commit desta entrega, sobre `f11e18d`. Ver [ADR-042](adr/042-recuperacao-do-observador-pam.md), [guia](runbooks/recuperacao-pam-local.md) e [evidências](evidencias/etapa-09c2b.md). O exercício usa fixture SQL com emissão desabilitada; a jornada humana HTTP/credencial/ingestão/consulta permanece na 9C3. A 9C2 está implementada localmente por 9C2a/9C2b, sem concluir o aceite da etapa 9.
+A **9C2b** acrescenta V22 e retry persistido por pedido, isolamento transacional/continuidade do lote e métricas do observador. O teste com JAR real provoca falha de auditoria, confirma agenda/rollback, encerra a JVM e inicia outra no mesmo banco/Vault, preservando prazo/correlação e produzindo um fato com Outbox. Implementada em `feat/pam-request-recovery`, versionada localmente em `bb48f3f`, sobre `f11e18d`. Ver [ADR-042](adr/042-recuperacao-do-observador-pam.md), [guia](runbooks/recuperacao-pam-local.md) e [evidências](evidencias/etapa-09c2b.md). O exercício usa fixture SQL com emissão desabilitada; a jornada humana HTTP/credencial/ingestão/consulta permanece na 9C3. A 9C2 está implementada localmente por 9C2a/9C2b, sem concluir o aceite da etapa 9.
+
+A **9C3** integra a jornada com JARs reais, OAuth/PKCE/MFA, emissão/uso de credencial PostgreSQL, revogação após pausa do Vault/reinício do IAM e expiração com RabbitMQ indisponível. Fatos acumulados na Outbox chegam à ingestão dedicada e à consulta central/cursor após recuperação, sem pressupor ordem de entrega. Runtime e ingestão usam identidades separadas; a credencial humana não lê identidades. Corrige também o bootstrap OAuth que exigia literalmente flywayInitializer mesmo com migração externa/Flyway desabilitado. Implementada localmente em `feat/pam-integrated-acceptance`, incluída no commit desta entrega, sobre `bb48f3f`; sem nova migração. Ver [ADR-043](adr/043-aceite-integrado-pam.md), [guia](runbooks/jornada-pam-integrada-local.md) e [evidências](evidencias/etapa-09c3.md). O login runtime do teste é sintético/restrito; renovação dinâmica continua coberta separadamente na 9A2c. KV do enforcer, hardening e aceite final global permanecem pendentes.
 
 ## Etapa 10 — Carga e observabilidade
 
@@ -359,4 +361,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a **9C3**, jornada PAM HTTP/credencial/ingestão/consulta e aceite integrado. A 9C2b está implementada localmente em `feat/pam-request-recovery`, incluída no commit desta entrega, sobre `f11e18d` (9C2a). KV do enforcer, hardening e aceite final continuam pendentes, assim como publicação/CI remota desde 8C.
+Seguir para a **9A3**, KV do enforcer, depois hardening/aceite final global da etapa 9. A 9C3 está implementada localmente em `feat/pam-integrated-acceptance`, incluída no commit desta entrega, sobre `bb48f3f` (9C2b). Publicação/CI remota desde 8C também permanecem pendentes.

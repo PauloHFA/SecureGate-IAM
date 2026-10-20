@@ -42,9 +42,9 @@ import java.util.UUID;
 import javax.sql.DataSource;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.sql.init.dependency.DependsOnDatabaseInitialization;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.DependsOn;
 import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.AuthenticationProvider;
@@ -120,14 +120,14 @@ public class AuthorizationServerConfiguration {
   }
 
   @Bean
-  @DependsOn("flywayInitializer")
+  @DependsOnDatabaseInitialization
   RegisteredClientRepository registeredClientRepository(DataSource dataSource) {
     return new JdbcRegisteredClientRepository(
         new JdbcTemplate(new AuthorizationJdbcDataSource(dataSource)));
   }
 
   @Bean
-  @DependsOn("flywayInitializer")
+  @DependsOnDatabaseInitialization
   OAuth2AuthorizationService authorizationService(
       DataSource dataSource, RegisteredClientRepository clients, RefreshTokenLedger ledger) {
     return new RefreshTrackingAuthorizations(

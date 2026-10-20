@@ -6,18 +6,18 @@ Atualizado em 20/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 9C2b — recuperação/métricas do observador e reinício real da JVM |
-| Base anterior ao commit desta entrega | 9C2a, f11e18d |
-| Trabalho incluído no commit desta entrega | 9C2b; publicação e CI remota pendentes |
-| Branch | feat/pam-request-recovery |
-| Última validação do código | clean verify aprovado em 20/10/2026 às 16:24:05 UTC−03, 746 testes, cobertura e arquitetura aprovadas |
-| Próxima entrega | 9C3 — jornada PAM HTTP/credencial/ingestão/consulta e aceite integrado |
+| Última entrega implementada | 9C3 — jornada PAM integrada e bootstrap OAuth com migração externa |
+| Base anterior ao commit desta entrega | 9C2b, bb48f3f |
+| Trabalho incluído no commit desta entrega | 9C3; publicação e CI remota pendentes |
+| Branch | feat/pam-integrated-acceptance |
+| Última validação do código | clean verify aprovado em 20/10/2026 às 20:46:17 UTC−03, 748 testes, cobertura e arquitetura aprovadas |
+| Próxima entrega | 9A3 — KV do enforcer; depois hardening/aceite final da etapa 9 |
 | Outras pendências da etapa 9 | KV do enforcer, hardening e aceite integrado |
 | Etapas posteriores | 10 — carga/observabilidade; 11 — entrega/hardening; 12 — gateway/demonstração opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9C2b abaixo descrevem entregas executadas. As divisões 9C3, 9A3 e 10–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9C3 abaixo descrevem entregas executadas. As divisões 9A3 e 10–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -209,6 +209,20 @@ A 9C2 está implementada localmente por 9C2a/9C2b. O reinício comprova o observ
 
 Operação: [guia de recuperação](runbooks/recuperacao-pam-local.md); [ADR-042](adr/042-recuperacao-do-observador-pam.md); [evidências](evidencias/etapa-09c2b.md).
 
+### Passo a passo da 9C3
+
+1. Executar JARs reais com PostgreSQL/Redis/RabbitMQ/Vault descartáveis, inicialmente migrando com a identidade proprietária.
+2. Provisionar os perfis SQL versionados; iniciar IAM com runtime restrito/Flyway desabilitado e ingestão/consulta com identidade/pool dedicados.
+3. Corrigir a dependência literal de flywayInitializer no bootstrap OAuth, preservando a ordenação de inicialização quando há migrador.
+4. Criar cliente/usuário/políticas por HTTP, autenticar por código/PKCE/consentimento, recusar sem MFA e cadastrar/confirmar TOTP real em memória.
+5. Criar pedido, emitir uma vez e usar a credencial PostgreSQL; verificar isolamento SQL, GET sem senha e repetição recusada.
+6. Pausar Vault, revogar administrativamente, observar retry sem confirmação antecipada, encerrar IAM e iniciar outra JVM com Vault retomado. Conferir papel/sessão encerrados e fatos centrais com origem/prazo preservados.
+7. Parar RabbitMQ, criar/emitir pedido curto e observar expiração/limpeza com fatos na Outbox não publicada. Retomar broker e aguardar todos os fatos esperados, sem pressupor ordem de chegada.
+8. Consultar a auditoria central por HTTP/correlação e cursor com janela fixa; verificar que senha, usuário SQL e access token não estão nos fatos.
+9. Registrar execução focada, build completo e limites. Não há migração nova; V22 continua atual. KV do enforcer e aceite final global permanecem pendentes.
+
+Operação: [jornada integrada](runbooks/jornada-pam-integrada-local.md); [ADR-043](adr/043-aceite-integrado-pam.md); [evidências](evidencias/etapa-09c3.md).
+
 ### Passo a passo detalhado da 9B2
 
 1. Criar registro de emissão com chave única por pedido e estados ISSUING/ISSUED/FAILED/REVOKING/REVOKED.
@@ -228,11 +242,10 @@ Limites vigentes: senha não é recuperável por GET; resposta perdida exige rev
 
 ### Próximas divisões propostas da etapa 9
 
-A 9C2b acima foi implementada. As divisões abaixo ainda não foram implementadas; a ordem imediata é 9C3; KV do enforcer precisa ser concluído antes do aceite final da etapa 9.
+A 9C3 acima foi implementada. A divisão abaixo ainda não foi implementada; a ordem imediata é 9A3; KV do enforcer precisa ser concluído antes do aceite final da etapa 9.
 
 | Proposta | Passos previstos | Critério de aceite previsto |
 | --- | --- | --- |
-| 9C3 — Aceite integrado | Testar solicitação → emissão → uso → expiração/revogação → auditoria consultável; incluir falhas/reinício e isolamento do runtime. | Jornada reproduzível, eventos consultáveis, limitações e resultados registrados; demais pendências da etapa explicitadas. |
 | 9A3 — KV do enforcer | Integrar leitura protegida no startup do enforcer → validar campos/precedência → testar falha sem fallback e documentar operação. | Enforcer pode obter segredos pelo caminho protegido; ativação, limites e recuperação testados/documentados. |
 
 Os números propostos organizam o trabalho futuro; ADRs, migrações e comandos finais serão definidos ao implementá-lo. Não existem evidências de execução dessas subdivisões ainda.

@@ -69,6 +69,377 @@ class PropagationIT {
   }
 
   @Test
+  @Order(101)
+  void pamJourneyRevokesKnownLeaseAfterVaultOutageAndJvmRestartWithCentralAudit() throws Exception {
+    ENV.enablePamJourney();
+    policy("database:diagnostics", "request");
+    policy("database:diagnostics", "issue");
+    assertEquals(
+        "synthetic_pam_runtime",
+        ENV.runtimeJdbc.queryForObject("SELECT current_user", String.class));
+    assertDeniedSql(ENV.runtimeJdbc, "SELECT count(*) FROM iam_audit.event_log");
+    assertEquals(
+        200, pamHttp("GET", auditPath("pam-pool-check"), ENV.admin, null, null).statusCode());
+    assertTrue(
+        ENV.jdbc.queryForObject(
+                "SELECT count(*) FROM pg_stat_activity WHERE usename='synthetic_pam_runtime'",
+                Integer.class)
+            > 0);
+    assertTrue(
+        ENV.jdbc.queryForObject(
+                "SELECT count(*) FROM pg_stat_activity WHERE usename='securegate_audit_ingest_login'",
+                Integer.class)
+            > 0);
+    assertDeniedSql(ENV.ingestJdbc, "SELECT count(*) FROM iam_audit.outbox_events");
+    var flow = pamFlow();
+    String requestCorrelation = "pam-request-" + UUID.randomUUID();
+    String issueCorrelation = "pam-issue-" + UUID.randomUUID();
+    String revokeCorrelation = "pam-revoke-" + UUID.randomUUID();
+    String token = flow.tokens.path("access_token").asText();
+    var created =
+        json(
+            pamHttp(
+                "POST",
+                "/api/pam/requests",
+                token,
+                Map.of("justification", "Investigate synthetic PAM journey", "ttlSeconds", 120),
+                requestCorrelation),
+            201);
+    String id = created.path("id").asText();
+    String path = "/api/pam/requests/" + id + "/credentials";
+    var issued = pamHttp("POST", path, token, null, issueCorrelation);
+    assertEquals("no-store", issued.headers().firstValue("Cache-Control").orElseThrow());
+    var secret = json(issued, 201);
+    assertEquals(409, pamHttp("POST", path, token, null, issueCorrelation).statusCode());
+    var metadata = pamHttp("GET", path, token, null, null);
+    assertEquals(200, metadata.statusCode());
+    assertFalse(metadata.body().contains(secret.path("password").asText()));
+    assertTrue(
+        java.util.Set.of(401, 403)
+            .contains(pamHttp("GET", auditPath(issueCorrelation), token, null, null).statusCode()));
+    try (var connection =
+            java.sql.DriverManager.getConnection(
+                ENV.database.getJdbcUrl(),
+                secret.path("username").asText(),
+                secret.path("password").asText());
+        var statement = connection.createStatement()) {
+      assertTrue(
+          statement.executeQuery("SELECT * FROM securegate_diagnostics.database_health").next());
+      var denied =
+          assertThrows(
+              java.sql.SQLException.class,
+              () -> statement.executeQuery("SELECT count(*) FROM iam_identity.users"));
+      assertEquals("42501", denied.getSQLState());
+      ENV.pauseVault(true);
+      try {
+        assertEquals(
+            202,
+            pamHttp(
+                    "POST",
+                    "/api/admin/pam/requests/" + id + "/revoke",
+                    ENV.admin,
+                    null,
+                    revokeCorrelation)
+                .statusCode());
+        await(
+            "known lease deferred during Vault outage",
+            Duration.ofSeconds(15),
+            () -> {
+              statement.executeQuery("SELECT 1").close();
+              return ENV.jdbc.queryForObject(
+                      "SELECT cleanup_attempts FROM iam_authorization.privileged_issuances WHERE request_id=?",
+                      Integer.class,
+                      UUID.fromString(id))
+                  > 0;
+            });
+        assertEquals(
+            "REVOKING",
+            ENV.jdbc.queryForObject(
+                "SELECT state FROM iam_authorization.privileged_issuances WHERE request_id=?",
+                String.class,
+                UUID.fromString(id)));
+        assertEquals(
+            0,
+            ENV.jdbc.queryForObject(
+                "SELECT count(*) FROM iam_audit.security_events WHERE event_type='pam.credential.revoked' AND details->>'requestId'=?",
+                Integer.class,
+                id));
+        ENV.stopIam();
+      } finally {
+        ENV.pauseVault(false);
+      }
+      ENV.startIam(Map.of());
+      await(
+          "known lease cleanup after JVM restart",
+          Duration.ofSeconds(70),
+          () -> !pamRoleExists(secret.path("username").asText()));
+      assertThrows(java.sql.SQLException.class, () -> statement.executeQuery("SELECT 1"));
+    }
+    await(
+        "central PAM revoke fact",
+        Duration.ofSeconds(30),
+        () -> hasAudit(issueCorrelation, "pam.credential.revoked", id));
+    assertTrue(hasAudit(issueCorrelation, "pam.credential.issued", id));
+    await(
+        "central PAM request facts",
+        Duration.ofSeconds(20),
+        () ->
+            hasAudit(requestCorrelation, "pam.request.authorized", id)
+                && hasAudit(revokeCorrelation, "pam.request.revoked", id));
+    assertEquals(
+        created.path("expiresAt").asText(),
+        ENV.jdbc
+            .queryForObject(
+                "SELECT expires_at FROM iam_authorization.privileged_requests WHERE id=?",
+                java.sql.Timestamp.class,
+                UUID.fromString(id))
+            .toInstant()
+            .toString());
+    assertTrue(
+        java.util.Set.of(401, 403, 409)
+            .contains(pamHttp("POST", path, token, null, issueCorrelation).statusCode()));
+    assertAuditContainsNoCredential(issueCorrelation, secret, token);
+    passed("pam_runtime_isolation_vault_outage_jvm_restart_central_audit");
+  }
+
+  @Test
+  @Order(102)
+  void pamJourneyExpirySurvivesBrokerOutageAndIsQueryableWithCursor() throws Exception {
+    ENV.enablePamJourney();
+    policy("database:diagnostics", "request");
+    policy("database:diagnostics", "issue");
+    var flow = pamFlow();
+    String token = flow.tokens.path("access_token").asText();
+    String requestCorrelation = "pam-expire-request-" + UUID.randomUUID();
+    String issueCorrelation = "pam-expire-issue-" + UUID.randomUUID();
+    JsonNode secret;
+    String id;
+    ENV.brokerApplication(false);
+    try {
+      var created =
+          json(
+              pamHttp(
+                  "POST",
+                  "/api/pam/requests",
+                  token,
+                  Map.of("justification", "Investigate synthetic expiry journey", "ttlSeconds", 30),
+                  requestCorrelation),
+              201);
+      id = created.path("id").asText();
+      secret =
+          json(
+              pamHttp(
+                  "POST",
+                  "/api/pam/requests/" + id + "/credentials",
+                  token,
+                  null,
+                  issueCorrelation),
+              201);
+      try (var connection =
+              java.sql.DriverManager.getConnection(
+                  ENV.database.getJdbcUrl(),
+                  secret.path("username").asText(),
+                  secret.path("password").asText());
+          var statement = connection.createStatement()) {
+        assertTrue(
+            statement.executeQuery("SELECT * FROM securegate_diagnostics.database_health").next());
+        await(
+            "credential expires with broker offline",
+            Duration.ofSeconds(25),
+            () ->
+                "REVOKED"
+                    .equals(
+                        ENV.jdbc.queryForObject(
+                            "SELECT state FROM iam_authorization.privileged_issuances WHERE request_id=?",
+                            String.class,
+                            UUID.fromString(id))));
+        assertThrows(java.sql.SQLException.class, () -> statement.executeQuery("SELECT 1"));
+      }
+      await(
+          "request expiration remains in outbox",
+          Duration.ofSeconds(35),
+          () ->
+              ENV.jdbc.queryForObject(
+                      "SELECT count(*) FROM iam_audit.outbox_events WHERE event_type='pam.request.expired' AND payload->'data'->>'requestId'=? AND published_at IS NULL",
+                      Integer.class,
+                      id)
+                  == 1);
+      assertFalse(hasAudit(issueCorrelation, "pam.credential.issued", id));
+      assertEquals(
+          0,
+          ENV.jdbc.queryForObject(
+              "SELECT count(*) FROM iam_audit.event_log WHERE correlation_id=?",
+              Integer.class,
+              issueCorrelation));
+    } finally {
+      ENV.brokerApplication(true);
+    }
+    await(
+        "PAM expiry reaches central audit after broker recovery",
+        Duration.ofSeconds(90),
+        () ->
+            hasAudit(issueCorrelation, "pam.credential.issued", id)
+                && hasAudit(issueCorrelation, "pam.credential.expired", id)
+                && hasAudit(issueCorrelation, "pam.credential.revoked", id)
+                && hasAudit(requestCorrelation, "pam.request.authorized", id)
+                && hasAudit(requestCorrelation, "pam.request.expired", id));
+    assertTrue(hasAudit(issueCorrelation, "pam.credential.issued", id));
+    var window = auditPath(issueCorrelation) + "&limit=1";
+    var page = json(pamHttp("GET", window, ENV.admin, null, null), 200);
+    var seen = new java.util.HashSet<String>();
+    while (true) {
+      assertEquals(1, page.path("items").size());
+      assertTrue(seen.add(page.path("items").get(0).path("id").asText()));
+      if (page.path("nextCursor").isNull()) {
+        break;
+      }
+      page =
+          json(
+              pamHttp(
+                  "GET",
+                  window + "&cursor=" + enc(page.path("nextCursor").asText()),
+                  ENV.admin,
+                  null,
+                  null),
+              200);
+    }
+    assertEquals(3, seen.size());
+    assertAuditContainsNoCredential(issueCorrelation, secret, token);
+    assertFalse(pamRoleExists(secret.path("username").asText()));
+    passed("pam_expiration_broker_outage_recovery_central_query_cursor");
+  }
+
+  private static Flow pamFlow() throws Exception {
+    var flow = issue(false, List.of("pam:request", "pam:issue"));
+    String token = flow.tokens.path("access_token").asText();
+    assertEquals(
+        403,
+        pamHttp(
+                "POST",
+                "/api/pam/requests",
+                token,
+                Map.of("justification", "MFA must be enforced in the journey", "ttlSeconds", 120),
+                "pam-before-mfa-" + UUID.randomUUID())
+            .statusCode());
+    var enrollment =
+        post(
+            flow.browser,
+            "/mfa/enroll",
+            Map.of(
+                "password",
+                USER_PASSWORD,
+                "_csrf",
+                hidden(get(flow.browser, "/mfa").body(), "_csrf")),
+            null,
+            null);
+    assertEquals(200, enrollment.statusCode());
+    var matcher = Pattern.compile("id=\"totp-secret\">([A-Z2-7]{32})").matcher(enrollment.body());
+    assertTrue(matcher.find(), "Enrollment must expose its one-time seed");
+    String seed = matcher.group(1), alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    var bits = new StringBuilder();
+    for (char letter : seed.toCharArray()) {
+      bits.append(
+          String.format("%5s", Integer.toBinaryString(alphabet.indexOf(letter))).replace(' ', '0'));
+    }
+    byte[] key = new byte[20];
+    for (int index = 0; index < 20; index++) {
+      key[index] = (byte) Integer.parseInt(bits.substring(index * 8, index * 8 + 8), 2);
+    }
+    var hmac = javax.crypto.Mac.getInstance("HmacSHA1");
+    hmac.init(new javax.crypto.spec.SecretKeySpec(key, "HmacSHA1"));
+    byte[] digest =
+        hmac.doFinal(
+            java.nio.ByteBuffer.allocate(8)
+                .putLong(java.time.Instant.now().getEpochSecond() / 30)
+                .array());
+    int offset = digest[19] & 15;
+    int number = java.nio.ByteBuffer.wrap(digest, offset, 4).getInt() & 0x7fffffff;
+    String code = String.format(java.util.Locale.ROOT, "%06d", number % 1_000_000);
+    assertEquals(
+        200,
+        post(
+                flow.browser,
+                "/mfa/confirm",
+                Map.of("code", code, "_csrf", hidden(get(flow.browser, "/mfa").body(), "_csrf")),
+                null,
+                null)
+            .statusCode());
+    return flow;
+  }
+
+  private static HttpResponse<String> pamHttp(
+      String method, String path, String token, Object body, String correlation) throws Exception {
+    var request = HttpRequest.newBuilder(ENV.base.resolve(path)).timeout(Duration.ofSeconds(5));
+    if (token != null) {
+      request.header("Authorization", "Bearer " + token);
+    }
+    if (correlation != null) {
+      request.header("X-Correlation-ID", correlation);
+    }
+    request.header("Content-Type", "application/json");
+    return HTTP.send(
+        request
+            .method(
+                method,
+                body == null
+                    ? HttpRequest.BodyPublishers.noBody()
+                    : HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
+            .build(),
+        HttpResponse.BodyHandlers.ofString());
+  }
+
+  private static String auditPath(String correlation) {
+    var now = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    return "/api/admin/audit/events?from="
+        + enc(now.minusSeconds(600).toString())
+        + "&to="
+        + enc(now.plusSeconds(60).toString())
+        + "&correlationId="
+        + enc(correlation);
+  }
+
+  private static boolean hasAudit(String correlation, String type, String id) throws Exception {
+    var page = json(pamHttp("GET", auditPath(correlation), ENV.admin, null, null), 200);
+    for (var item : page.path("items")) {
+      var event = item.path("event");
+      if (event.path("eventType").asText().equals(type)
+          && event.path("data").path("requestId").asText().equals(id)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean pamRoleExists(String username) {
+    return ENV.jdbc.queryForObject(
+        "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=?)", Boolean.class, username);
+  }
+
+  private static void assertDeniedSql(
+      org.springframework.jdbc.core.JdbcTemplate connection, String sql) {
+    var failure =
+        assertThrows(
+            org.springframework.dao.DataAccessException.class,
+            () -> connection.queryForObject(sql, Integer.class));
+    assertEquals("42501", ((java.sql.SQLException) failure.getMostSpecificCause()).getSQLState());
+  }
+
+  private static void assertAuditContainsNoCredential(
+      String correlation, JsonNode secret, String token) throws Exception {
+    String central = pamHttp("GET", auditPath(correlation), ENV.admin, null, null).body();
+    String outbox =
+        ENV.jdbc.queryForObject(
+            "SELECT string_agg(payload::text,' ') FROM iam_audit.outbox_events WHERE payload->>'correlationId'=?",
+            String.class,
+            correlation);
+    for (String sensitive :
+        List.of(secret.path("password").asText(), secret.path("username").asText(), token)) {
+      assertFalse(central.contains(sensitive));
+      assertFalse(outbox.contains(sensitive));
+    }
+  }
+
+  @Test
   @Order(100)
   void pamRequestObserverRecoversAfterAuditFailureAndRealJvmRestart() throws Exception {
     ENV.stopIam();
@@ -730,6 +1101,10 @@ class PropagationIT {
   }
 
   private static Flow issue(boolean refresh) throws Exception {
+    return issue(refresh, List.of("api:read"));
+  }
+
+  private static Flow issue(boolean refresh, List<String> scopes) throws Exception {
     String suffix = UUID.randomUUID().toString().replace("-", "");
     String client = "e2e-" + suffix;
     var registered =
@@ -743,7 +1118,7 @@ class PropagationIT {
                 "audience",
                 "securegate-api",
                 "scopes",
-                List.of("api:read"),
+                scopes,
                 "redirectUris",
                 List.of(CALLBACK),
                 "refreshTokens",
@@ -777,7 +1152,9 @@ class PropagationIT {
                 + client
                 + "&redirect_uri="
                 + enc(CALLBACK)
-                + "&scope=api%3Aread&state="
+                + "&scope="
+                + enc(String.join(" ", scopes))
+                + "&state="
                 + suffix
                 + "&code_challenge="
                 + challenge
@@ -814,7 +1191,7 @@ class PropagationIT {
                 "_csrf",
                 hidden(page.body(), "_csrf"),
                 "scope",
-                "api:read"),
+                String.join(" ", scopes)),
             null,
             null);
     assertEquals(302, approved.statusCode());
@@ -915,7 +1292,13 @@ class PropagationIT {
     }
     String body =
         values.entrySet().stream()
-            .map(entry -> enc(entry.getKey()) + "=" + enc(entry.getValue()))
+            .map(
+                entry ->
+                    entry.getKey().equals("scope")
+                        ? java.util.Arrays.stream(entry.getValue().split(" "))
+                            .map(scope -> "scope=" + enc(scope))
+                            .collect(java.util.stream.Collectors.joining("&"))
+                        : enc(entry.getKey()) + "=" + enc(entry.getValue()))
             .collect(java.util.stream.Collectors.joining("&"));
     return client.send(
         request.POST(HttpRequest.BodyPublishers.ofString(body)).build(),

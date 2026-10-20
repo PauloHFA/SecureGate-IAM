@@ -35,9 +35,13 @@ final class PropagationEnvironment implements AutoCloseable {
   static final HttpClient HTTP =
       HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
   private final String password = UUID.randomUUID().toString();
+  private final org.testcontainers.containers.Network pamNetwork =
+      org.testcontainers.containers.Network.newNetwork();
   final String admin = UUID.randomUUID().toString();
   final PostgreSQLContainer<?> database =
       new PostgreSQLContainer<>("postgres:16.15-alpine")
+          .withNetwork(pamNetwork)
+          .withNetworkAliases("postgres")
           .withDatabaseName("propagation_test")
           .withUsername("propagation_test")
           .withPassword(password);
@@ -55,6 +59,7 @@ final class PropagationEnvironment implements AutoCloseable {
           .withStartupTimeout(Duration.ofSeconds(120));
   final GenericContainer<?> vault =
       new GenericContainer<>("hashicorp/vault:1.21.4")
+          .withNetwork(pamNetwork)
           .withEnv("VAULT_DEV_ROOT_TOKEN_ID", password)
           .withEnv("SKIP_SETCAP", "true")
           .withCommand("server", "-dev", "-dev-listen-address=0.0.0.0:8200")
@@ -69,6 +74,9 @@ final class PropagationEnvironment implements AutoCloseable {
   private LettuceConnectionFactory redisFactory;
   StringRedisTemplate redis;
   JdbcTemplate jdbc;
+  JdbcTemplate runtimeJdbc;
+  JdbcTemplate ingestJdbc;
+  private boolean pamConfigured;
   URI base;
 
   void start() throws Exception {
@@ -265,6 +273,125 @@ final class PropagationEnvironment implements AutoCloseable {
                 == 200);
   }
 
+  void enablePamJourney() throws Exception {
+    if (pamConfigured) {
+      return;
+    }
+    stopIam();
+    String issuer = randomHex(),
+        runtime = randomHex(),
+        ingest = randomHex(),
+        maintenance = randomHex();
+    try (var connection =
+        java.sql.DriverManager.getConnection(
+            database.getJdbcUrl(), database.getUsername(), password)) {
+      try (var configure =
+          connection.prepareStatement(
+              "SELECT set_config('securegate.pam_issuer_password',?,false),set_config('securegate.securegate_audit_ingest_password',?,false),set_config('securegate.securegate_audit_maintenance_password',?,false)")) {
+        configure.setString(1, issuer);
+        configure.setString(2, ingest);
+        configure.setString(3, maintenance);
+        configure.execute();
+      }
+      try (var statement = connection.createStatement()) {
+        statement.execute(Files.readString(Path.of("../infra/postgres/runtime-privileges.sql")));
+        statement.execute(Files.readString(Path.of("../infra/postgres/pam-diagnostics.sql")));
+        statement.execute(Files.readString(Path.of("../infra/postgres/audit-privileges.sql")));
+        statement.execute(
+            "CREATE ROLE synthetic_pam_runtime LOGIN INHERIT PASSWORD '" + runtime + "'");
+        statement.execute("GRANT securegate_iam_runtime TO synthetic_pam_runtime");
+      }
+    }
+    runtimeJdbc =
+        new JdbcTemplate(
+            new DriverManagerDataSource(database.getJdbcUrl(), "synthetic_pam_runtime", runtime));
+    ingestJdbc =
+        new JdbcTemplate(
+            new DriverManagerDataSource(
+                database.getJdbcUrl(), "securegate_audit_ingest_login", ingest));
+    vault("sys/mounts/pam-database", Map.of("type", "database"));
+    vault(
+        "pam-database/config/securegate-pam",
+        Map.of(
+            "plugin_name",
+            "postgresql-database-plugin",
+            "allowed_roles",
+            List.of(
+                "diagnostics-10",
+                "diagnostics-30",
+                "diagnostics-60",
+                "diagnostics-120",
+                "diagnostics-240"),
+            "connection_url",
+            "postgresql://{{username}}:{{password}}@postgres:5432/propagation_test?sslmode=disable",
+            "username",
+            "securegate_vault_pam",
+            "password",
+            issuer,
+            "username_template",
+            "pam_{{random 20}}",
+            "password_authentication",
+            "scram-sha-256"));
+    for (int ttl : new int[] {10, 30, 60, 120, 240}) {
+      var role =
+          (com.fasterxml.jackson.databind.node.ObjectNode)
+              JSON.readTree(
+                  Files.readString(Path.of("../infra/vault/pam-role.json"))
+                      .replace("PAM_TTL_SECONDS", Integer.toString(ttl)));
+      role.put("default_ttl", ttl + "s");
+      role.put("max_ttl", ttl + "s");
+      vault("pam-database/roles/diagnostics-" + ttl, role);
+    }
+    vault("pam-database/rotate-root/securegate-pam", Map.of());
+    vault(
+        "sys/policies/acl/iam-pam",
+        Map.of("policy", Files.readString(Path.of("../infra/vault/iam-pam.hcl"))));
+    vault(
+        "auth/approle/role/iam-pam",
+        Map.of("token_policies", "iam-pam", "token_ttl", "5m", "token_max_ttl", "5m"));
+    Files.writeString(
+        credentials.resolve("pam-role"),
+        vault("auth/approle/role/iam-pam/role-id", null).path("data").path("role_id").asText());
+    Files.writeString(
+        credentials.resolve("pam-secret"),
+        vault("auth/approle/role/iam-pam/secret-id", Map.of())
+            .path("data")
+            .path("secret_id")
+            .asText());
+    Files.writeString(credentials.resolve("audit-ingest"), ingest);
+    startIam(
+        Map.ofEntries(
+            Map.entry("IAM_DATABASE_USERNAME", "synthetic_pam_runtime"),
+            Map.entry("IAM_DATABASE_PASSWORD", runtime),
+            Map.entry("SPRING_FLYWAY_ENABLED", "false"),
+            Map.entry("IAM_PAM_ENABLED", "true"),
+            Map.entry("IAM_PAM_CREDENTIALS_ENABLED", "true"),
+            Map.entry("IAM_PAM_VAULT_ADDRESS", vaultAddress()),
+            Map.entry("IAM_PAM_VAULT_ROLE_ID_FILE", credentials.resolve("pam-role").toString()),
+            Map.entry("IAM_PAM_VAULT_SECRET_ID_FILE", credentials.resolve("pam-secret").toString()),
+            Map.entry("IAM_AUDIT_INGESTION_ENABLED", "true"),
+            Map.entry("IAM_AUDIT_CONSUMER_ENABLED", "true"),
+            Map.entry("IAM_AUDIT_QUERY_ENABLED", "true"),
+            Map.entry("IAM_AUDIT_DATABASE_URL", database.getJdbcUrl().split("\\?", 2)[0]),
+            Map.entry("IAM_AUDIT_INGEST_USERNAME", "securegate_audit_ingest_login"),
+            Map.entry(
+                "IAM_AUDIT_INGEST_PASSWORD_FILE", credentials.resolve("audit-ingest").toString())));
+    pamConfigured = true;
+  }
+
+  private static String randomHex() {
+    return UUID.randomUUID().toString().replace("-", "")
+        + UUID.randomUUID().toString().replace("-", "");
+  }
+
+  void pauseVault(boolean paused) {
+    if (paused) {
+      vault.getDockerClient().pauseContainerCmd(vault.getContainerId()).exec();
+    } else {
+      vault.getDockerClient().unpauseContainerCmd(vault.getContainerId()).exec();
+    }
+  }
+
   void stopEnforcer() throws Exception {
     enforcer.destroy();
     if (!enforcer.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) {
@@ -399,9 +526,13 @@ final class PropagationEnvironment implements AutoCloseable {
     rabbit.stop();
     redisContainer.stop();
     database.stop();
+    pamNetwork.close();
     if (credentials != null) {
       Files.deleteIfExists(credentials.resolve("role"));
       Files.deleteIfExists(credentials.resolve("secret"));
+      Files.deleteIfExists(credentials.resolve("pam-role"));
+      Files.deleteIfExists(credentials.resolve("pam-secret"));
+      Files.deleteIfExists(credentials.resolve("audit-ingest"));
       Files.deleteIfExists(credentials);
     }
   }

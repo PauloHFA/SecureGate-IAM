@@ -1,6 +1,6 @@
 # Auditoria operacional PAM — 9C1
 
-Consultar [contrato e decisões](../adr/040-auditoria-operacional-pam.md), [evidências](../evidencias/etapa-09c1.md) e [emissão PAM](credenciais-pam-local.md). A 9C1 registra fatos; a [9C2a](recuperacao-pam-local.md) acrescenta retry persistido e métricas da limpeza de credenciais. A 9C2b acrescenta recuperação/métricas do observador e reinício real da JVM, descritos no mesmo guia; o aceite integrado (9C3) continua pendente.
+Consultar [contrato e decisões](../adr/040-auditoria-operacional-pam.md), [evidências](../evidencias/etapa-09c1.md) e [emissão PAM](credenciais-pam-local.md). A 9C1 registra fatos; a [9C2a](recuperacao-pam-local.md) acrescenta retry persistido e métricas da limpeza de credenciais. A 9C2b acrescenta recuperação/métricas do observador e reinício real da JVM, descritos no mesmo guia; a [9C3](jornada-pam-integrada-local.md) valida a jornada até a auditoria central consultável.
 
 ## Atualizar o ambiente
 
@@ -23,7 +23,7 @@ O migrador reaplica as concessões: o runtime pode gravar os marcadores de expir
 5. Conferir os fatos pela auditoria: o pedido expirado conserva a correlação da criação; os fatos de expiração/revogação da credencial conservam a correlação da emissão.
 6. Repetir observação/reinício sem produzir duas transições de expiração para o mesmo objeto.
 
-Usar os comandos de [consulta por cursor](consulta-auditoria-local.md) para a área particionada, com os serviços opcionais de publicação/consumo/ingestão configurados conforme seus guias. Gravar na auditoria produtora/Outbox não significa que o consumidor já confirmou a ingestão central; a 9C3 validará especificamente essa jornada PAM completa. Identificar o pedido por requestId e tratar correlação como referência, não como prova de identidade ou chave única.
+Usar os comandos de [consulta por cursor](consulta-auditoria-local.md) para a área particionada, com os serviços opcionais de publicação/consumo/ingestão configurados conforme seus guias. Gravar na auditoria produtora/Outbox não significa que o consumidor já confirmou a ingestão central; a 9C3 valida essa jornada com broker real e pool dedicado, conforme o guia integrado. Identificar o pedido por requestId e tratar correlação como referência, não como prova de identidade ou chave única.
 
 ## Ler os fatos corretamente
 

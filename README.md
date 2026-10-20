@@ -107,7 +107,9 @@ A **9C2a** acrescenta V21, retry persistido de limpeza com intervalos de 2–60 
 
 A **9C2b** acrescenta V22, retry persistido e isolamento por item no observador de pedidos, métricas de pendências e teste com reinício real da JVM do IAM após falha de auditoria. Consulte a [ADR-042](docs/adr/042-recuperacao-do-observador-pam.md), o [runbook](docs/runbooks/recuperacao-pam-local.md) e as [evidências 9C2b](docs/evidencias/etapa-09c2b.md). Prazo e correlação permanecem inalterados; o teste de reinício cobre o observador com fixture SQL e emissão desabilitada.
 
-Próxima entrega: **9C3**, jornada PAM HTTP/credencial/ingestão/consulta e aceite integrado. A 9C2b está implementada localmente em `feat/pam-request-recovery`, incluída no commit desta entrega, sobre a base 9C2a (`f11e18d`). KV do enforcer, hardening e aceite final da etapa 9 permanecem pendentes. Publicação/CI remota desde 8C também permanecem pendentes.
+A **9C3** valida com JARs reais a jornada OAuth/MFA → pedido → credencial Vault → uso PostgreSQL → revogação/expiração → Outbox/RabbitMQ → ingestão dedicada → consulta central. Inclui pausa do Vault/reinício do IAM, indisponibilidade do broker e isolamento das identidades, além da correção do bootstrap OAuth para execução com migração externa/Flyway desabilitado. Consulte o [guia integrado](docs/runbooks/jornada-pam-integrada-local.md), a [ADR-043](docs/adr/043-aceite-integrado-pam.md) e as [evidências 9C3](docs/evidencias/etapa-09c3.md). V22 continua sendo a migração atual.
+
+Próxima entrega: **9A3**, KV do enforcer; depois hardening/aceite final global da etapa 9. A 9C3 está implementada localmente em `feat/pam-integrated-acceptance`, incluída no commit desta entrega, sobre `bb48f3f`. Publicação/CI remota desde 8C também permanecem pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
