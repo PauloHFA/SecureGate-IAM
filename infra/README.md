@@ -140,3 +140,6 @@ A 9B1 oferece `Start-IamCore.ps1 -EnablePam`, que ativa Authorization/Transit e 
 A 9B2 usa `Provision-PamDatabase.ps1` após V19 e `Start-IamCore.ps1 -EnablePamCredentials`. O bootstrap entrega AppRole iam-pam separado; o provisionador configura mount/emissor exclusivos e visão de diagnóstico. Consulte o [guia de credenciais PAM](../docs/runbooks/credenciais-pam-local.md), incluindo o limite de sessões já abertas durante falhas do Vault.
 
 A 9C1 exige V20 e reaplicação das concessões com processos PAM parados. `-EnablePam` observa expiração de pedidos; a emissão observa também o prazo das credenciais e preserva a correlação original nos fatos. Consulte o [guia de auditoria PAM](../docs/runbooks/auditoria-pam-local.md); expiração lógica não confirma revogação pelo Vault.
+## Recuperação da limpeza PAM — 9C2a
+
+A V21 acrescenta agenda persistida e metadados de retry da limpeza; o migrador reaplica as concessões runtime para esses campos. Parar workers antigos antes da atualização: eles ignoram a agenda nova. A flag `-EnablePamCredentials` continua suficiente. Consultar o [runbook de recuperação](../docs/runbooks/recuperacao-pam-local.md) para métricas, reinício do IAM, resultado incerto e limites de perda do Vault dev. Esta entrega não altera a stack persistente automaticamente.

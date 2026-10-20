@@ -42,7 +42,9 @@ public class PamCredentialConfiguration {
   }
 
   @Bean(destroyMethod = "shutdown")
-  ScheduledExecutorService pamMaintenance(PamCredentialService service, MeterRegistry metrics) {
+  ScheduledExecutorService pamMaintenance(
+      PamCredentialService service, MeterRegistry metrics, Clock clock) {
+    var observation = new PamCleanupMetrics(metrics, clock);
     var worker =
         Executors.newSingleThreadScheduledExecutor(
             task -> {
@@ -60,6 +62,17 @@ public class PamCredentialConfiguration {
         },
         500,
         500,
+        TimeUnit.MILLISECONDS);
+    worker.scheduleWithFixedDelay(
+        () -> {
+          try {
+            observation.refresh(service::operations);
+          } catch (RuntimeException failure) {
+            metrics.counter("iam.pam.cleanup.snapshot.failures").increment();
+          }
+        },
+        500,
+        5000,
         TimeUnit.MILLISECONDS);
     return worker;
   }

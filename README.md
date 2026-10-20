@@ -103,7 +103,9 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **9C2**, recuperação/observabilidade da fila operacional; depois 9C3, aceite integrado. A 9C1 está implementada localmente em `feat/pam-operational-audit`, junto à 9B2 e à consolidação documental no commit desta entrega, sobre a base 9B1 (`feaf718`). KV do enforcer, hardening e aceite final da etapa 9 permanecem pendentes. Publicação/CI remota desde 8C também permanecem pendentes.
+A **9C2a** acrescenta V21, retry persistido de limpeza com intervalos de 2–60 s, avanço de outros itens durante falhas e métricas agregadas das pendências/resultados incertos. Consulte o [guia de recuperação PAM](docs/runbooks/recuperacao-pam-local.md), a [ADR-041](docs/adr/041-recuperacao-da-limpeza-pam.md) e as [evidências 9C2a](docs/evidencias/etapa-09c2a.md). O [passo a passo](docs/GUIA-DE-IMPLEMENTACAO.md) documenta a divisão da 9C2.
+
+Próxima entrega: **9C2b**, recuperação do observador de pedidos e exercícios operacionais; depois 9C3, aceite integrado. A 9C2a está implementada localmente em `feat/pam-cleanup-recovery`, incluída no commit desta entrega, sobre a base 9B2/9C1 (`54b5bea`). KV do enforcer, hardening e aceite final da etapa 9 permanecem pendentes. Publicação/CI remota desde 8C também permanecem pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

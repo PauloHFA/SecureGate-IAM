@@ -28,8 +28,35 @@ public interface PrivilegedIssuances {
 
   boolean recordExpiration(UUID requestId, Instant now);
 
+  /** Conditional retry update: a concurrent terminal transition must never be reopened. */
+  boolean defer(UUID requestId, int expectedAttempts, Instant failedAt, Instant retryAt);
+
+  Operations operations(Instant now);
+
+  record Operations(
+      long pending,
+      long ready,
+      long deferred,
+      long retrying,
+      long ambiguous,
+      double oldestPendingSeconds) {}
+
   record Entry(
-      UUID requestId, String state, String leaseId, Instant expiresAt, String originCorrelationId) {
+      UUID requestId,
+      String state,
+      String leaseId,
+      Instant expiresAt,
+      String originCorrelationId,
+      int cleanupAttempts) {
+    public Entry(
+        UUID requestId,
+        String state,
+        String leaseId,
+        Instant expiresAt,
+        String originCorrelationId) {
+      this(requestId, state, leaseId, expiresAt, originCorrelationId, 0);
+    }
+
     public Entry(UUID requestId, String state, String leaseId, Instant expiresAt) {
       this(requestId, state, leaseId, expiresAt, requestId.toString());
     }

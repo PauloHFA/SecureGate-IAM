@@ -1,6 +1,6 @@
 # Auditoria operacional PAM — 9C1
 
-Consultar [contrato e decisões](../adr/040-auditoria-operacional-pam.md), [evidências](../evidencias/etapa-09c1.md) e [emissão PAM](credenciais-pam-local.md). A 9C1 registra fatos; recuperação/observabilidade 9C2 e o aceite integrado 9C3 continuam pendentes.
+Consultar [contrato e decisões](../adr/040-auditoria-operacional-pam.md), [evidências](../evidencias/etapa-09c1.md) e [emissão PAM](credenciais-pam-local.md). A 9C1 registra fatos; a [9C2a](recuperacao-pam-local.md) acrescenta retry persistido e métricas da limpeza de credenciais. A recuperação do observador de pedidos (9C2b) e o aceite integrado (9C3) continuam pendentes.
 
 ## Atualizar o ambiente
 
@@ -44,7 +44,7 @@ Uma identidade verificada recusada por política, escopo, MFA, rate limit ou con
 
 Token inválido/ausente não é usado para atribuir um ator. Erros de corpo e indisponibilidade operacional não são classificados como recusa de política por esta entrega. Se a auditoria da recusa falhar, o acesso não é liberado e a resposta sinaliza indisponibilidade.
 
-Se o gravador de expiração falhar, marcador/evento são desfeitos e o próximo ciclo tenta novamente. Observar `iam.pam.expiration.audit.failures` para pedidos e `iam.pam.cleanup.failures` para o ciclo das credenciais, pelas métricas administrativas. Investigar banco, concessões V20 e dependências sem imprimir dados sensíveis. A 9C2 detalhará métricas, filas e política de recuperação.
+Se o gravador de expiração falhar, marcador/evento são desfeitos e o próximo ciclo tenta novamente. Observar `iam.pam.expiration.audit.failures` para pedidos e `iam.pam.cleanup.failures` para o ciclo das credenciais, pelas métricas administrativas. Investigar banco, concessões V20 e dependências sem imprimir dados sensíveis. A 9C2a detalha métricas e retries de credenciais no guia de recuperação; observação de pedidos e exercícios restantes continuam na 9C2b.
 
 Durante pausa do Vault, o evento de expiração pode estar confirmado enquanto a sessão PostgreSQL continua ativa. Na retomada, o worker tenta a revogação e registra o reconhecimento do Vault. Esse limite permanece conforme a 9B2; os novos fatos não o eliminam.
 

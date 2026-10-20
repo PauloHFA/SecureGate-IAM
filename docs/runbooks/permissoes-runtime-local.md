@@ -32,10 +32,13 @@ O script usa a credencial administrativa local de `.env` para executar `infra/po
 .\mvnw.cmd -B -ntp clean verify
 ```
 
-`RuntimeDatabasePrivilegesIT` aplica V1–V20 com o proprietário em PostgreSQL 16.15 descartável, provisiona o SQL versionado e cria apenas no teste um login sintético membro do grupo. O IAM sobe com esse login e Flyway desativado. Os casos cobrem API administrativa, auditoria/Outbox atômicas, quarentena/histórico, retenção, concessões de coluna, idempotência e negação de operações privilegiadas. Senhas/tokens são sintéticos e não são versionados.
+`RuntimeDatabasePrivilegesIT` aplica V1–V21 com o proprietário em PostgreSQL 16.15 descartável, provisiona o SQL versionado e cria apenas no teste um login sintético membro do grupo. O IAM sobe com esse login e Flyway desativado. Os casos cobrem API administrativa, auditoria/Outbox atômicas, quarentena/histórico, retenção, concessões de coluna, idempotência e negação de operações privilegiadas. Senhas/tokens são sintéticos e não são versionados.
 
 A V17 altera a execução do trigger, mas não reescreve o histórico. `database_actor` deve continuar identificando o login original. O grupo não recebe INSERT direto em `outbox_operations` nem acesso ao log particionado; ingestão e manutenção continuam nas identidades dedicadas da etapa 8.
 
 A V18 adiciona pedidos PAM. Reaplicar o perfil após migrar concede SELECT/INSERT e UPDATE somente de `revoked_at`; justificativa/prazos não podem ser alterados pelo runtime. Consultar o [guia 9B1](pedidos-privilegiados-local.md).
 
 Após V20, reaplicar o perfil para permitir UPDATE dos marcadores expiration_recorded_at de pedidos/emissões PAM. A correlação de origem permanece sem UPDATE para o runtime; conferir o [guia 9C1](auditoria-pam-local.md).
+## Concessões de recuperação PAM — V21
+
+A V21 requer também UPDATE nas colunas cleanup_attempts, next_cleanup_at, last_cleanup_failure_at e last_cleanup_failure_code de privileged_issuances. O perfil verifica a existência das colunas antes de conceder, preservando o reprovisionamento de bases históricas. O runtime não recebe DELETE nessa tabela nem UPDATE da correlação de origem. A 9C2a testa o agendamento com a identidade runtime e a impossibilidade de reabrir estado terminal pela operação de retry; consultar [recuperação PAM](recuperacao-pam-local.md).

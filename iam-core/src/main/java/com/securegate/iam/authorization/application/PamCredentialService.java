@@ -254,11 +254,29 @@ public final class PamCredentialService {
         }
       } catch (RuntimeException failure) {
         unavailable = failure;
+        try {
+          Instant failedAt = clock.instant();
+          long delaySeconds = Math.min(60, 1L << Math.min(6, entry.cleanupAttempts() + 1));
+          transactions.execute(
+              () ->
+                  issuances.defer(
+                      entry.requestId(),
+                      entry.cleanupAttempts(),
+                      failedAt,
+                      failedAt.plusSeconds(delaySeconds)));
+        } catch (RuntimeException retryFailure) {
+          // A database outage can prevent scheduling; the durable item remains pending.
+          failure.addSuppressed(retryFailure);
+        }
       }
     }
     if (unavailable != null) {
       throw unavailable;
     }
+  }
+
+  public PrivilegedIssuances.Operations operations() {
+    return issuances.operations(clock.instant());
   }
 
   private void record(

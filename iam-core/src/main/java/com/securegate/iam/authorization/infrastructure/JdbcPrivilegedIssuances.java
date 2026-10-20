@@ -56,7 +56,8 @@ public final class JdbcPrivilegedIssuances implements PrivilegedIssuances {
             : rows.getTimestamp("expires_at").toInstant(),
         rows.getString("origin_correlation_id") == null
             ? rows.getObject("request_id", UUID.class).toString()
-            : rows.getString("origin_correlation_id"));
+            : rows.getString("origin_correlation_id"),
+        rows.getInt("cleanup_attempts"));
   }
 
   @Override
@@ -73,8 +74,9 @@ public final class JdbcPrivilegedIssuances implements PrivilegedIssuances {
   @Override
   public List<Entry> pending(Instant now) {
     return jdbc.query(
-        "SELECT i.* FROM iam_authorization.privileged_issuances i JOIN iam_authorization.privileged_requests r ON r.id=i.request_id WHERE i.state='REVOKING' OR (i.state='ISSUED' AND (r.revoked_at IS NOT NULL OR i.expires_at<=?)) OR (i.state='ISSUING' AND i.created_at<=?) ORDER BY i.created_at LIMIT 10",
+        "SELECT i.* FROM iam_authorization.privileged_issuances i JOIN iam_authorization.privileged_requests r ON r.id=i.request_id WHERE i.next_cleanup_at<=? AND (i.state='REVOKING' OR (i.state='ISSUED' AND (r.revoked_at IS NOT NULL OR i.expires_at<=?)) OR (i.state='ISSUING' AND i.created_at<=?)) ORDER BY GREATEST(i.next_cleanup_at,i.created_at),i.request_id LIMIT 10",
         JdbcPrivilegedIssuances::row,
+        Timestamp.from(now),
         Timestamp.from(now),
         Timestamp.from(now.minusSeconds(30)));
   }
@@ -112,5 +114,51 @@ public final class JdbcPrivilegedIssuances implements PrivilegedIssuances {
             id,
             Timestamp.from(now))
         == 1;
+  }
+
+  @Override
+  public boolean defer(UUID id, int expectedAttempts, Instant failedAt, Instant retryAt) {
+    return jdbc.update(
+            "UPDATE iam_authorization.privileged_issuances SET cleanup_attempts=LEAST(30,cleanup_attempts+1),next_cleanup_at=GREATEST(next_cleanup_at,?),last_cleanup_failure_at=?,last_cleanup_failure_code='CLEANUP_FAILED' WHERE request_id=? AND cleanup_attempts=? AND state IN ('ISSUING','ISSUED','REVOKING')",
+            Timestamp.from(retryAt),
+            Timestamp.from(failedAt),
+            id,
+            expectedAttempts)
+        == 1;
+  }
+
+  @Override
+  public Operations operations(Instant now) {
+    return jdbc.queryForObject(
+        """
+        WITH work AS (
+          SELECT i.*,
+            (i.state='REVOKING' OR
+             (i.state='ISSUED' AND (r.revoked_at IS NOT NULL OR i.expires_at<=?)) OR
+             (i.state='ISSUING' AND i.created_at<=?)) AS pending
+          FROM iam_authorization.privileged_issuances i
+          JOIN iam_authorization.privileged_requests r ON r.id=i.request_id
+        )
+        SELECT COUNT(*) FILTER (WHERE pending) AS pending,
+          COUNT(*) FILTER (WHERE pending AND next_cleanup_at<=?) AS ready,
+          COUNT(*) FILTER (WHERE pending AND next_cleanup_at>?) AS deferred,
+          COUNT(*) FILTER (WHERE pending AND cleanup_attempts>0) AS retrying,
+          COUNT(*) FILTER (WHERE state='FAILED' AND lease_id IS NULL) AS ambiguous,
+          GREATEST(0,COALESCE(EXTRACT(EPOCH FROM (? - MIN(created_at) FILTER (WHERE pending))),0)) AS oldest
+        FROM work
+        """,
+        (rows, index) ->
+            new Operations(
+                rows.getLong("pending"),
+                rows.getLong("ready"),
+                rows.getLong("deferred"),
+                rows.getLong("retrying"),
+                rows.getLong("ambiguous"),
+                rows.getDouble("oldest")),
+        Timestamp.from(now),
+        Timestamp.from(now.minusSeconds(30)),
+        Timestamp.from(now),
+        Timestamp.from(now),
+        Timestamp.from(now));
   }
 }

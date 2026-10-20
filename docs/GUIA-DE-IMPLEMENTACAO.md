@@ -6,18 +6,18 @@ Atualizado em 20/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 9C1 — fatos operacionais PAM, expiração lógica e recusas autenticadas |
-| Base anterior ao commit desta entrega | 9B1, feaf718; anteriormente 9A2c, 17aea1c |
-| Trabalho incluído no commit desta entrega | 9B2, consolidação documental e 9C1; publicação e CI remota pendentes |
-| Branch | feat/pam-operational-audit |
-| Última validação do código | clean verify aprovado em 20/10/2026 às 15:17:53 UTC−03, 734 testes, cobertura e arquitetura aprovadas |
-| Próxima entrega | 9C2 — recuperação/observabilidade; depois 9C3 — aceite integrado |
+| Última entrega implementada | 9C2a — retry persistido e métricas da limpeza de credenciais PAM |
+| Base anterior ao commit desta entrega | 9B2/9C1 e consolidação documental, 54b5bea |
+| Trabalho incluído no commit desta entrega | 9C2a; publicação e CI remota pendentes |
+| Branch | feat/pam-cleanup-recovery |
+| Última validação do código | clean verify aprovado em 20/10/2026 às 15:38:13 UTC−03, 741 testes, cobertura e arquitetura aprovadas |
+| Próxima entrega | 9C2b — observador de pedidos/exercícios operacionais; depois 9C3 — aceite integrado |
 | Outras pendências da etapa 9 | KV do enforcer, hardening e aceite integrado |
 | Etapas posteriores | 10 — carga/observabilidade; 11 — entrega/hardening; 12 — gateway/demonstração opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9C1 abaixo descrevem entregas executadas. As divisões 9C2–9C3, 9A3 e 10–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9C2a abaixo descrevem entregas executadas. As divisões 9C2b–9C3, 9A3 e 10–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -179,6 +179,21 @@ Motivo: isolar credencial inicial, permissões do runtime, ciclo dos pools e cre
 
 Operação: [guia 9C1](runbooks/auditoria-pam-local.md); [ADR-040](adr/040-auditoria-operacional-pam.md); [evidências](evidencias/etapa-09c1.md).
 
+### Passo a passo da 9C2a
+
+A 9C2 foi dividida para validar a fila de credenciais antes de mudar o observador de pedidos. A 9C2a não encerra o grupo 9C2 nem o aceite da etapa 9.
+
+1. Identificar o bloqueio de lotes por dez itens antigos que falham repetidamente.
+2. Criar V21 aditiva com contador, próxima tentativa e último código/instante de falha de limpeza; reaplicar o perfil runtime.
+3. Persistir intervalos de 2, 4, 8, 16, 32 e 60 s, conservando o teto e o lease após saturar o contador.
+4. Comparar contador/estado na atualização, impedir recuo do prazo e selecionar somente itens elegíveis com ordenação que permita avanço de outros itens.
+5. Manter expiração, confirmação de revogação e Outbox no contrato transacional da 9C1; nunca reemitir na manutenção.
+6. Coletar snapshot a cada cinco segundos e expor pendentes, elegíveis, adiados, retries, resultados incertos e idade desde o claim mais antigo. Sinalizar consulta indisponível com NaN/disponibilidade zero e preservar horário do último sucesso.
+7. Testar banco real, dez falhas/itens posteriores, recriação de serviço, concorrência, fronteira de tempo e rollback da auditoria; validar permissões e regressão PAM com Vault real.
+8. Documentar reinício somente do IAM, recuperação de dependências e investigação administrativa de resultado incerto/perda de Vault dev; não automatizar limpeza privilegiada nem excluir metadados.
+
+Operação: [guia 9C2a](runbooks/recuperacao-pam-local.md); [ADR-041](adr/041-recuperacao-da-limpeza-pam.md); [evidências](evidencias/etapa-09c2a.md).
+
 ### Passo a passo detalhado da 9B2
 
 1. Criar registro de emissão com chave única por pedido e estados ISSUING/ISSUED/FAILED/REVOKING/REVOKED.
@@ -198,11 +213,11 @@ Limites vigentes: senha não é recuperável por GET; resposta perdida exige rev
 
 ### Próximas divisões propostas da etapa 9
 
-A 9C1 acima foi implementada. As divisões abaixo ainda não foram implementadas; a ordem imediata é 9C2; KV do enforcer precisa ser concluído antes do aceite final da etapa 9.
+A 9C2a acima foi implementada. As divisões abaixo ainda não foram implementadas; a ordem imediata é 9C2b; KV do enforcer precisa ser concluído antes do aceite final da etapa 9.
 
 | Proposta | Passos previstos | Critério de aceite previsto |
 | --- | --- | --- |
-| 9C2 — Recuperação/observabilidade | Revisar retries e itens problemáticos → medir pendências/falhas → documentar reinício, resultado ambíguo e perda do Vault dev → estabelecer ações do operador. | Falha temporária recuperável, pendências visíveis e nenhuma declaração de revogação física sem evidência correspondente. |
+| 9C2b — Observador de pedidos e operação | Recuperar observação de pedidos sem bloqueio de lote → completar métricas de pedidos → exercitar reinício/indisponibilidade e verificar ações do operador descritas na 9C2a. | Falhas do observador recuperáveis, demais pedidos avançam, pendências visíveis e limites operacionais comprovados. |
 | 9C3 — Aceite integrado | Testar solicitação → emissão → uso → expiração/revogação → auditoria consultável; incluir falhas/reinício e isolamento do runtime. | Jornada reproduzível, eventos consultáveis, limitações e resultados registrados; demais pendências da etapa explicitadas. |
 | 9A3 — KV do enforcer | Integrar leitura protegida no startup do enforcer → validar campos/precedência → testar falha sem fallback e documentar operação. | Enforcer pode obter segredos pelo caminho protegido; ativação, limites e recuperação testados/documentados. |
 
@@ -252,6 +267,7 @@ O diretório [db/migration](../iam-core/src/main/resources/db/migration/) conté
 | V18 | 9B1 | Pedidos de acesso privilegiado. |
 | V19 | 9B2 | Consumo e metadados de emissão PAM. |
 | V20 | 9C1 | Correlação de origem e observação transacional da expiração PAM. |
+| V21 | 9C2a | Agenda persistida e metadados de retry da limpeza PAM. |
 
 Não editar migrações já aplicadas para implementar a próxima etapa. Mudanças novas de schema devem ser aditivas/versionadas e acompanhadas de compatibilidade e atualização das concessões necessárias.
 

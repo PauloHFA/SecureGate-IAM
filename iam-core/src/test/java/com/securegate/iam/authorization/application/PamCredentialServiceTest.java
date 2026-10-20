@@ -243,6 +243,47 @@ class PamCredentialServiceTest {
   }
 
   @Test
+  void backoffIsBoundedAndContinuesProcessingOtherItems() {
+    UUID other = UUID.randomUUID();
+    for (int attempts : new int[] {0, 1, 4, 5, 30}) {
+      reset(issuances, vault);
+      when(issuances.pending(now))
+          .thenReturn(
+              List.of(
+                  new PrivilegedIssuances.Entry(
+                      id, "REVOKING", "synthetic-failing", now, "origin", attempts),
+                  new PrivilegedIssuances.Entry(other, "REVOKING", "synthetic-healthy", now)));
+      doThrow(new IllegalStateException("private backend failure"))
+          .when(vault)
+          .revoke("synthetic-failing");
+      assertThrows(IllegalStateException.class, service::maintain);
+      long delay = Math.min(60, 1L << Math.min(6, attempts + 1));
+      verify(issuances).defer(id, attempts, now, now.plusSeconds(delay));
+      verify(vault).revoke("synthetic-healthy");
+      verify(issuances).revoked(other);
+      verify(vault, never()).issue(anyInt());
+    }
+  }
+
+  @Test
+  void schedulingFailureDoesNotLoseOriginalFailureOrStopOtherItems() {
+    UUID other = UUID.randomUUID();
+    when(issuances.pending(now))
+        .thenReturn(
+            List.of(
+                new PrivilegedIssuances.Entry(id, "REVOKING", "synthetic-failing", now),
+                new PrivilegedIssuances.Entry(other, "REVOKING", "synthetic-healthy", now)));
+    doThrow(new IllegalStateException("backend unavailable"))
+        .when(vault)
+        .revoke("synthetic-failing");
+    when(issuances.defer(eq(id), eq(0), any(), any()))
+        .thenThrow(new IllegalArgumentException("database unavailable"));
+    var failure = assertThrows(IllegalStateException.class, service::maintain);
+    assertEquals(1, failure.getSuppressed().length);
+    verify(issuances).revoked(other);
+  }
+
+  @Test
   void statusNeverExposesLeaseOrCredential() {
     var request = requests.lock(id, user);
     when(requests.find(id, user)).thenReturn(request);

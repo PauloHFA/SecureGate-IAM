@@ -254,8 +254,17 @@ class RuntimeDatabasePrivilegesIT {
     assertFalse(issuances.recordExpiration(id, now.plusSeconds(10)));
     assertEquals("REVOKING", issuances.find(id).orElseThrow().state());
     assertTrue(issuances.pending(now).stream().anyMatch(entry -> entry.requestId().equals(id)));
+    assertTrue(issuances.defer(id, 0, now, now.plusSeconds(2)));
+    assertFalse(issuances.defer(id, 0, now, now.plusSeconds(2)));
+    assertEquals(1, issuances.find(id).orElseThrow().cleanupAttempts());
+    assertTrue(issuances.pending(now).stream().noneMatch(entry -> entry.requestId().equals(id)));
+    assertTrue(
+        issuances.pending(now.plusSeconds(2)).stream()
+            .anyMatch(entry -> entry.requestId().equals(id)));
+    assertTrue(issuances.operations(now).deferred() >= 1);
     assertTrue(issuances.revoked(id));
     assertFalse(issuances.revoked(id));
+    assertFalse(issuances.defer(id, 1, now, now.plusSeconds(2)));
     UUID expired = UUID.randomUUID();
     repository.insert(
         new com.securegate.iam.authorization.application.port.PrivilegedRequests.Entry(

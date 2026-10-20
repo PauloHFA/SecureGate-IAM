@@ -1124,6 +1124,10 @@ class BrowserAuthorizationIT {
     } finally {
       org.mockito.Mockito.reset(mfaAudit);
     }
+    org.mockito.Mockito.doReturn(
+            java.time.Instant.parse(secret.path("expiresAt").asText()).plusSeconds(10))
+        .when(riskClock)
+        .instant();
     pamCredentials.maintain();
     pamCredentials.maintain();
     awaitPam(() -> pamFacts("pam.credential.revoked", id) == 1);
