@@ -27,7 +27,7 @@ O script ativa também a leitura KV, seleciona o AppRole runtime, omite credenci
 
 Verificar `http://127.0.0.1:8080/actuator/health/readiness`. O login PostgreSQL será emitido por processo e não é gravado em `.env`, configuração Spring ou arquivos locais. Não imprimir a resposta do endpoint de credenciais, o KV, heap ou configurações completas.
 
-**O processo precisa ser reiniciado após o limite do lease nesta entrega.** O padrão é dez minutos, com fechamento antecipado em dois segundos; um token pai com prazo menor antecipa o limite. O pool não é renovado automaticamente. No vencimento, novas conexões são recusadas e conexões emprestadas são encerradas. A aplicação pode continuar com o processo vivo, mas readiness/operações de banco falham. A 9A2c resolverá renovação e troca do pool.
+**A partir da 9A2c, token e lease são renovados automaticamente.** O padrão continua dez minutos, com margem de dois segundos e limite pelo token pai. Limites absolutos/falhas podem iniciar troca de geração. Se não houver renovação ou substituição confirmada, sessões são encerradas no prazo e novas conexões são recusadas. Após recuperar Vault/autenticação, o serviço pode reconstruir o pool sem reiniciar. Consultar o [guia de renovação e recuperação](vault-database-renovacao-local.md) para drenagem, métricas e atualização das políticas.
 
 ## Configuração direta
 

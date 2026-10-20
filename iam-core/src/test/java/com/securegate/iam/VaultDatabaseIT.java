@@ -240,11 +240,235 @@ class VaultDatabaseIT {
   }
 
   @Test
-  void expiryClosesExistingSessionsAndRefusesNewConnections() throws Exception {
+  void renewalsKeepBorrowedConnectionAliveBeyondOriginalTokenAndLease() throws Exception {
     role("12s");
-    try (var pool = pool();
+    admin("auth/approle/role/iam-runtime", Map.of("token_ttl", "12s", "token_max_ttl", "2m"));
+    var metrics = new SimpleMeterRegistry();
+    try (var pool =
+            new VaultDatabaseDataSource(
+                url(), address(), files.resolve("role"), files.resolve("secret"), metrics);
         var connection = pool.getConnection()) {
       String username = currentUser(connection);
+      long until = System.nanoTime() + Duration.ofSeconds(15).toNanos();
+      while (System.nanoTime() < until) {
+        assertEquals(username, currentUser(connection));
+        Thread.sleep(200);
+      }
+      assertTrue(
+          metrics
+                  .get("iam.database.vault.renewals")
+                  .tags("kind", "token", "outcome", "success")
+                  .counter()
+                  .count()
+              > 0);
+      assertTrue(
+          metrics
+                  .get("iam.database.vault.renewals")
+                  .tags("kind", "lease", "outcome", "success")
+                  .counter()
+                  .count()
+              > 0);
+      try (var next = pool.getConnection()) {
+        assertEquals(username, currentUser(next));
+      }
+    } finally {
+      role("2m");
+      admin("auth/approle/role/iam-runtime", Map.of("token_ttl", "10m", "token_max_ttl", "1h"));
+    }
+  }
+
+  @Test
+  void cappedLeaseRotatesWhilePinnedTransactionCommitsOnOldGeneration() throws Exception {
+    var definition =
+        (com.fasterxml.jackson.databind.node.ObjectNode)
+            JSON.readTree(Files.readString(Path.of("../infra/vault/database-role.json")));
+    definition.put("default_ttl", "14s");
+    definition.put("max_ttl", "24s");
+    admin("database/roles/iam-runtime", definition);
+    try (var pool = pool();
+        var old = pool.getConnection();
+        var unreturned = pool.getConnection();
+        var unreturnedStatement = unreturned.createStatement()) {
+      String username = currentUser(old);
+      UUID id = UUID.randomUUID();
+      old.setAutoCommit(false);
+      try (var insert =
+          old.prepareStatement("INSERT INTO iam_access.roles(id,name) VALUES (?,?)")) {
+        insert.setObject(1, id);
+        insert.setString(
+            2, "R_" + id.toString().replace("-", "").toUpperCase(java.util.Locale.ROOT));
+        insert.executeUpdate();
+      }
+      String replacement = null;
+      long limit = System.nanoTime() + Duration.ofSeconds(25).toNanos();
+      while (System.nanoTime() < limit) {
+        assertEquals(username, currentUser(old));
+        try (var next = pool.getConnection()) {
+          String user = currentUser(next);
+          if (!user.equals(username)) {
+            replacement = user;
+            break;
+          }
+        }
+        Thread.sleep(100);
+      }
+      assertNotNull(replacement, "Lease cap did not rotate credentials");
+      assertEquals(username, currentUser(old));
+      old.commit();
+      old.close();
+      try (var next = pool.getConnection();
+          var query = next.prepareStatement("SELECT count(*) FROM iam_access.roles WHERE id=?")) {
+        query.setObject(1, id);
+        try (var rows = query.executeQuery()) {
+          rows.next();
+          assertEquals(1, rows.getInt(1));
+        }
+      }
+      await(() -> !exists(username));
+      assertThrows(SQLException.class, () -> unreturnedStatement.execute("SELECT 1"));
+    } finally {
+      role("2m");
+    }
+  }
+
+  @Test
+  void tokenMaximumTtlReauthenticatesWithoutRestart() throws Exception {
+    admin("auth/approle/role/iam-runtime", Map.of("token_ttl", "10s", "token_max_ttl", "18s"));
+    try (var pool = pool()) {
+      String username;
+      try (var first = pool.getConnection()) {
+        username = currentUser(first);
+      }
+      await(
+          () -> {
+            try (var next = pool.getConnection()) {
+              return !currentUser(next).equals(username);
+            } catch (SQLException unavailable) {
+              return false;
+            }
+          });
+      await(() -> !exists(username));
+    } finally {
+      admin("auth/approle/role/iam-runtime", Map.of("token_ttl", "10m", "token_max_ttl", "1h"));
+    }
+  }
+
+  @Test
+  void vaultOutageExpiresCachedSessionsThenRecoversWithoutRestart() throws Exception {
+    role("12s");
+    var metrics = new SimpleMeterRegistry();
+    try (var pool =
+            new VaultDatabaseDataSource(
+                url(), address(), files.resolve("role"), files.resolve("secret"), metrics);
+        var old = pool.getConnection()) {
+      String username = currentUser(old);
+      VAULT.getDockerClient().pauseContainerCmd(VAULT.getContainerId()).exec();
+      try {
+        await(
+            () -> {
+              try (var ignored = pool.getConnection()) {
+                return false;
+              } catch (SQLException expired) {
+                return true;
+              }
+            });
+        await(
+            () ->
+                metrics.find("iam.database.vault.revocation.failures").counter() != null
+                    && metrics.get("iam.database.vault.revocation.failures").counter().count() > 0);
+        await(
+            () -> {
+              try (var statement = old.createStatement()) {
+                statement.execute("SELECT 1");
+                return false;
+              } catch (SQLException expired) {
+                return true;
+              }
+            });
+      } finally {
+        VAULT.getDockerClient().unpauseContainerCmd(VAULT.getContainerId()).exec();
+      }
+      await(
+          () -> {
+            try (var next = pool.getConnection()) {
+              return !currentUser(next).equals(username);
+            } catch (SQLException unavailable) {
+              return false;
+            }
+          });
+      await(() -> !exists(username));
+    } finally {
+      role("2m");
+    }
+  }
+
+  @Test
+  void missingDatabaseLoginIsReplacedAndRevokedIdempotently() throws Exception {
+    var metrics = new SimpleMeterRegistry();
+    role("12s");
+    try (var pool =
+        new VaultDatabaseDataSource(
+            url(), address(), files.resolve("role"), files.resolve("secret"), metrics)) {
+      String username;
+      try (var connection = pool.getConnection()) {
+        username = currentUser(connection);
+      }
+      assertTrue(username.matches("sg_[A-Za-z0-9]{20}"));
+      try (var connection = owner()) {
+        try (var stop =
+            connection.prepareStatement(
+                "SELECT pg_terminate_backend(pid,3000) FROM pg_stat_activity WHERE usename=?")) {
+          stop.setString(1, username);
+          stop.execute();
+        }
+        try (var statement = connection.createStatement()) {
+          statement.execute("DROP ROLE \"" + username + "\"");
+        }
+      }
+      await(
+          () -> {
+            try (var next = pool.getConnection()) {
+              return !currentUser(next).equals(username);
+            } catch (SQLException unavailable) {
+              return false;
+            }
+          });
+      await(
+          () ->
+              metrics.find("iam.database.vault.leases").tag("outcome", "closed").counter() != null
+                  && metrics
+                          .get("iam.database.vault.leases")
+                          .tag("outcome", "closed")
+                          .counter()
+                          .count()
+                      > 0);
+      assertNull(metrics.find("iam.database.vault.cleanup.abandoned").counter());
+    } finally {
+      role("2m");
+    }
+  }
+
+  @Test
+  void deniedRevocationBoundsGenerationsUntilCleanupRecovers() throws Exception {
+    String policy = Files.readString(Path.of("../infra/vault/iam-runtime.hcl"));
+    var definition =
+        (com.fasterxml.jackson.databind.node.ObjectNode)
+            JSON.readTree(Files.readString(Path.of("../infra/vault/database-role.json")));
+    definition.put("default_ttl", "10s");
+    definition.put("max_ttl", "10s");
+    admin("database/roles/iam-runtime", definition);
+    admin(
+        "sys/policies/acl/iam-runtime",
+        Map.of(
+            "policy", policy + "\npath \"auth/token/revoke-self\" { capabilities = [\"deny\"] }"));
+    var metrics = new SimpleMeterRegistry();
+    try (var pool =
+        new VaultDatabaseDataSource(
+            url(), address(), files.resolve("role"), files.resolve("secret"), metrics)) {
+      await(
+          () ->
+              metrics.get("iam.database.vault.leases").tag("outcome", "issued").counter().count()
+                  == 3);
       await(
           () -> {
             try (var ignored = pool.getConnection()) {
@@ -253,17 +477,28 @@ class VaultDatabaseIT {
               return true;
             }
           });
+      long until = System.nanoTime() + Duration.ofSeconds(6).toNanos();
+      while (System.nanoTime() < until) {
+        assertEquals(
+            3, metrics.get("iam.database.vault.leases").tag("outcome", "issued").counter().count());
+        Thread.sleep(100);
+      }
+      assertTrue(
+          metrics.get("iam.database.vault.rotations").tag("outcome", "deferred").counter().count()
+              > 0);
+      admin("sys/policies/acl/iam-runtime", Map.of("policy", policy));
       await(
           () -> {
-            try (var statement = connection.createStatement()) {
-              statement.execute("SELECT 1");
+            try (var next = pool.getConnection()) {
+              return currentUser(next).startsWith("sg_");
+            } catch (SQLException unavailable) {
               return false;
-            } catch (SQLException closed) {
-              return true;
             }
           });
-      await(() -> !exists(username));
+      assertTrue(
+          metrics.get("iam.database.vault.leases").tag("outcome", "closed").counter().count() > 0);
     } finally {
+      admin("sys/policies/acl/iam-runtime", Map.of("policy", policy));
       role("2m");
     }
   }
@@ -308,6 +543,20 @@ class VaultDatabaseIT {
           }) {
         assertEquals(403, send(path, null, token).statusCode());
       }
+      assertEquals(
+          403,
+          send(
+                  "sys/leases/renew/database/creds/other-role/synthetic",
+                  Map.of("increment", 60),
+                  token)
+              .statusCode());
+      assertEquals(
+          403,
+          send(
+                  "sys/leases/renew/database/creds/iam-runtime/synthetic",
+                  Map.of("lease_id", "other/lease", "increment", 60),
+                  token)
+              .statusCode());
     } finally {
       assertTrue(send("auth/token/revoke-self", Map.of(), token).statusCode() < 300);
     }

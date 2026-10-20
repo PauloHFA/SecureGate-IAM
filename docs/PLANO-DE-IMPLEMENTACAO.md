@@ -245,12 +245,12 @@ Subdivisão: **8A1** — V13 aditiva, `event_log` mensal, recibos globais, porta
 ## Etapa 9 — Vault avançado e PAM
 
 - [x] Integrar KV e credenciais temporárias de banco (KV no IAM na 9A1; AppRole runtime/KV separado e pool temporário na 9A2b; KV do enforcer ainda pendente).
-- [ ] Renovar tokens, credenciais e leases, recuperando falhas de renovação.
-- [ ] Testar rotação de credenciais com pool de conexões.
+- [x] Renovar token/lease do pool PostgreSQL e reemitir credenciais após limites/falhas (9A2c; ciclos Transit/KV independentes).
+- [x] Testar rotação de credenciais com pool de conexões (9A2c, incluindo transação fixada e drenagem limitada).
 - [ ] Criar endpoint de acesso privilegiado com autorização, justificativa e TTL limitado.
 - [ ] Auditar emissão, expiração e revogação sem registrar o segredo.
-- [ ] Documentar entrega da credencial inicial de autenticação do serviço no Vault.
-- [ ] Criar runbook de indisponibilidade e recuperação.
+- [x] Documentar entrega local da credencial inicial de autenticação do serviço no Vault (arquivos AppRole; entrega de produção depende de hardening).
+- [x] Criar runbook de indisponibilidade e recuperação (9A2c; pausa/retomada medida, perda do Vault dev exige ação administrativa).
 
 **Aceite:** leases expiram/renovam corretamente; pedido não autorizado falha; segredos não ficam em arquivos versionados, imagens ou logs.
 
@@ -258,7 +258,9 @@ Subdivisão: **9A1** — snapshot KV v2 opcional no startup do IAM, AppRole por 
 
 A 9A2 foi dividida em **9A2a**, perfil de permissões NOLOGIN e validação do IAM sem propriedade das tabelas; **9A2b**, Database Engine Vault, emissão temporária e separação automatizada migração/runtime; e **9A2c**, leases, renovação e troca segura de pools. A 9A2a está implementada localmente em `feat/runtime-database-privileges`: SQL/script administrativo, grants explícitos e V17 para o histórico de quarentena via trigger. Ver [ADR-035](adr/035-permissoes-postgresql-runtime.md), [guia](runbooks/permissoes-runtime-local.md) e [evidências](evidencias/etapa-09a2a.md). O startup padrão ainda usa a conta proprietária; a 9A2a não emite credenciais nem integra o Database Engine.
 
-A **9A2b** acrescenta modo opcional de DataSource temporário, AppRole runtime sem acesso ao KV proprietário, comando administrativo `--migrate-only`, provisionamento/rotação do emissor dedicado e encerramento do pool antes do prazo. Implementada localmente em `feat/vault-dynamic-database`. Ver [ADR-036](adr/036-credenciais-dinamicas-postgresql.md), [guia](runbooks/vault-database-local.md) e [evidências](evidencias/etapa-09a2b.md). O modo anterior continua padrão; no modo novo, Flyway é desativado no runtime. Sem renovação automática, o processo precisa reiniciar ao vencer seu lease. A 9A2c e o aceite operacional da etapa 9 continuam pendentes.
+A **9A2b** acrescenta modo opcional de DataSource temporário, AppRole runtime sem acesso ao KV proprietário, comando administrativo `--migrate-only`, provisionamento/rotação do emissor dedicado e encerramento do pool antes do prazo. Implementada localmente em `feat/vault-dynamic-database`. Ver [ADR-036](adr/036-credenciais-dinamicas-postgresql.md), [guia](runbooks/vault-database-local.md) e [evidências](evidencias/etapa-09a2b.md). O modo anterior continua padrão; no modo novo, Flyway é desativado no runtime. Esse ciclo inicial exigia reinício ao vencer o lease e foi substituído pela 9A2c abaixo. O aceite operacional da etapa 9 continua pendente.
+
+A **9A2c** substitui o ciclo de lease único: renova token/lease, reautentica após limite/falha, troca gerações validadas e drena pools por prazo limitado. Watchdog e limites de gerações mantêm falha fechada, com recuperação local após pausa do Vault. Implementada localmente em `feat/vault-database-lease-lifecycle`. Ver [ADR-037](adr/037-renovacao-e-troca-de-pools.md), [guia](runbooks/vault-database-renovacao-local.md) e [evidências](evidencias/etapa-09a2c.md). Não exige reiniciar a cada TTL, mas não garante transações longas ou disponibilidade sob falhas persistentes de limpeza. PAM, auditoria operacional integrada, KV do enforcer e aceite final da etapa 9 continuam pendentes.
 
 ## Etapa 10 — Carga e observabilidade
 
@@ -341,4 +343,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a **9A2c**: renovação de tokens/leases, troca segura dos pools e recuperação contínua. A 9A2b está implementada localmente em `feat/vault-dynamic-database`, sem commit. A base local inclui 9A2a (`7a185e6`), 9A1 (`c3d8d6b`), 8C (`7962347`), 8D1 (`d7311d0`) e 8D2 (`d6b2af0`, medida com milhões de eventos); somente a base até a 8B (`f005334`) foi publicada. CI remota dessas entregas e revisão/merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
+Seguir para a **9B**: acesso privilegiado com autorização, justificativa e TTL limitado. A 9C completará auditoria operacional integrada. A 9A2c está implementada localmente em `feat/vault-database-lease-lifecycle`, com commit local; publicação e CI remota pendentes. A base local inclui 9A2b (`9be0356`), 9A2a (`7a185e6`), 9A1 (`c3d8d6b`), 8C (`7962347`), 8D1 (`d7311d0`) e 8D2 (`d6b2af0`, medida com milhões de eventos); somente a base até a 8B (`f005334`) foi publicada. CI remota dessas entregas e revisão/merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).

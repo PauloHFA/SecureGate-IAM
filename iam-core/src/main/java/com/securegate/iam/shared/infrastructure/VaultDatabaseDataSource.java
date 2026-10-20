@@ -1,130 +1,279 @@
 package com.securegate.iam.shared.infrastructure;
 
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.net.URI;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.jdbc.datasource.AbstractDataSource;
 
-/** One lease per process in 9A2b. Runtime renewal and replacement belong to 9A2c. */
+/** Stable transactional DataSource; credentials and physical pools rotate behind it. */
 public final class VaultDatabaseDataSource extends AbstractDataSource implements AutoCloseable {
-  private final VaultDatabaseSession session;
-  private final HikariDataSource pool;
-  private final long deadline;
+  private final Object state = new Object();
+  private final String url;
+  private final URI address;
+  private final Path roleFile;
+  private final Path secretFile;
   private final MeterRegistry metrics;
-  private final AtomicBoolean closed = new AtomicBoolean();
-  private final ScheduledThreadPoolExecutor expiry = expiryScheduler();
-
-  private static ScheduledThreadPoolExecutor expiryScheduler() {
-    var scheduler =
-        new ScheduledThreadPoolExecutor(
-            1,
-            task -> {
-              Thread thread = new Thread(task, "vault-database-expiry");
-              thread.setDaemon(true);
-              return thread;
-            });
-    scheduler.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
-    return scheduler;
-  }
+  private final List<VaultDatabasePool> retiring = new ArrayList<>();
+  private final ScheduledThreadPoolExecutor control = scheduler("vault-database-renewal");
+  private final ScheduledThreadPoolExecutor expiry = scheduler("vault-database-expiry");
+  private final ExecutorService closers =
+      Executors.newFixedThreadPool(3, task -> daemon(task, "vault-database-close"));
+  private VaultDatabasePool active;
+  private boolean closed;
 
   public VaultDatabaseDataSource(
       String url, URI address, Path roleFile, Path secretFile, MeterRegistry metrics) {
+    this.url = url;
+    this.address = address;
+    this.roleFile = roleFile;
+    this.secretFile = secretFile;
     this.metrics = metrics;
     try {
-      URI jdbcAddress = URI.create(url.substring(5));
+      URI jdbc = URI.create(url.substring(5));
       if (!url.startsWith("jdbc:postgresql://")
-          || jdbcAddress.getHost() == null
-          || jdbcAddress.getUserInfo() != null
-          || jdbcAddress.getQuery() != null
-          || jdbcAddress.getFragment() != null
-          || !jdbcAddress.getPath().matches("/[A-Za-z0-9_-]{1,63}")) {
+          || jdbc.getHost() == null
+          || jdbc.getUserInfo() != null
+          || jdbc.getQuery() != null
+          || jdbc.getFragment() != null
+          || !jdbc.getPath().matches("/[A-Za-z0-9_-]{1,63}")) {
         throw VaultDatabaseSession.unavailable();
       }
-    } catch (RuntimeException invalid) {
+      active = open();
+    } catch (RuntimeException failure) {
+      control.shutdown();
+      expiry.shutdown();
+      closers.shutdown();
       throw VaultDatabaseSession.unavailable();
     }
-    session = new VaultDatabaseSession(address, roleFile, secretFile);
-    HikariDataSource candidate = null;
+    metrics.gauge("iam.database.vault.available", this, source -> source.available() ? 1 : 0);
+    control.scheduleWithFixedDelay(this::maintain, 250, 250, TimeUnit.MILLISECONDS);
+    expiry.scheduleWithFixedDelay(this::expire, 100, 100, TimeUnit.MILLISECONDS);
+  }
+
+  private static Thread daemon(Runnable task, String name) {
+    var thread = new Thread(task, name);
+    thread.setDaemon(true);
+    return thread;
+  }
+
+  private static ScheduledThreadPoolExecutor scheduler(String name) {
+    var executor = new ScheduledThreadPoolExecutor(1, task -> daemon(task, name));
+    executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+    return executor;
+  }
+
+  private VaultDatabasePool open() {
+    return new VaultDatabasePool(url, address, roleFile, secretFile, metrics);
+  }
+
+  private boolean available() {
+    synchronized (state) {
+      return !closed && active != null && active.valid(System.nanoTime());
+    }
+  }
+
+  private void maintain() {
+    VaultDatabasePool current;
+    synchronized (state) {
+      if (closed) {
+        return;
+      }
+      current = active;
+    }
     try {
-      long started = System.nanoTime();
-      var lease = session.request("database/creds/iam-runtime", null);
-      String id = VaultDatabaseSession.text(lease, "lease_id");
-      long ttl = lease.path("lease_duration").asLong();
-      String username = VaultDatabaseSession.text(lease.path("data"), "username");
-      if (!id.startsWith("database/creds/iam-runtime/")
-          || ttl < 10
-          || ttl > 3600
-          || !lease.path("renewable").isBoolean()
-          || !username.matches("sg_[a-zA-Z0-9]{20}")) {
-        throw VaultDatabaseSession.unavailable();
-      }
-      deadline =
-          Math.min(session.deadline(), started + Duration.ofSeconds(ttl).toNanos())
-              - Duration.ofSeconds(2).toNanos();
-      if (deadline - System.nanoTime() <= Duration.ofSeconds(3).toNanos()) {
-        throw VaultDatabaseSession.unavailable();
-      }
-      var config = new HikariConfig();
-      config.setPoolName("iam-vault-runtime");
-      config.setJdbcUrl(url);
-      config.setUsername(username);
-      config.setPassword(VaultDatabaseSession.text(lease.path("data"), "password"));
-      config.setMaximumPoolSize(10);
-      config.setMinimumIdle(0);
-      config.setConnectionTimeout(3000);
-      config.setValidationTimeout(1000);
-      config.addDataSourceProperty("connectTimeout", "3");
-      config.addDataSourceProperty("socketTimeout", "5");
-      config.setConnectionInitSql(
-          "SET statement_timeout='5s'; SET lock_timeout='1s'; SET idle_in_transaction_session_timeout='10s'; SET TIME ZONE 'UTC'");
-      candidate = new HikariDataSource(config);
-      try (var connection = candidate.getConnection();
-          var statement = connection.createStatement();
-          var rows =
-              statement.executeQuery(
-                  "SELECT pg_has_role(current_user,'securegate_iam_runtime','MEMBER') AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls FROM pg_roles WHERE rolname=current_user")) {
-        if (!rows.next() || !rows.getBoolean(1)) {
-          throw VaultDatabaseSession.unavailable();
+      if (!current.valid(System.nanoTime())) {
+        replace(current);
+      } else if (current.due(System.nanoTime())) {
+        try {
+          current.renew(System.nanoTime());
+          if (current.disposed) {
+            replace(current);
+          }
+        } catch (VaultDatabaseSession.Unavailable failure) {
+          if (failure.terminal) {
+            synchronized (state) {
+              retire(current, true);
+            }
+          }
+          replace(current);
         }
       }
-      pool = candidate;
-      expiry.schedule(this::close, Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
-      metrics.counter("iam.database.vault.leases", "outcome", "issued").increment();
-    } catch (Exception failure) {
-      if (candidate != null) {
-        candidate.close();
+    } catch (RuntimeException failure) {
+      metrics.counter("iam.database.vault.rotations", "outcome", "failure").increment();
+    } finally {
+      cleanup();
+    }
+  }
+
+  private void replace(VaultDatabasePool expected) {
+    synchronized (state) {
+      if (closed || active != expected) {
+        return;
       }
-      expiry.shutdown();
-      revoke();
-      throw VaultDatabaseSession.unavailable();
+      if (retiring.size() >= (retiring.contains(expected) ? 3 : 2)) {
+        metrics.counter("iam.database.vault.rotations", "outcome", "deferred").increment();
+        return;
+      }
+    }
+    VaultDatabasePool candidate = open();
+    synchronized (state) {
+      if (!closed && active == expected && candidate.valid(System.nanoTime())) {
+        active = candidate;
+        retire(expected, false);
+        metrics.counter("iam.database.vault.rotations", "outcome", "success").increment();
+        return;
+      }
+    }
+    candidate.pool.close();
+    try {
+      candidate.session.close();
+    } catch (RuntimeException failure) {
+      metrics.counter("iam.database.vault.revocation.failures").increment();
+    }
+  }
+
+  // Called only under state. No Vault/SQL operation runs while holding this lock.
+  private void retire(VaultDatabasePool pool, boolean force) {
+    if (closed
+        || (pool.disposed && pool.revoked && pool.closing != null && pool.closing.isDone())) {
+      return;
+    }
+    if (!retiring.contains(pool)) {
+      retiring.add(pool);
+      pool.retireAt =
+          Math.min(pool.deadline(), System.nanoTime() + Duration.ofSeconds(5).toNanos());
+    }
+    if (!pool.disposed
+        && (force || pool.borrowers.get() == 0 || System.nanoTime() - pool.retireAt >= 0)) {
+      pool.disposed = true;
+      pool.closing = closers.submit(pool.pool::close);
+    }
+  }
+
+  private void expire() {
+    synchronized (state) {
+      if (closed) {
+        return;
+      }
+      if (!active.valid(System.nanoTime())) {
+        retire(active, true);
+      }
+      for (var pool : List.copyOf(retiring)) {
+        retire(pool, System.nanoTime() - pool.deadline() >= 0);
+      }
+    }
+  }
+
+  private void cleanup() {
+    List<VaultDatabasePool> pending;
+    synchronized (state) {
+      if (closed) {
+        return;
+      }
+      pending = List.copyOf(retiring);
+    }
+    for (var pool : pending) {
+      if (!pool.disposed || System.nanoTime() - pool.cleanupAt < 0) {
+        continue;
+      }
+      if (!pool.revoked) {
+        try {
+          pool.session.revoke();
+          pool.revoked = true;
+        } catch (RuntimeException failure) {
+          metrics.counter("iam.database.vault.revocation.failures").increment();
+          pool.cleanupAt = System.nanoTime() + Duration.ofSeconds(1).toNanos();
+          if (System.nanoTime() - pool.session.deadline() < 0) {
+            continue;
+          }
+          try {
+            pool.session.close();
+          } catch (RuntimeException ignored) {
+            /* Vault owns expiration retries. */
+          }
+          pool.revoked = true;
+          metrics.counter("iam.database.vault.cleanup.abandoned").increment();
+        }
+      }
+      if (pool.closing != null && pool.closing.isDone()) {
+        synchronized (state) {
+          retiring.remove(pool);
+        }
+        metrics.counter("iam.database.vault.leases", "outcome", "closed").increment();
+      }
     }
   }
 
   @Override
   public Connection getConnection() throws SQLException {
-    if (closed.get() || deadline - System.nanoTime() <= 0) {
-      close();
-      throw new SQLException("Vault database lease unavailable.", "08006");
-    }
-    try {
-      Connection connection = pool.getConnection();
-      if (closed.get() || deadline - System.nanoTime() <= 0) {
-        connection.close();
-        close();
-        throw new SQLException("Vault database lease unavailable.", "08006");
+    VaultDatabasePool selected;
+    synchronized (state) {
+      if (closed || active == null || !active.valid(System.nanoTime())) {
+        throw unavailable();
       }
-      return connection;
-    } catch (SQLException failure) {
-      throw new SQLException("Vault database connection unavailable.", "08006");
+      selected = active;
+      selected.borrowers.incrementAndGet();
     }
+    Connection connection;
+    try {
+      connection = selected.pool.getConnection();
+      if (!selected.valid(System.nanoTime())) {
+        connection.close();
+        throw unavailable();
+      }
+    } catch (SQLException failure) {
+      selected.borrowers.decrementAndGet();
+      throw unavailable();
+    }
+    AtomicBoolean returned = new AtomicBoolean();
+    return (Connection)
+        Proxy.newProxyInstance(
+            Connection.class.getClassLoader(),
+            new Class<?>[] {Connection.class},
+            (proxy, method, args) -> {
+              String name = method.getName();
+              if (name.equals("toString")) {
+                return "VaultDatabaseConnection[redacted]";
+              }
+              if (name.equals("equals")) {
+                return proxy == args[0];
+              }
+              if (name.equals("hashCode")) {
+                return System.identityHashCode(proxy);
+              }
+              boolean release = name.equals("close") || name.equals("abort");
+              if (release && !returned.compareAndSet(false, true)) {
+                return null;
+              }
+              if (name.equals("isClosed")
+                  && (returned.get() || !selected.valid(System.nanoTime()))) {
+                return true;
+              }
+              if (!release && (returned.get() || !selected.valid(System.nanoTime()))) {
+                throw unavailable();
+              }
+              try {
+                return method.invoke(connection, args);
+              } catch (InvocationTargetException failure) {
+                throw failure.getCause();
+              } finally {
+                if (release) {
+                  selected.borrowers.decrementAndGet();
+                }
+              }
+            });
   }
 
   @Override
@@ -132,22 +281,39 @@ public final class VaultDatabaseDataSource extends AbstractDataSource implements
     throw new SQLException("Explicit credentials are not supported.", "08004");
   }
 
-  @Override
-  public void close() {
-    if (closed.compareAndSet(false, true)) {
-      expiry.shutdown();
-      pool.close();
-      revoke();
-      metrics.counter("iam.database.vault.leases", "outcome", "closed").increment();
-    }
+  private static SQLException unavailable() {
+    return new SQLException("Vault database lease unavailable.", "08006");
   }
 
-  private void revoke() {
-    try {
-      session.close();
-    } catch (RuntimeException failure) {
-      metrics.counter("iam.database.vault.revocation.failures").increment();
+  @Override
+  public void close() {
+    List<VaultDatabasePool> pools;
+    synchronized (state) {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      pools = new ArrayList<>(retiring);
+      retiring.clear();
+      if (active != null && !pools.contains(active)) {
+        pools.add(active);
+      }
+      for (var pool : pools) {
+        pool.disposed = true;
+      }
+      active = null;
     }
+    control.shutdown();
+    expiry.shutdown();
+    for (var pool : pools) {
+      pool.pool.close();
+      try {
+        pool.session.close();
+      } catch (RuntimeException failure) {
+        metrics.counter("iam.database.vault.revocation.failures").increment();
+      }
+    }
+    closers.shutdown();
   }
 
   @Override

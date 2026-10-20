@@ -3,6 +3,8 @@
 - Data: 20/10/2026
 - Estado: aceita para a entrega local 9A2b
 
+O ciclo de lease único descrito nesta decisão foi substituído pela [ADR-037](037-renovacao-e-troca-de-pools.md) na 9A2c; as decisões de migração separada e isolamento do AppRole permanecem.
+
 ## Decisão
 
 O modo opcional `IAM_DATABASE_VAULT_ENABLED=true` cria o DataSource principal por AppRole e `GET database/creds/iam-runtime`. O Vault emite um login `sg_` seguido de vinte caracteres alfanuméricos, membro de `securegate_iam_runtime`, com atributos restritos, limite de vinte conexões e `VALID UNTIL`. O pool Java tem no máximo dez conexões. As contas de ingestão/manutenção de auditoria continuam independentes.

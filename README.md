@@ -56,7 +56,9 @@ A 9A1 adiciona leitura opcional de segredos KV v2 antes da criação das conexõ
 
 A 9A2a prepara o grupo PostgreSQL `securegate_iam_runtime`, sem login e com concessões explícitas, e valida o IAM com uma identidade de execução sem propriedade das tabelas. A V17 permite ao trigger registrar histórico da Outbox sem INSERT direto pelo runtime. O startup padrão ainda usa a conta proprietária. Consulte o [guia](docs/runbooks/permissoes-runtime-local.md), a [ADR-035](docs/adr/035-permissoes-postgresql-runtime.md) e as [evidências](docs/evidencias/etapa-09a2a.md).
 
-A 9A2b integra credenciais PostgreSQL temporárias do Vault com `-EnableVaultDatabase`, AppRole/KV de execução sem senha proprietária e migração em processo separado (`Migrate-Database.ps1`). O pool fecha no limite do lease; renovação e troca contínua ficam na 9A2c. Consulte o [guia](docs/runbooks/vault-database-local.md), a [ADR-036](docs/adr/036-credenciais-dinamicas-postgresql.md) e as [evidências](docs/evidencias/etapa-09a2b.md).
+A 9A2b integra credenciais PostgreSQL temporárias do Vault com `-EnableVaultDatabase`, AppRole/KV de execução sem senha proprietária e migração em processo separado (`Migrate-Database.ps1`). A 9A2c acrescenta renovação e troca de gerações. Consulte o [guia](docs/runbooks/vault-database-local.md), a [ADR-036](docs/adr/036-credenciais-dinamicas-postgresql.md) e as [evidências](docs/evidencias/etapa-09a2b.md).
+
+A 9A2c renova token e lease do pool, valida novas credenciais antes da troca e drena a geração anterior com prazo limitado. Em indisponibilidade, fecha sessões ao vencer o prazo confirmado e pode reconstruir o pool após recuperação do Vault, sem reiniciar. Consulte o [guia de renovação](docs/runbooks/vault-database-renovacao-local.md), a [ADR-037](docs/adr/037-renovacao-e-troca-de-pools.md) e as [evidências](docs/evidencias/etapa-09a2c.md).
 
 ## Decisões aprovadas
 
@@ -93,7 +95,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **9A2c**, renovação de tokens/leases, troca segura dos pools e recuperação contínua. A 9A2b está implementada localmente em `feat/vault-dynamic-database`, sem commit. A base inclui 9A2a (`7a185e6`), 9A1 (`c3d8d6b`), 8D2 (`d6b2af0`, medida com 2.030.000 eventos/recibos), 8D1 (`d7311d0`) e 8C (`7962347`). A base até a 8B (`f005334`), incluindo 7D/8A, foi publicada em `feat/audit-batch-consumer`; CI remota dessa base, revisão e merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
+Próxima entrega: **9B**, acesso privilegiado com autorização, justificativa e TTL limitado; seguida da auditoria operacional da 9C. A 9A2c está implementada localmente em `feat/vault-database-lease-lifecycle`, com commit local; publicação e CI remota pendentes. A base inclui 9A2b (`9be0356`), 9A2a (`7a185e6`), 9A1 (`c3d8d6b`), 8D2 (`d6b2af0`, medida com 2.030.000 eventos/recibos), 8D1 (`d7311d0`) e 8C (`7962347`). A base até a 8B (`f005334`), incluindo 7D/8A, foi publicada em `feat/audit-batch-consumer`; CI remota dessa base, revisão e merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

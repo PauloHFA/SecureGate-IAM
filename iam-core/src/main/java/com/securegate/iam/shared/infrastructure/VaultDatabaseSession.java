@@ -17,7 +17,10 @@ final class VaultDatabaseSession implements AutoCloseable {
       HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
   private final URI address;
   private String token;
-  private long deadline;
+  private volatile long deadline;
+  private volatile long renewAt;
+  private long ttl;
+  private boolean renewable;
 
   VaultDatabaseSession(URI address, Path roleFile, Path secretFile) {
     this.address = address;
@@ -42,11 +45,13 @@ final class VaultDatabaseSession implements AutoCloseable {
                   Map.of("role_id", file(roleFile), "secret_id", file(secretFile)))
               .path("auth");
       token = text(auth, "client_token");
-      long ttl = auth.path("lease_duration").asLong();
+      ttl = auth.path("lease_duration").asLong();
       if (ttl < 10 || ttl > 86400) {
         throw unavailable();
       }
       deadline = started + Duration.ofSeconds(ttl).toNanos();
+      renewAt = started + Duration.ofSeconds(ttl).toNanos() / 2;
+      renewable = auth.path("renewable").asBoolean(false);
     } catch (Exception failure) {
       close();
       throw unavailable();
@@ -57,7 +62,29 @@ final class VaultDatabaseSession implements AutoCloseable {
     return deadline;
   }
 
-  JsonNode request(String path, Object body) {
+  long renewAt() {
+    return renewAt;
+  }
+
+  synchronized void renew() {
+    if (!renewable) {
+      throw new Unavailable(false);
+    }
+    long started = System.nanoTime();
+    JsonNode auth = request("auth/token/renew-self", Map.of("increment", ttl)).path("auth");
+    long seconds = auth.path("lease_duration").asLong();
+    if (!token.equals(text(auth, "client_token")) || seconds < 1 || seconds > 86400) {
+      throw unavailable();
+    }
+    deadline = started + Duration.ofSeconds(seconds).toNanos();
+    renewAt = started + Duration.ofSeconds(seconds).toNanos() / 2;
+    renewable = auth.path("renewable").asBoolean(false);
+    if (seconds < 10) {
+      throw new Unavailable(false);
+    }
+  }
+
+  synchronized JsonNode request(String path, Object body) {
     try {
       var builder =
           HttpRequest.newBuilder(address.resolve("/v1/" + path))
@@ -77,15 +104,29 @@ final class VaultDatabaseSession implements AutoCloseable {
       if (response.statusCode() < 200
           || response.statusCode() >= 300
           || response.body().length > 65536) {
-        throw unavailable();
+        throw new Unavailable(response.statusCode() < 500);
       }
       return response.body().length == 0 ? JSON.createObjectNode() : JSON.readTree(response.body());
+    } catch (Unavailable failure) {
+      throw failure;
     } catch (InterruptedException failure) {
       Thread.currentThread().interrupt();
+      throw new Unavailable(false);
+    } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
       throw unavailable();
+    } catch (java.io.IOException failure) {
+      throw new Unavailable(false);
     } catch (Exception failure) {
       throw unavailable();
     }
+  }
+
+  synchronized void revoke() {
+    if (token != null) {
+      request("auth/token/revoke-self", Map.of());
+      token = null;
+    }
+    http.close();
   }
 
   static String text(JsonNode node, String field) {
@@ -113,7 +154,7 @@ final class VaultDatabaseSession implements AutoCloseable {
   }
 
   @Override
-  public void close() {
+  public synchronized void close() {
     try {
       if (token != null) {
         request("auth/token/revoke-self", Map.of());
@@ -124,8 +165,17 @@ final class VaultDatabaseSession implements AutoCloseable {
     }
   }
 
-  static IllegalStateException unavailable() {
-    return new IllegalStateException("Vault database unavailable.");
+  static Unavailable unavailable() {
+    return new Unavailable(true);
+  }
+
+  static final class Unavailable extends IllegalStateException {
+    final boolean terminal;
+
+    Unavailable(boolean terminal) {
+      super("Vault database unavailable.");
+      this.terminal = terminal;
+    }
   }
 
   @Override
