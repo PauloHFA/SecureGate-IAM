@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement, [switch]$EnableAuditPartitions, [switch]$EnableAuditIngestion, [switch]$EnableAuditConsumer, [switch]$EnableAuditQuery, [switch]$EnableVaultKv, [switch]$EnableVaultDatabase)
+param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement, [switch]$EnableAuditPartitions, [switch]$EnableAuditIngestion, [switch]$EnableAuditConsumer, [switch]$EnableAuditQuery, [switch]$EnableVaultKv, [switch]$EnableVaultDatabase, [switch]$EnablePam)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LocalEnvironment.ps1')
@@ -7,7 +7,7 @@ $projectPath = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $settings = Read-LocalEnvironment (Join-Path $projectPath '.env')
 if ($EnableVaultDatabase) { $EnableVaultKv = $true }
 if ($EnableAuditConsumer -or $EnableAuditQuery) { $EnableAuditIngestion = $true }
-if ($EnableResourceEnforcement) { $EnableAuthorization = $true }
+if ($EnableResourceEnforcement -or $EnablePam) { $EnableAuthorization = $true }
 if ($EnableAuthorization) { $EnableTransit = $true }
 if ($EnableBootstrap -and (-not $settings.ContainsKey('IAM_BOOTSTRAP_TOKEN') -or $settings.IAM_BOOTSTRAP_TOKEN.Length -lt 32)) {
   throw 'Token bootstrap ausente ou invalido. Execute Initialize-Local.ps1 antes de ativar a administracao.'
@@ -60,6 +60,7 @@ if ($EnableAuditConsumer) { 'true' } else { 'false' })
   IAM_ENFORCEMENT_REDIS_PASSWORD = $(if ($EnableResourceEnforcement -and -not $EnableVaultKv) { $settings.REDIS_PASSWORD } else { '' })
   IAM_TRANSIT_ENABLED = $(if ($EnableTransit) { 'true' } else { 'false' })
   IAM_AUTHORIZATION_ENABLED = $(if ($EnableAuthorization) { 'true' } else { 'false' })
+  IAM_PAM_ENABLED = $(if ($EnablePam) { 'true' } else { 'false' })
   IAM_ISSUER = 'http://127.0.0.1:' + $Port
   IAM_VAULT_ADDRESS = 'http://127.0.0.1:' + $settings.VAULT_PORT
   IAM_VAULT_ROLE_ID_FILE = $roleIdPath

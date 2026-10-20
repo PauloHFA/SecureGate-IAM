@@ -73,7 +73,7 @@ class PartitionedAuditIT {
 
   @Test
   void upgradesV12WithoutMovingOrLosingTheLegacyAuditAndOutbox() {
-    assertEquals("17", flyway.info().current().getVersion().getVersion());
+    assertEquals("18", flyway.info().current().getVersion().getVersion());
     assertEquals(
         1,
         jdbc.queryForObject(

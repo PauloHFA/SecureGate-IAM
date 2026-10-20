@@ -66,14 +66,24 @@ public class ResourceSecurityConfiguration {
   @Bean
   @Order(3)
   SecurityFilterChain resourceSecurity(
-      HttpSecurity http, ResourceAccessService access, AuditTrail audit) throws Exception {
-    return http.securityMatcher("/api/resources/**")
+      HttpSecurity http,
+      ResourceAccessService access,
+      AuditTrail audit,
+      @Value("${iam.pam.enabled:false}") boolean pamEnabled)
+      throws Exception {
+    return http.securityMatcher("/api/resources/**", "/api/pam/**")
         .csrf(AbstractHttpConfigurer::disable)
         .requestCache(AbstractHttpConfigurer::disable)
         .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(
             r ->
                 r.requestMatchers(HttpMethod.GET, "/api/resources/account")
+                    .authenticated()
+                    .requestMatchers(HttpMethod.POST, "/api/pam/requests")
+                    .authenticated()
+                    .requestMatchers(HttpMethod.GET, "/api/pam/requests/*")
+                    .authenticated()
+                    .requestMatchers(HttpMethod.DELETE, "/api/pam/requests/*")
                     .authenticated()
                     .anyRequest()
                     .denyAll())
@@ -86,18 +96,40 @@ public class ResourceSecurityConfiguration {
                                 token -> {
                                   try {
                                     var attributes = RequestContextHolder.getRequestAttributes();
-                                    if (!(attributes instanceof ServletRequestAttributes current)
-                                        || !"GET".equals(current.getRequest().getMethod())
-                                        || !"/api/resources/account"
-                                            .equals(current.getRequest().getServletPath())) {
+                                    if (!(attributes instanceof ServletRequestAttributes current)) {
+                                      throw new ResourceAccessService.Rejected(
+                                          "insufficient_scope");
+                                    }
+                                    String method = current.getRequest().getMethod();
+                                    String path = current.getRequest().getServletPath();
+                                    boolean account =
+                                        "GET".equals(method)
+                                            && "/api/resources/account".equals(path);
+                                    boolean pam =
+                                        pamEnabled
+                                            && (("POST".equals(method)
+                                                    && "/api/pam/requests".equals(path))
+                                                || (("GET".equals(method)
+                                                        || "DELETE".equals(method))
+                                                    && path.matches(
+                                                        "/api/pam/requests/[0-9a-fA-F-]{36}")));
+                                    if (!account && !pam) {
                                       throw new ResourceAccessService.Rejected(
                                           "insufficient_scope");
                                     }
                                     var permit =
                                         access.authorize(
                                             token,
-                                            ResourceAccessService.Operation.ACCOUNT_READ,
+                                            pam
+                                                ? ResourceAccessService.Operation.PRIVILEGED_REQUEST
+                                                : ResourceAccessService.Operation.ACCOUNT_READ,
                                             current.getRequest().getRemoteAddr());
+                                    if (pam) {
+                                      return new DefaultOAuth2AuthenticatedPrincipal(
+                                          permit.userId().toString(),
+                                          Map.of("pam_permit", permit),
+                                          List.of());
+                                    }
                                     Object correlation =
                                         attributes instanceof ServletRequestAttributes servlet
                                             ? servlet

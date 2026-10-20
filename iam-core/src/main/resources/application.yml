@@ -24,6 +24,8 @@ spring:
       enabled: true
 
 iam:
+  pam:
+    enabled: ${IAM_PAM_ENABLED:false}
   database:
     vault:
       enabled: ${IAM_DATABASE_VAULT_ENABLED:false}

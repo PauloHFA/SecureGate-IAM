@@ -203,6 +203,9 @@ class RuntimeDatabasePrivilegesIT {
         "UPDATE iam_audit.outbox_events SET payload=payload WHERE false",
         "UPDATE iam_audit.security_events SET actor=actor WHERE false",
         "DELETE FROM iam_audit.security_events WHERE false",
+        "UPDATE iam_authorization.privileged_requests SET justification=justification WHERE false",
+        "UPDATE iam_authorization.privileged_requests SET expires_at=expires_at WHERE false",
+        "DELETE FROM iam_authorization.privileged_requests WHERE false",
         "INSERT INTO iam_audit.outbox_operations(event_id,action,reason) VALUES (gen_random_uuid(),'QUARANTINE','OPERATOR')",
         "TRUNCATE iam_audit.outbox_operations"
       })
@@ -212,6 +215,30 @@ class RuntimeDatabasePrivilegesIT {
       SQLException denied = assertThrows(SQLException.class, () -> statement.execute(sql));
       assertEquals("42501", denied.getSQLState(), sql);
     }
+  }
+
+  @Test
+  void runtimeCanPersistReadAndRevokePrivilegedRequestsWithoutChangingTheirContent()
+      throws Exception {
+    UUID userId = UUID.fromString(user().path("id").asText());
+    UUID id = UUID.randomUUID();
+    var now = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    var repository =
+        new com.securegate.iam.authorization.infrastructure.JdbcPrivilegedRequests(jdbc);
+    repository.insert(
+        new com.securegate.iam.authorization.application.port.PrivilegedRequests.Entry(
+            id,
+            userId,
+            "database:diagnostics",
+            "Investigar incidente de teste",
+            now,
+            now.plusSeconds(60),
+            null));
+    assertTrue(repository.find(id, userId).isPresent());
+    assertTrue(repository.find(id, UUID.randomUUID()).isEmpty());
+    assertTrue(repository.revoke(id, userId, now));
+    assertFalse(repository.revoke(id, userId, now));
+    assertEquals(now, repository.find(id, userId).orElseThrow().revokedAt());
   }
 
   @Test

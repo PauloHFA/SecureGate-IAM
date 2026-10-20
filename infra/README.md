@@ -134,3 +134,5 @@ A consulta da **8C** usa `Start-IamCore.ps1 -EnableBootstrap -EnableAuditQuery`,
 Após V16, reaplique `Provision-AuditDatabase.ps1` para conceder o verificador de replay à ingestão. A **8D1** usa `Archive-AuditMonth.ps1 -Month yyyy-MM -HotMonths 6` em modo de plano; `-Apply` arquiva explicitamente um mês elegível no mesmo banco, sem apagar recibos/dados. Consulte o [guia de arquivo](../docs/runbooks/arquivamento-auditoria-local.md).
 
 A **8D2** usa `Measure-Audit.ps1` para benchmark optativo com PostgreSQL descartável, limitado a quatro CPUs/4 GiB, e JVM de 1 GiB. O padrão é dois milhões de eventos mais amostras; a execução não lê `.env` nem acessa a stack persistente. Consulte o [guia de medição](../docs/runbooks/medicao-auditoria-local.md) e preserve relatórios antes de `clean`.
+
+A 9B1 oferece `Start-IamCore.ps1 -EnablePam`, que ativa Authorization/Transit e registra pedidos com MFA e TTL. Aplicar V18 e reaplicar o perfil runtime antes do modo dinâmico; ver o [guia PAM](../docs/runbooks/pedidos-privilegiados-local.md). Esta fase não emite credenciais humanas no Vault.

@@ -66,6 +66,13 @@ GRANT SELECT, INSERT, DELETE ON iam_audit.outbox_events TO securegate_iam_runtim
 GRANT UPDATE (published_at, attempts, next_attempt_at, claim_id, lease_until,
   last_error_code, quarantined_at) ON iam_audit.outbox_events TO securegate_iam_runtime;
 GRANT SELECT ON iam_audit.outbox_operations TO securegate_iam_runtime;
+-- V18 is optional when reprovisioning a historical V17 database.
+DO $$ BEGIN
+  IF to_regclass('iam_authorization.privileged_requests') IS NOT NULL THEN
+    GRANT SELECT, INSERT ON iam_authorization.privileged_requests TO securegate_iam_runtime;
+    GRANT UPDATE (revoked_at) ON iam_authorization.privileged_requests TO securegate_iam_runtime;
+  END IF;
+END $$;
 
 DO $$
 DECLARE schema_name TEXT;

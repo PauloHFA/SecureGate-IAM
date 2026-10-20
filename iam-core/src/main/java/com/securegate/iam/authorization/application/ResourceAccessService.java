@@ -97,7 +97,7 @@ public final class ResourceAccessService {
     if (!deadline.isAfter(now)) {
       throw new Rejected("insufficient_scope");
     }
-    if (decision.mfaRequired()) {
+    if (decision.mfaRequired() || operation == Operation.PRIVILEGED_REQUEST) {
       var proof =
           proofs
               .current(subject.userId(), subject.version(), subject.sid())
@@ -116,7 +116,8 @@ public final class ResourceAccessService {
    * Mappings are server-owned. Clients cannot choose policy targets, actions or required scopes.
    */
   public enum Operation {
-    ACCOUNT_READ("account:self", "read", "api:read");
+    ACCOUNT_READ("account:self", "read", "api:read"),
+    PRIVILEGED_REQUEST("database:diagnostics", "request", "pam:request");
 
     private final String resource;
     private final String action;

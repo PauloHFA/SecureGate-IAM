@@ -32,6 +32,8 @@ O script usa a credencial administrativa local de `.env` para executar `infra/po
 .\mvnw.cmd -B -ntp clean verify
 ```
 
-`RuntimeDatabasePrivilegesIT` aplica V1–V17 com o proprietário em PostgreSQL 16.15 descartável, provisiona o SQL versionado e cria apenas no teste um login sintético membro do grupo. O IAM sobe com esse login e Flyway desativado. Os casos cobrem API administrativa, auditoria/Outbox atômicas, quarentena/histórico, retenção, concessões de coluna, idempotência e negação de operações privilegiadas. Senhas/tokens são sintéticos e não são versionados.
+`RuntimeDatabasePrivilegesIT` aplica V1–V18 com o proprietário em PostgreSQL 16.15 descartável, provisiona o SQL versionado e cria apenas no teste um login sintético membro do grupo. O IAM sobe com esse login e Flyway desativado. Os casos cobrem API administrativa, auditoria/Outbox atômicas, quarentena/histórico, retenção, concessões de coluna, idempotência e negação de operações privilegiadas. Senhas/tokens são sintéticos e não são versionados.
 
 A V17 altera a execução do trigger, mas não reescreve o histórico. `database_actor` deve continuar identificando o login original. O grupo não recebe INSERT direto em `outbox_operations` nem acesso ao log particionado; ingestão e manutenção continuam nas identidades dedicadas da etapa 8.
+
+A V18 adiciona pedidos PAM. Reaplicar o perfil após migrar concede SELECT/INSERT e UPDATE somente de `revoked_at`; justificativa/prazos não podem ser alterados pelo runtime. Consultar o [guia 9B1](pedidos-privilegiados-local.md).

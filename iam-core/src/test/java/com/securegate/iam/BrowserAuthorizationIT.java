@@ -119,6 +119,7 @@ class BrowserAuthorizationIT {
     registry.add("iam.transit.role-id-file", () -> credentials.resolve("role").toString());
     registry.add("iam.transit.secret-id-file", () -> credentials.resolve("secret").toString());
     registry.add("iam.authorization.enabled", () -> true);
+    registry.add("iam.pam.enabled", () -> true);
     registry.add("iam.authorization.issuer", () -> ISSUER);
     registry.add("iam.resources.audience", () -> "browser-api");
     registry.add("iam.bootstrap.enabled", () -> true);
@@ -419,6 +420,8 @@ class BrowserAuthorizationIT {
   @org.junit.jupiter.api.AfterEach
   void removeResourcePolicies() {
     jdbc.update("DELETE FROM iam_policy.policies WHERE document->>'resource'='account:self'");
+    jdbc.update(
+        "DELETE FROM iam_policy.policies WHERE document->>'resource'='database:diagnostics'");
     redisEnforcement.execute(
         (org.springframework.data.redis.core.RedisCallback<Void>)
             connection -> {
@@ -820,6 +823,161 @@ class BrowserAuthorizationIT {
       request.header("Authorization", "Bearer " + token);
     }
     return HTTP.send(request.GET().build(), HttpResponse.BodyHandlers.ofString());
+  }
+
+  private HttpResponse<String> pam(String method, String path, String token, Object body)
+      throws Exception {
+    var request =
+        HttpRequest.newBuilder(uri("/api/pam/requests" + path))
+            .header("Content-Type", "application/json");
+    if (token != null) {
+      request.header("Authorization", "Bearer " + token);
+    }
+    return HTTP.send(
+        request
+            .method(
+                method,
+                body == null
+                    ? HttpRequest.BodyPublishers.noBody()
+                    : HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
+            .build(),
+        HttpResponse.BodyHandlers.ofString());
+  }
+
+  private void pamPolicy(String effect) throws Exception {
+    var response =
+        admin(
+            "POST",
+            "/api/admin/policies",
+            Map.of(
+                "name",
+                "pam-" + UUID.randomUUID(),
+                "priority",
+                100,
+                "enabled",
+                true,
+                "document",
+                Map.of(
+                    "schemaVersion",
+                    1,
+                    "resource",
+                    "database:diagnostics",
+                    "action",
+                    "request",
+                    "effect",
+                    effect,
+                    "rolesAnyOf",
+                    List.of(),
+                    "allowedScopes",
+                    List.of())));
+    assertEquals(201, response.statusCode(), response.body());
+  }
+
+  private record PamSession(Flow flow, HttpClient browser, Pair tokens) {}
+
+  private PamSession pamSession() throws Exception {
+    Flow flow = flow(true, false, true);
+    HttpClient browser = mfaLogin(flow);
+    String navigation =
+        authorize(flow).replace("&scope=" + enc("api:read"), "&scope=" + enc("pam:request"));
+    var page = get(browser, location(get(browser, navigation)));
+    String code = approveScopes(browser, flow, page, List.of("pam:request"));
+    return new PamSession(flow, browser, pair(exchange(flow, code, flow.verifier(), CALLBACK)));
+  }
+
+  private void pamMfa(PamSession session) throws Exception {
+    String seed = mfaSeed(mfaPost(session.browser(), "/mfa/enroll", Map.of("password", PASSWORD)));
+    assertEquals(
+        200,
+        mfaPost(session.browser(), "/mfa/confirm", Map.of("code", mfaCode(seed))).statusCode());
+  }
+
+  @Test
+  void pamRequiresOwnScopeLivePolicyAndRealMfaThenRevokesWithAtomicAudit() throws Exception {
+    var session = pamSession();
+    String token = session.tokens().access();
+    var body = Map.of("justification", "Diagnosticar incidente de teste", "ttlSeconds", 120);
+    assertEquals(401, pam("POST", "", null, body).statusCode());
+    assertEquals(401, pam("POST", "", ADMIN, body).statusCode());
+    assertEquals(403, pam("POST", "", token, body).statusCode());
+    pamPolicy("ALLOW");
+    assertEquals(
+        "mfa_required", JSON.readTree(pam("POST", "", token, body).body()).path("error").asText());
+    pamMfa(session);
+    assertEquals(
+        400,
+        pam("POST", "", token, Map.of("justification", "curta", "ttlSeconds", 301)).statusCode());
+    var created = pam("POST", "", token, body);
+    assertEquals(201, created.statusCode(), created.body());
+    assertEquals("no-store", created.headers().firstValue("Cache-Control").orElseThrow());
+    var record = JSON.readTree(created.body());
+    String path = "/" + record.path("id").asText();
+    assertEquals("AUTHORIZED", record.path("status").asText());
+    assertEquals("database:diagnostics", record.path("target").asText());
+    assertFalse(created.body().contains("justification"));
+    assertFalse(created.body().contains("password"));
+    assertEquals(200, pam("GET", path, token, null).statusCode());
+    var other = pamSession();
+    pamMfa(other);
+    assertEquals(404, pam("GET", path, other.tokens().access(), null).statusCode());
+    assertEquals(404, pam("DELETE", path, other.tokens().access(), null).statusCode());
+    assertEquals(
+        "REVOKED", JSON.readTree(pam("DELETE", path, token, null).body()).path("status").asText());
+    assertEquals(
+        "REVOKED", JSON.readTree(pam("DELETE", path, token, null).body()).path("status").asText());
+    assertEquals(
+        2,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.outbox_events WHERE event_type IN ('pam.request.authorized','pam.request.revoked') AND payload->'data'->>'requestId'=?",
+            Integer.class,
+            record.path("id").asText()));
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_audit.security_events WHERE event_type LIKE 'pam.%' AND details::text LIKE '%Diagnosticar%'",
+            Integer.class));
+    pamPolicy("DENY");
+    assertEquals(403, pam("POST", "", token, body).statusCode());
+    assertEquals(403, pam("GET", path, token, null).statusCode());
+  }
+
+  @Test
+  void pamAuditFailureRollsBackRequestAndExpirationCannotBeExtendedByReads() throws Exception {
+    var session = pamSession();
+    pamMfa(session);
+    pamPolicy("ALLOW");
+    String token = session.tokens().access();
+    org.mockito.Mockito.doThrow(new IllegalStateException("synthetic audit failure"))
+        .when(mfaAudit)
+        .record(
+            org.mockito.ArgumentMatchers.argThat(
+                record -> record.type().value().equals("pam.request.authorized")));
+    int before =
+        jdbc.queryForObject(
+            "SELECT count(*) FROM iam_authorization.privileged_requests", Integer.class);
+    var body = Map.of("justification", "Investigar incidente de teste", "ttlSeconds", 30);
+    try {
+      assertEquals(500, pam("POST", "", token, body).statusCode());
+      assertEquals(
+          before,
+          jdbc.queryForObject(
+              "SELECT count(*) FROM iam_authorization.privileged_requests", Integer.class));
+    } finally {
+      org.mockito.Mockito.reset(mfaAudit);
+    }
+    var created = pam("POST", "", token, body);
+    assertEquals(201, created.statusCode(), created.body());
+    var record = JSON.readTree(created.body());
+    String path = "/" + record.path("id").asText();
+    org.mockito.Mockito.doReturn(java.time.Instant.parse(record.path("expiresAt").asText()))
+        .when(riskClock)
+        .instant();
+    var expired = pam("GET", path, token, null);
+    assertEquals(200, expired.statusCode(), expired.body());
+    assertEquals("EXPIRED", JSON.readTree(expired.body()).path("status").asText());
+    assertEquals(record.path("expiresAt"), JSON.readTree(expired.body()).path("expiresAt"));
+    assertEquals(
+        "EXPIRED", JSON.readTree(pam("DELETE", path, token, null).body()).path("status").asText());
   }
 
   private void resourcePolicy(String effect, List<String> scopes, Integer ttl) throws Exception {
@@ -3009,6 +3167,10 @@ class BrowserAuthorizationIT {
   }
 
   private Flow flow(boolean refreshTokens, boolean oidc) throws Exception {
+    return flow(refreshTokens, oidc, false);
+  }
+
+  private Flow flow(boolean refreshTokens, boolean oidc, boolean pam) throws Exception {
     String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
     String clientId = "web-" + suffix;
     var registered =
@@ -3023,9 +3185,11 @@ class BrowserAuthorizationIT {
                 "audience",
                 "browser-api",
                 "scopes",
-                oidc
-                    ? List.of("api:read", "api:write", "profile", "email")
-                    : List.of("api:read", "api:write"),
+                pam
+                    ? List.of("pam:request")
+                    : oidc
+                        ? List.of("api:read", "api:write", "profile", "email")
+                        : List.of("api:read", "api:write"),
                 "redirectUris",
                 List.of(CALLBACK),
                 "refreshTokens",

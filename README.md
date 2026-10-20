@@ -60,6 +60,8 @@ A 9A2b integra credenciais PostgreSQL temporárias do Vault com `-EnableVaultDat
 
 A 9A2c renova token e lease do pool, valida novas credenciais antes da troca e drena a geração anterior com prazo limitado. Em indisponibilidade, fecha sessões ao vencer o prazo confirmado e pode reconstruir o pool após recuperação do Vault, sem reiniciar. Consulte o [guia de renovação](docs/runbooks/vault-database-renovacao-local.md), a [ADR-037](docs/adr/037-renovacao-e-troca-de-pools.md) e as [evidências](docs/evidencias/etapa-09a2c.md).
 
+A 9B1 adiciona pedidos de acesso privilegiado com escopo dedicado, MFA obrigatório, justificativa, expiração e revogação pelo proprietário, com auditoria/Outbox atômicas. A emissão de credenciais Vault fica na 9B2. Consulte o [guia](docs/runbooks/pedidos-privilegiados-local.md), a [ADR-038](docs/adr/038-pedidos-de-acesso-privilegiado.md) e as [evidências](docs/evidencias/etapa-09b1.md).
+
 ## Decisões aprovadas
 
 - Java 21, Spring Boot e Spring Authorization Server.
@@ -95,7 +97,7 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **9B**, acesso privilegiado com autorização, justificativa e TTL limitado; seguida da auditoria operacional da 9C. A 9A2c está implementada localmente em `feat/vault-database-lease-lifecycle`, com commit local; publicação e CI remota pendentes. A base inclui 9A2b (`9be0356`), 9A2a (`7a185e6`), 9A1 (`c3d8d6b`), 8D2 (`d6b2af0`, medida com 2.030.000 eventos/recibos), 8D1 (`d7311d0`) e 8C (`7962347`). A base até a 8B (`f005334`), incluindo 7D/8A, foi publicada em `feat/audit-batch-consumer`; CI remota dessa base, revisão e merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
+Próxima entrega: **9B2**, emissão de credenciais PAM no Vault para alvo dedicado, reautorização/consumo do pedido e ciclo de revogação. A 9B1 está implementada localmente em `feat/privileged-access-requests`, com commit local. A base local é a 9A2c (`17aea1c`); publicação e CI remota das entregas desde 8C continuam pendentes. A 9C completará auditoria operacional integrada; KV do enforcer e aceite final da etapa 9 também permanecem pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

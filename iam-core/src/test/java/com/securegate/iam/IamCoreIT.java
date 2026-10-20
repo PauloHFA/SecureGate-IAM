@@ -72,9 +72,26 @@ class IamCoreIT {
   private final HttpClient client = HttpClient.newHttpClient();
 
   @Test
+  void privilegedRequestsAreDisabledByDefault() throws Exception {
+    assertTrue(
+        context
+            .getBeansOfType(
+                com.securegate.iam.authorization.application.PrivilegedRequestService.class)
+            .isEmpty());
+    var response =
+        client.send(
+            HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/pam/requests"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{} "))
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(403, response.statusCode());
+  }
+
+  @Test
   void startsWithPostgresAndAppliesTheVersionedMigrationOnlyOnce() {
     assertEquals(1, jdbc.queryForObject("SELECT 1", Integer.class));
-    assertEquals("17", flyway.info().current().getVersion().getVersion());
+    assertEquals("18", flyway.info().current().getVersion().getVersion());
     var schemas =
         jdbc.queryForList(
             "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'iam_%'",

@@ -70,7 +70,7 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 6 | Eventos e Outbox | 2–5 | 6A–6C publicadas; CI/revisão pendentes |
 | 7 | Enforcer e revogação | 4–6 | Escopo funcional publicado na base 8B; CI/revisão pendentes |
 | 8 | Auditoria e desempenho | 6–7 | Escopo local até 8D2 concluído; publicação 8C/8D, CI/revisão pendentes |
-| 9 | Vault avançado e PAM | 4–8 | Pendente |
+| 9 | Vault avançado e PAM | 4–8 | Em andamento; 9A/9B1 locais, emissão PAM e aceite pendentes |
 | 10 | Carga | 5–9 | Pendente |
 | 11 | Entrega e hardening | 0–10 | Pendente |
 | 12 | Gateway e demonstração | 11 | Opcional, pendente |
@@ -247,7 +247,8 @@ Subdivisão: **8A1** — V13 aditiva, `event_log` mensal, recibos globais, porta
 - [x] Integrar KV e credenciais temporárias de banco (KV no IAM na 9A1; AppRole runtime/KV separado e pool temporário na 9A2b; KV do enforcer ainda pendente).
 - [x] Renovar token/lease do pool PostgreSQL e reemitir credenciais após limites/falhas (9A2c; ciclos Transit/KV independentes).
 - [x] Testar rotação de credenciais com pool de conexões (9A2c, incluindo transação fixada e drenagem limitada).
-- [ ] Criar endpoint de acesso privilegiado com autorização, justificativa e TTL limitado.
+- [ ] Concluir acesso privilegiado com emissão de credenciais Vault, autorização, justificativa e TTL limitado (9B2).
+- [x] Registrar pedidos autorizados com justificativa, MFA obrigatório, TTL, consulta/revogação próprias e auditoria transacional (9B1).
 - [ ] Auditar emissão, expiração e revogação sem registrar o segredo.
 - [x] Documentar entrega local da credencial inicial de autenticação do serviço no Vault (arquivos AppRole; entrega de produção depende de hardening).
 - [x] Criar runbook de indisponibilidade e recuperação (9A2c; pausa/retomada medida, perda do Vault dev exige ação administrativa).
@@ -261,6 +262,8 @@ A 9A2 foi dividida em **9A2a**, perfil de permissões NOLOGIN e validação do I
 A **9A2b** acrescenta modo opcional de DataSource temporário, AppRole runtime sem acesso ao KV proprietário, comando administrativo `--migrate-only`, provisionamento/rotação do emissor dedicado e encerramento do pool antes do prazo. Implementada localmente em `feat/vault-dynamic-database`. Ver [ADR-036](adr/036-credenciais-dinamicas-postgresql.md), [guia](runbooks/vault-database-local.md) e [evidências](evidencias/etapa-09a2b.md). O modo anterior continua padrão; no modo novo, Flyway é desativado no runtime. Esse ciclo inicial exigia reinício ao vencer o lease e foi substituído pela 9A2c abaixo. O aceite operacional da etapa 9 continua pendente.
 
 A **9A2c** substitui o ciclo de lease único: renova token/lease, reautentica após limite/falha, troca gerações validadas e drena pools por prazo limitado. Watchdog e limites de gerações mantêm falha fechada, com recuperação local após pausa do Vault. Implementada localmente em `feat/vault-database-lease-lifecycle`. Ver [ADR-037](adr/037-renovacao-e-troca-de-pools.md), [guia](runbooks/vault-database-renovacao-local.md) e [evidências](evidencias/etapa-09a2c.md). Não exige reiniciar a cada TTL, mas não garante transações longas ou disponibilidade sob falhas persistentes de limpeza. PAM, auditoria operacional integrada, KV do enforcer e aceite final da etapa 9 continuam pendentes.
+
+A **9B1** acrescenta pedidos persistidos com V18, escopo `pam:request`, alvo `database:diagnostics` e MFA obrigatório do sid original; criação e revogação possuem auditoria/Outbox atômicas, sem justificativa nos eventos. Implementada localmente em `feat/privileged-access-requests`, com commit local. Ver [ADR-038](adr/038-pedidos-de-acesso-privilegiado.md), [guia](runbooks/pedidos-privilegiados-local.md) e [evidências](evidencias/etapa-09b1.md). A **9B2** fará a emissão em alvo dedicado no Vault, consumo/reautorização do pedido e revogação real; `AUTHORIZED` na 9B1 não concede acesso PostgreSQL nem é uma credencial.
 
 ## Etapa 10 — Carga e observabilidade
 
@@ -343,4 +346,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para a **9B**: acesso privilegiado com autorização, justificativa e TTL limitado. A 9C completará auditoria operacional integrada. A 9A2c está implementada localmente em `feat/vault-database-lease-lifecycle`, com commit local; publicação e CI remota pendentes. A base local inclui 9A2b (`9be0356`), 9A2a (`7a185e6`), 9A1 (`c3d8d6b`), 8C (`7962347`), 8D1 (`d7311d0`) e 8D2 (`d6b2af0`, medida com milhões de eventos); somente a base até a 8B (`f005334`) foi publicada. CI remota dessas entregas e revisão/merge continuam pendentes. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
+Seguir para a **9B2**: emissão PAM no Vault com alvo/ACL dedicados, reautorização e consumo do pedido, TTL real e revogação. A 9B1 está implementada localmente em `feat/privileged-access-requests`, com commit local, sobre a 9A2c (`17aea1c`). A 9C completará auditoria operacional integrada. KV do enforcer e aceite final da etapa 9 continuam pendentes; publicação/CI remota desde 8C e revisão/merge também permanecem pendentes.
