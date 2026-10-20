@@ -89,6 +89,8 @@ O `iam-core` pode ler as credenciais KV no startup com `Start-IamCore.ps1 -Enabl
 
 A 9A2a prepara o grupo NOLOGIN de execução do IAM com `Provision-RuntimeDatabase.ps1`, após aplicar V17. Não cria senha/login nem muda a conexão padrão. Consulte o [guia de permissões runtime](../docs/runbooks/permissoes-runtime-local.md); a emissão temporária pelo Vault será integrada na 9A2b.
 
+A 9A2b adiciona AppRole/KV `iam-runtime`, sem credencial proprietária, e o modo `Start-IamCore.ps1 -EnableVaultDatabase`. Preparar o banco em processo separado com `Migrate-Database.ps1` e configurar o emissor/Database Engine com `Provision-VaultDatabase.ps1`; consulte o [guia](../docs/runbooks/vault-database-local.md). O pool temporário fecha no vencimento; renovação contínua fica na 9A2c. A configuração Database não é criada automaticamente por `vault-init`.
+
 Produção exige Vault persistente, TLS, unseal, recuperação e entrega protegida das credenciais iniciais. O modo dev pode registrar o token administrativo no log de inicialização; não compartilhe esses logs. A tarefa `vault-init` não imprime segredos.
 
 ## Validação e diagnóstico

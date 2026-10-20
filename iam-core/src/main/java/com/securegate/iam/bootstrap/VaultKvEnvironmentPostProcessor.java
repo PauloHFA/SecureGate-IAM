@@ -70,7 +70,16 @@ public final class VaultKvEnvironmentPostProcessor implements EnvironmentPostPro
           if (auth.path("lease_duration").asLong() < 10) {
             throw unavailable();
           }
-          JsonNode data = request(http, address, KV_PATH, null, token).path("data");
+          boolean dynamic =
+              environment.getProperty("IAM_DATABASE_VAULT_ENABLED", Boolean.class, false);
+          JsonNode data =
+              request(
+                      http,
+                      address,
+                      dynamic ? "secret/data/securegate/iam-runtime" : KV_PATH,
+                      null,
+                      token)
+                  .path("data");
           JsonNode metadata = data.path("metadata");
           if (metadata.path("version").asLong() < 1
               || !metadata.path("destroyed").isBoolean()
@@ -81,8 +90,10 @@ public final class VaultKvEnvironmentPostProcessor implements EnvironmentPostPro
           }
           JsonNode values = data.path("data");
           Map<String, Object> properties = new LinkedHashMap<>();
-          properties.put("spring.datasource.username", text(values, "postgres_username"));
-          properties.put("spring.datasource.password", text(values, "postgres_password"));
+          if (!dynamic) {
+            properties.put("spring.datasource.username", text(values, "postgres_username"));
+            properties.put("spring.datasource.password", text(values, "postgres_password"));
+          }
           properties.put("iam.resources.enforcement.password", text(values, "redis_password"));
           for (String prefix : new String[] {"iam.outbox.publisher.", "iam.audit.consumer."}) {
             properties.put(prefix + "username", text(values, "rabbitmq_username"));

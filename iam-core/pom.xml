@@ -95,6 +95,11 @@
     <resources>
       <resource><directory>src/main/resources</directory></resource>
       <resource>
+        <directory>${project.basedir}/../infra/postgres</directory>
+        <targetPath>postgres</targetPath>
+        <includes><include>runtime-privileges.sql</include></includes>
+      </resource>
+      <resource>
         <directory>${project.basedir}/../infra/rabbitmq</directory>
         <targetPath>rabbitmq</targetPath>
         <includes><include>definitions.json</include></includes>

@@ -11,7 +11,7 @@ spring:
   datasource:
     url: ${IAM_DATABASE_URL:jdbc:postgresql://127.0.0.1:15432/securegate}
     username: ${IAM_DATABASE_USERNAME:securegate}
-    password: ${IAM_DATABASE_PASSWORD}
+    password: ${IAM_DATABASE_PASSWORD:}
     hikari:
       maximum-pool-size: 10
       connection-timeout: 5000
@@ -24,6 +24,9 @@ spring:
       enabled: true
 
 iam:
+  database:
+    vault:
+      enabled: ${IAM_DATABASE_VAULT_ENABLED:false}
   audit:
     query:
       enabled: ${IAM_AUDIT_QUERY_ENABLED:false}

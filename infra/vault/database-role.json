@@ -1,0 +1,8 @@
+{
+  "db_name": "securegate-runtime",
+  "creation_statements": ["CREATE ROLE \"{{name}}\" WITH LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 20 PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT securegate_iam_runtime TO \"{{name}}\";"],
+  "renew_statements": ["ALTER ROLE \"{{name}}\" VALID UNTIL '{{expiration}}';"],
+  "revocation_statements": ["ALTER ROLE \"{{name}}\" NOLOGIN; SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename='{{name}}' AND pid<>pg_backend_pid(); DROP ROLE IF EXISTS \"{{name}}\";"],
+  "default_ttl": "10m",
+  "max_ttl": "1h"
+}
