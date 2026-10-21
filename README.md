@@ -113,7 +113,9 @@ A **9A3** permite iniciar o enforcer com `Start-PolicyEnforcer.ps1 -EnableConsum
 
 A **9D** consolida o [aceite técnico local da etapa 9](docs/runbooks/aceite-etapa9.md), com matriz de controles, testes e riscos residuais; consulte as [evidências 9D](docs/evidencias/etapa-09d.md). Usa os 778 testes do build da 9A3, sem nova execução funcional. A 9A3 está versionada em `6d08c2a`.
 
-Próxima implementação local: **10A — massa sintética e planos JMeter**. Publicação/CI e verificações de entrega/imagens continuam pendentes; a revisão local não declara aceite global/remoto ou prontidão de produção. Documentação da 9D em `docs/stage-nine-acceptance`, incluída neste commit; push pendente.
+A **10A1** inicia a etapa de carga com massa sintética de clientes, plano JMeter Client Credentials, sucesso/invalid_client separados e runner que falha quando as asserções não passam. O smoke opt-in usa IAM real e serviços descartáveis; resultados não incluem corpos/tokens/cabeçalhos. Consultar [operação](load-tests/jmeter/README.md), [ADR-045](docs/adr/045-base-de-carga-jmeter.md) e [evidências](docs/evidencias/etapa-10a1.md). Não comprova capacidade ou metas de latência.
+
+Próxima implementação: **10A2 — massa humana, PKCE e demais cenários**. A 10A1 está em `feat/load-client-credentials-smoke`, sobre `255fdff`, incluída neste commit; publicação/CI a verificar separadamente. A 9D está versionada em `255fdff`; as pendências de publicação/CI e verificações de entrega permanecem registradas no plano.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

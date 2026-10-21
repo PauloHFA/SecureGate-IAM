@@ -282,11 +282,11 @@ A **9C3** integra a jornada com JARs reais, OAuth/PKCE/MFA, emissão/uso de cred
 
 A **9A3** integra snapshot KV v2 no startup do enforcer, com AppRole por arquivo, campos permitidos, precedência, revogação do token e falha sem fallback. O launcher combina -EnableConsumer e -EnableVaultKv. Testes usam ACL real e consumo RabbitMQ/projeção Redis com credenciais locais inválidas. Sem nova migração ou refresh em execução. Implementação local em `feat/enforcer-vault-kv`, sobre `a9b67f0`, versionada em `6d08c2a`; publicação/CI pendentes. Ver [ADR-044](adr/044-bootstrap-kv-enforcer.md), [operação](runbooks/enforcer-vault-kv-local.md), [evidências](evidencias/etapa-09a3.md). A revisão de controles é consolidada na 9D abaixo; aceite global/remoto permanece pendente e hardening geral de produção continua na etapa 11.
 
-A **9D** consolida a revisão de controles e o **aceite técnico local**, usando a base `6d08c2a` e os 778 testes já aprovados na 9A3. Matriz liga critérios a testes/código/ACL e registra riscos residuais. Não houve novo build ou alteração funcional. Ver [matriz](runbooks/aceite-etapa9.md) e [evidências](evidencias/etapa-09d.md). O aceite global/remoto continua pendente de publicação/CI e verificações de entrega aplicáveis; ausência de segredos em imagens será verificada na etapa 11. Próxima implementação local: 10A. Revisão incluída neste commit; push pendente em `docs/stage-nine-acceptance`.
+A **9D** consolida a revisão de controles e o **aceite técnico local**, usando a base `6d08c2a` e os 778 testes já aprovados na 9A3. Matriz liga critérios a testes/código/ACL e registra riscos residuais. Não houve novo build ou alteração funcional. Ver [matriz](runbooks/aceite-etapa9.md) e [evidências](evidencias/etapa-09d.md). O aceite global/remoto continua pendente de publicação/CI e verificações de entrega aplicáveis; ausência de segredos em imagens será verificada na etapa 11. Próxima implementação local: 10A. Revisão versionada em `255fdff`, na branch `docs/stage-nine-acceptance`; publicação/CI pendentes.
 
 ## Etapa 10 — Carga e observabilidade
 
-- [ ] Criar planos JMeter e massa reproduzível de usuários/clientes.
+- [ ] Criar planos JMeter e massa reproduzível de usuários/clientes (10A1 implementa clientes máquina e smoke; massa humana/jornadas restantes pendentes na 10A2).
 - [ ] Cobrir Client Credentials, login PKCE, validação/revogação, falhas de login e auditoria.
 - [ ] Instrumentar métricas, logs estruturados e tracing propagado por HTTP/RabbitMQ.
 - [ ] Subir Prometheus/Grafana e correlacionar latência, filas, banco, Redis e Vault.
@@ -295,6 +295,8 @@ A **9D** consolida a revisão de controles e o **aceite técnico local**, usando
 - [ ] Gerar relatórios HTML e documentar gargalos/ajustes.
 
 **Aceite:** metas abaixo medidas, sem crescimento contínuo de memória ou acúmulo sustentado de filas. Desvios exigem evidência e plano de correção, sem declarar cumprimento não medido.
+
+Subdivisão: **10A1** — gerador de clientes sintéticos pela API, plano Client Credentials com sucesso/invalid_client separados, runner com verificação de asserções, resultados sanitizados e smoke opt-in descartável. Baseline JMeter 5.6.3; não há benchmark de capacidade ou alteração de aplicação/schema. Implementação local em `feat/load-client-credentials-smoke`, sobre `255fdff`, incluída neste commit; publicação/CI a verificar separadamente. Ver [ADR-045](adr/045-base-de-carga-jmeter.md), [operação](../load-tests/jmeter/README.md), [evidências](evidencias/etapa-10a1.md). **10A2** — massa humana, PKCE e demais cenários; **10B** — observabilidade; **10C** — medição; **10D** — ajustes. A 10A1 não conclui os itens/aceite globais da etapa 10.
 
 ## Etapa 11 — Entrega e hardening
 
@@ -365,4 +367,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Iniciar **10A — massa sintética e planos JMeter**, com smoke reproduzível e distinção entre sucessos e rejeições esperadas. A 9D consolidou o aceite técnico local da etapa 9; publicação/CI e verificações de imagens/entrega permanecem pendentes para aceite global/remoto. A revisão documental está em `docs/stage-nine-acceptance`, sobre `6d08c2a`, incluída neste commit; push pendente. Não há medição nova de desempenho nesta revisão.
+Seguir para **10A2 — massa humana, PKCE e demais cenários**, subdividindo conforme o escopo. A 10A1 está implementada localmente em `feat/load-client-credentials-smoke`, sobre `255fdff`, incluída neste commit; publicação/CI a verificar separadamente. A revisão 9D está versionada em `255fdff`; publicação/CI e verificações de entrega continuam pendentes. O smoke da 10A1 valida o plano/runner, sem comprovar metas de desempenho.

@@ -6,18 +6,18 @@ Atualizado em 20/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega | 9D — revisão de controles e aceite técnico local da etapa 9 |
-| Base revisada | 6d08c2a — 9A3 |
-| Trabalho local | Revisão documental; incluída neste commit, sem novo build; push pendente |
-| Branch | docs/stage-nine-acceptance |
-| Última validação funcional | Build da 9A3 em 20/10/2026 às 22:01:30 UTC−03; 778 testes, arquitetura e cobertura aprovadas |
-| Próxima implementação local | 10A — massa sintética e planos JMeter |
-| Pendências de aceite global/remoto | Publicação/CI e verificações aplicáveis de entrega; imagens na etapa 11 |
-| Etapas posteriores | 10 — carga/observabilidade; 11 — entrega/hardening; 12 — gateway/demonstração opcional |
+| Última entrega implementada | 10A1 — massa de clientes sintéticos e smoke JMeter Client Credentials |
+| Base desta entrega | 255fdff — 9D |
+| Trabalho local | Implementação, teste opt-in e documentação; incluída neste commit; publicação/CI a verificar separadamente |
+| Branch | feat/load-client-credentials-smoke |
+| Validação da entrega | Smoke opt-in aprovado separadamente; clean verify às 23:02:24 UTC−03 em 20/10/2026, 778 testes, cobertura e arquitetura aprovadas |
+| Próxima implementação | 10A2 — massa humana/PKCE e demais cenários |
+| Pendências de aceite global/remoto | Publicação/CI e verificações de entrega; imagens na etapa 11 |
+| Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. As divisões 10–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1 também está implementada abaixo. As demais divisões 10A2–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -266,17 +266,36 @@ Referências: [ADR-044](adr/044-bootstrap-kv-enforcer.md), [operação](runbooks
 7. Separar aceite técnico local de aceite global/remoto e verificações de imagens, ainda pendentes.
 8. Atualizar documentação, verificar links/diff e preparar a próxima implementação local, 10A.
 
-Referências: [matriz de aceite e reprodução](runbooks/aceite-etapa9.md), [evidências 9D](evidencias/etapa-09d.md). Não há alteração funcional, nova migração ou decisão arquitetural. Revisão local em docs/stage-nine-acceptance, incluída neste commit; push pendente.
+Referências: [matriz de aceite e reprodução](runbooks/aceite-etapa9.md), [evidências 9D](evidencias/etapa-09d.md). Não há alteração funcional, nova migração ou decisão arquitetural. Revisão versionada em 255fdff, na branch docs/stage-nine-acceptance; publicação/CI pendentes.
 
 A 9D consolida o aceite técnico local, sem declarar aceite global/remoto ou produção. Publicação/CI continuam pendentes; imagens e hardening geral pertencem à etapa 11. A preparação local de carga segue pela 10A; metas só serão declaradas após medição.
 
-## Etapas 10–12 — Divisão proposta, ainda pendente
+## Etapa 10 — massa e planos, implementação iniciada
+
+### Divisão da 10A e passo a passo da 10A1
+
+Separar o primeiro plano máquina das jornadas humanas permite validar massa, asserções, persistência segura de resultados e runner antes de ampliar os cenários. A 10A1 é a base Client Credentials; a 10A2 ainda precisa cobrir massa humana, PKCE, falhas de login, validação/revogação e auditoria. Isso não conclui a 10A nem o aceite de carga da etapa 10.
+
+1. Fixar JMeter 5.6.3 como baseline exercitada, obter distribuição Apache e conferir SHA-512; manter binários fora do Git.
+2. Criar New-ClientMass.ps1: IDs prefixados/escopo/audience reproduzíveis, criação pela API administrativa e segredo novo do servidor, fora da janela cronometrada.
+3. Receber token por arquivo, limitar alvo a loopback e escrita da massa aos diretórios ignorados; recusar sobrescrita e documentar falha parcial.
+4. Versionar client-credentials.jmx com CSV compartilhado, limites, timeout e dois rótulos: emissão válida e invalid_client esperado.
+5. Validar status/contrato OAuth, limpar corpos/headers e desabilitar persistência de dados sensíveis no perfil de resultados.
+6. Criar Run-ClientCredentials.ps1 com concorrência/iterações/ramp-up limitados, diretório novo, dashboard e metadados.
+7. Conferir número de amostras e falhas por rótulo no runner, pois término normal do JMeter não garante aprovação das asserções.
+8. Criar JMeterSmoke opt-in: fixture descartável/JARs reais, geração pela API, oito amostras válidas, dashboard e verificação dos artefatos.
+9. Corromper a massa na mesma validação e exigir recusa do runner; remover arquivos privados ao encerrar.
+10. Validar build padrão sem execução automática/download de JMeter e registrar operação, evidências e limites antes de commit/publicação.
+
+Referências: [operação JMeter](../load-tests/jmeter/README.md), [runbook](runbooks/carga-client-credentials-local.md), [ADR-045](adr/045-base-de-carga-jmeter.md), [evidências 10A1](evidencias/etapa-10a1.md). Sem mudança de aplicação/schema; V22 permanece atual. Trabalho local em feat/load-client-credentials-smoke, sobre 255fdff, incluída neste commit; publicação/CI a verificar separadamente.
+
+## Próximas divisões 10–12 — propostas, ainda pendentes
 
 As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10A — Massa e planos | Preparar identidades/clientes sintéticos → criar planos JMeter reproduzíveis → separar sucessos de negativas esperadas. | Massa/planos versionados sem segredos e smoke de carga executável. |
+| 10A2 — Jornadas restantes | Preparar usuários sintéticos → PKCE/login e negativas → validação/revogação e auditoria → validar isolamento e artefatos. | Jornadas repetíveis, segredos protegidos e falhas esperadas separadas. |
 | 10B — Observabilidade | Definir métricas, logs sanitizados e tracing HTTP/RabbitMQ → correlacionar dependências e filas. | Diagnóstico de latência/erro sem payload sensível. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
