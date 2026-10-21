@@ -1,0 +1,11 @@
+  - job_name: vault
+    metrics_path: /v1/sys/metrics
+    params:
+      format: [prometheus]
+    scheme: http
+    scrape_interval: 15s
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/vault-metrics-token
+    static_configs:
+      - targets: ['host.docker.internal:__VAULT_PORT__']

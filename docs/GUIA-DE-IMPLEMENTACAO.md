@@ -6,18 +6,18 @@ Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B2b2c — coleta Redis |
-| Base desta entrega | 6a48bb6 — coleta PostgreSQL |
+| Última entrega implementada | 10B2b2d — coleta autenticada Vault dev |
+| Base desta entrega | c55446d — coleta Redis |
 | Trabalho local | Implementação, testes e documentação incluídos neste commit; push pendente |
-| Branch | feat/redis-prometheus-metrics |
-| Validação da entrega | Smokes Redis/IAM aprovados; Redis revalidado às 13:49:35 UTC−03 após ajuste de caixa; suíte completa não repetida |
-| Próxima implementação | 10B2b2d — Vault |
+| Branch | feat/vault-prometheus-metrics |
+| Validação da entrega | Smokes Vault/IAM/enforcer: 3 testes, zero falhas; BUILD SUCCESS às 14:29:43 UTC−03; suíte completa não repetida |
+| Próxima implementação | 10B3 — logs/tracing |
 | Pendências seguintes | 10B3 — logs/tracing; 10C–10D — medição/ajustes; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b e a 10B2b2c também estão implementadas abaixo. As demais divisões 10B2b2d–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c e a 10B2b2d também estão implementadas abaixo. As demais divisões 10B3–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -448,13 +448,31 @@ O smoke pode recarregar a ACL original de sua fixture descartável para desfazer
 
 Referências: [operação](runbooks/metricas-redis-local.md), [ADR-055](adr/055-coleta-opcional-redis.md), [evidências 10B2b2c](evidencias/etapa-10b2b2c.md), [inventário](OBSERVABILIDADE.md). Trabalho local em feat/redis-prometheus-metrics sobre 6a48bb6, incluída neste commit; push pendente. Nenhuma reconfiguração da stack persistente do usuário, aplicação Java ou migrations.
 
+## 10B2b2d — Coleta autenticada Vault dev
+
+Objetivo: coletar métricas Vault com credencial mínima e autenticação efetiva. Completa contratos individuais das quatro dependências e documenta como correlacioná-los; ensaio conjunto sustentado/capacidade permanecem abertos.
+
+1. Criar feat/vault-prometheus-metrics sobre c55446d. Conferir telemetria/API e código server.go 1.21.4; testar explicitamente acesso anônimo, sem inferir segurança da presença de um token.
+2. Registrar comportamento do -dev: primeiro listener libera métricas anônimas. Criar overlay que o restringe a loopback interno e publica listener autenticado na porta existente, com retenção 1 min e hostname desabilitado.
+3. Evitar HCL duplicado pelo entrypoint e colisão de portas de cluster. Documentar que aplicar/remover overlay recria Vault dev e perde estado; não executá-lo na stack persistente durante desenvolvimento desta entrega.
+4. Criar política read-only em sys/metrics. Implementar provisionador que exige recusa anônima, confere política existente e emite token service orphan de 1h, não renovável e sem default/identidade de aplicação.
+5. Guardar token em arquivo privado; preservar token válido, recusar root/outro escopo e permitir -Rotate para válido/revogado/expirado. Instalar atomicamente, revogar anterior por accessor e compensar falha anterior à instalação quando possível.
+6. Acrescentar job /v1/sys/metrics?format=prometheus com Bearer por arquivo e overlay somente da coleta. Migrar config/env com backups, flag OBS_VAULT e preservação dos demais jobs/segredos.
+7. Provisionar dashboard separado de seis painéis: up, unsealed, requests, barrier gets, token creates e token lookups. Não confundir tokens Vault com JWT OAuth ou contadores com SLA de assinatura.
+8. Executar smoke descartável: recusar -dev anônimo antes de emissão; aplicar overlay antes do bootstrap da fixture; verificar token/TTL, KV/Transit/token-management/LIST negados e política/root em arquivo recusados.
+9. Validar seis consultas/frame Grafana e ausência de segredos no scrape/artefatos. Injetar arquivo inválido, provar up=0/403 e recuperação; recuperar token revogado e rotacionar válido com revogação antiga, recriando só coletores.
+10. Comparar chave Transit, KV e política da aplicação antes/depois da rotação; não reiniciar Vault após criar dados da fixture. Limpar apenas projetos/arquivos privados e registrar resultados, matriz de correlação e limites.
+
+A substituição de arquivo usa NullString explícito no PowerShell 5.1; lookup de token revogado pode responder 403 mesmo para administração. Compensação não torna servidor/disco transacionais; revisar estado parcial em falha. A matriz das quatro dependências está no [runbook](runbooks/metricas-vault-local.md), com testes individuais distintos de execução conjunta sob carga.
+
+Referências: [operação](runbooks/metricas-vault-local.md), [ADR-056](adr/056-coleta-autenticada-vault-dev.md), [evidências 10B2b2d](evidencias/etapa-10b2b2d.md), [inventário](OBSERVABILIDADE.md). Trabalho local em feat/vault-prometheus-metrics sobre c55446d, incluída neste commit; push pendente. Não aplicou reset à stack persistente; Java/migrations e políticas da aplicação preservados.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
 As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10B2b2d — Vault | Habilitar telemetria e política/token de leitura → coletar e correlacionar dependências. | Séries reais Vault; correlação das quatro dependências documentada. |
 | 10B3 — Logs/tracing | Estruturar logs sanitizados e propagar contexto HTTP/RabbitMQ → validar ausência de payload/segredos e cardinalidade. | Correlação verificável de requisição/evento/dependências. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |

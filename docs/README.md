@@ -11,10 +11,10 @@ Começar pelo [guia de implementação passo a passo](GUIA-DE-IMPLEMENTACAO.md):
 | [Guias operacionais](runbooks/) | Preparação, execução, flags, testes e recuperação. |
 | [Evidências](evidencias/) | Comandos executados, resultados observados, ambiente e pendências históricas. |
 
-Estado desta revisão: **10B2b2c — coleta Redis implementada localmente**, em feat/redis-prometheus-metrics sobre 6a48bb6, validada por smoke e regressão IAM, incluída neste commit; push pendente. Próximas: 10B2b2d Vault e 10B3 logs/tracing. A 10B2b2b está versionada em 6a48bb6; publicação/CI e aceite global de observabilidade/capacidade continuam pendentes.
+Estado desta revisão: **10B2b2d — coleta autenticada Vault dev implementada localmente**, em feat/vault-prometheus-metrics sobre c55446d, validada por smoke e regressões IAM/enforcer, incluída neste commit; push pendente. Próxima: 10B3 logs/tracing. A 10B2b2c está versionada em c55446d; publicação/CI e aceite global de observabilidade/capacidade continuam pendentes.
 
-Consultar [inventário](OBSERVABILIDADE.md), [runbook Redis](runbooks/metricas-redis-local.md), [ADR-055](adr/055-coleta-opcional-redis.md) e [evidências 10B2b2c](evidencias/etapa-10b2b2c.md). ACL própria persistente sem acesso a chaves, exporter opcional e dashboard de seis painéis. O [aceite local da etapa 9](runbooks/aceite-etapa9.md) preserva seus riscos e limites.
+Consultar [inventário](OBSERVABILIDADE.md), [runbook Vault/matriz de correlação](runbooks/metricas-vault-local.md), [ADR-056](adr/056-coleta-autenticada-vault-dev.md) e [evidências 10B2b2d](evidencias/etapa-10b2b2d.md). Listener publicado autenticado, token dedicado de 1h/rotação e dashboard de seis painéis. Aplicar overlay exige reset do Vault dev; não aplicado na stack persistente. O [aceite local da etapa 9](runbooks/aceite-etapa9.md) preserva seus riscos e limites.
 
 Ao implementar uma nova subdivisão, atualizar guia, plano, README, decisões aplicáveis, operação e evidências. Proposta, implementação, validação local, commit, publicação, CI e merge devem permanecer identificáveis separadamente.
 
-O histórico das entregas anteriores e seus resultados permanece nas evidências individuais. O guia referencia também a 10B2b2c e registra suas divisões passo a passo.
+O histórico das entregas anteriores e seus resultados permanece nas evidências individuais. O guia referencia também a 10B2b2d e registra suas divisões passo a passo.

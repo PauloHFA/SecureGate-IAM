@@ -172,3 +172,7 @@ O [overlay](docker-compose.rabbitmq-metrics.yml) habilita plugin Prometheus nati
 ## Coleta opcional Redis — 10B2b2c
 
 [Preparador](scripts/Initialize-RedisMetrics.ps1) verifica ACL ativa do Redis base antes de gerar par privado de senha/ACL, preservando autenticação default e recusando configurações customizadas. O [overlay](docker-compose.redis-metrics.yml) carrega ACL persistente com AOF/volume preservados e acrescenta exporter por digest, senha por arquivo e porta loopback padrão 19121. Aplicar exige reinício Redis; preparador não muda ACL ativa. Seguir [runbook](../docs/runbooks/metricas-redis-local.md) para janela, comandos, permissões, migração de coleta com backup e retirada. Validado em projetos descartáveis; a stack persistente do usuário não foi reconfigurada.
+
+## Coleta autenticada Vault dev — 10B2b2d
+
+O [overlay](docker-compose.vault-metrics.yml) move o listener dev anônimo para loopback interno e mantém a API publicada com métricas autenticadas. **Aplicar/remover recria Vault dev e perde seu estado em memória**, exigindo reset planejado e reprovisionamento; não foi aplicado à stack persistente nesta entrega. O [provisionador](scripts/Provision-VaultMetrics.ps1) recusa listener anônimo, emite/reusa token mínimo de 1h e permite rotação explícita sem reiniciar Vault. Seguir [runbook](../docs/runbooks/metricas-vault-local.md) para impacto, bootstrap, backups/flags da coleta, rotação e correlação das quatro dependências.

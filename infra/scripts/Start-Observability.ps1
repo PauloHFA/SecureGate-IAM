@@ -12,6 +12,10 @@ if (@(Get-Content -LiteralPath $envFile | Where-Object { $_ -eq 'OBS_ENFORCER=tr
   if (-not (Test-Path -LiteralPath (Join-Path $projectPath 'infra/.local/enforcer-metrics-token') -PathType Leaf)) { throw 'Token de metricas do enforcer ausente.' }
   $composeArguments += @('-f', (Join-Path $projectPath 'infra/observability/docker-compose.enforcer.yml'))
 }
+if (@(Get-Content -LiteralPath $envFile | Where-Object { $_ -eq 'OBS_VAULT=true' }).Count -eq 1) {
+  if (-not (Test-Path -LiteralPath (Join-Path $projectPath 'infra/.local/vault-metrics-token') -PathType Leaf)) { throw 'Token de metricas Vault ausente.' }
+  $composeArguments += @('-f', (Join-Path $projectPath 'infra/observability/docker-compose.vault.yml'))
+}
 $composeArguments += @('-p', $ProjectName)
 & docker compose @composeArguments config --quiet
 if ($LASTEXITCODE -ne 0) { throw 'Configuracao Compose de observabilidade invalida.' }

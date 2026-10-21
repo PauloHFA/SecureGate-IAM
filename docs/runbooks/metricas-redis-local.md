@@ -75,3 +75,5 @@ Para retirar coleta: parar coletores, restaurar prometheus.yml.before-redis inco
 ```
 
 Smoke usa Redis/exporter/Prometheus/Grafana reais e arquivos versionados em workspace isolado. Exige recusa de ACL customizada, comandos de chaves/administrativos, preservação de arquivos divergentes, dados/ACL após reinício, seis consultas/frame Grafana, falha de credencial e recuperação, artefatos sem dados/segredos. IAM/enforcer não são iniciados neste smoke. [Resultados e limitações](../evidencias/etapa-10b2b2c.md).
+
+A [coleta autenticada Vault dev 10B2b2d](metricas-vault-local.md) inclui a matriz para correlacionar sinais das quatro dependências. Seu overlay exige reset do Vault dev; não modifica ACL/dados Redis. Próxima: logs/tracing 10B3.

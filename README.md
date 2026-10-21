@@ -135,7 +135,9 @@ A **10B2b2b** acrescenta login de monitoração PostgreSQL, exporter opcional co
 
 A **10B2b2c** acrescenta ACL própria Redis sem acesso a chaves/valores, exporter opcional com senha por arquivo e imagem fixada por digest, coleta agregada e dashboard de seis painéis. Smoke verifica recusas de dados/admin, reinício com ACL/AOF preservados e falha/recuperação de senha. Consultar [operação](docs/runbooks/metricas-redis-local.md), [ADR-055](docs/adr/055-coleta-opcional-redis.md) e [evidências](docs/evidencias/etapa-10b2b2c.md).
 
-Próxima implementação: **10B2b2d — Vault**, seguida por 10B3 logs/tracing. Trabalho local em `feat/redis-prometheus-metrics`, sobre `6a48bb6`, incluída neste commit; push pendente. Publicação/CI, coleta sustentada e aceite de desempenho permanecem pendentes.
+A **10B2b2d** acrescenta listener Vault dev autenticado, política mínima, token de 1h por arquivo/rotação, coleta e dashboard de seis painéis. Aplicar o overlay recria Vault dev e perde estado em memória; esta entrega só o aplicou em testes descartáveis. Consultar [operação/matriz de correlação](docs/runbooks/metricas-vault-local.md), [ADR-056](docs/adr/056-coleta-autenticada-vault-dev.md) e [evidências](docs/evidencias/etapa-10b2b2d.md).
+
+Próxima implementação: **10B3 — logs/tracing**. Trabalho local em `feat/vault-prometheus-metrics`, sobre `c55446d`, incluída neste commit; push pendente. Publicação/CI, execução conjunta sustentada e aceite de desempenho permanecem pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

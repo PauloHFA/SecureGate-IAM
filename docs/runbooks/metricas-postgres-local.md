@@ -63,4 +63,4 @@ Para retirar coleta: parar coletores, restaurar prometheus.yml.before-postgres i
 
 Smoke usa Compose/provisionamento versionados em workspace isolado, PostgreSQL/exporter/Prometheus/Grafana reais. Verifica atributos, ACLs com read-only desligado, recusa de grant inesperado, transações e dados no Grafana, ausência de payload/SQL no scrape, credencial SQL inválida com HTTP disponível e recuperação. IAM/enforcer não são inicializados neste smoke. [Resultados e limitações](../evidencias/etapa-10b2b2b.md).
 
-A [coleta Redis 10B2b2c](metricas-redis-local.md) usa outro overlay e ACL própria, sem modificar o login PostgreSQL. Próxima dependência: Vault.
+A [coleta Redis 10B2b2c](metricas-redis-local.md) usa outro overlay e ACL própria, sem modificar o login PostgreSQL. Vault segue na [10B2b2d](metricas-vault-local.md); próxima implementação: logs/tracing.

@@ -1,0 +1,9 @@
+services:
+  prometheus:
+    volumes:
+      - type: bind
+        source: ../.local/vault-metrics-token
+        target: /run/secrets/vault-metrics-token
+        read_only: true
+        bind:
+          create_host_path: false

@@ -1,0 +1,375 @@
+{
+  "uid": "securegate-vault",
+  "title": "SecureGate Vault — Operação local",
+  "description": "10B2b2d: endpoint nativo autenticado; token dedicado de 1h. Contagens incluem monitoração/administração e não representam capacidade ou SLO Transit.",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "tags": [
+    "securegate",
+    "local",
+    "10b2b2d"
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Coleta Vault",
+      "type": "stat",
+      "description": "Scrape autenticado; 403 pode indicar token expirado/revogado.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Indisponível",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "Disponível",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "up{job=\"vault\"}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Vault unsealed",
+      "type": "stat",
+      "description": "Estado informado pelo Vault; não é validação de JWT/Transit.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Indisponível",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "Disponível",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "vault_core_unsealed{job=\"vault\"}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Requisições acumuladas",
+      "type": "stat",
+      "description": "Contagem do timer nativo; inclui scrape/administração.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(vault_core_handle_request_count{job=\"vault\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Leituras de barreira acumuladas",
+      "type": "stat",
+      "description": "Operações internas da barreira; não equivale a leitura de negócio isolada.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(vault_barrier_get_count{job=\"vault\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Criações de token acumuladas",
+      "type": "stat",
+      "description": "Tokens Vault; não confundir com JWT OAuth emitido pelo IAM.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(vault_token_create_count{job=\"vault\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Consultas de token acumuladas",
+      "type": "stat",
+      "description": "Consultas de tokens Vault; não mede throughput ou latência Transit.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(vault_token_lookup_count{job=\"vault\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  }
+}
