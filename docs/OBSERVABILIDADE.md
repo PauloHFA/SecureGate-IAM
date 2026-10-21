@@ -7,10 +7,11 @@
 | 10B1 | Implementada localmente | Inventário, exportação Prometheus protegida no IAM, histogramas HTTP opcionais e testes. |
 | 10B2a | Implementada localmente | Compose Prometheus/Grafana, datasource e dashboard IAM; teste real de scrape/consultas/credencial. |
 | 10B2b1 | Implementada localmente | Listener JDK opcional do enforcer, token próprio, job/overlay e dashboard separado. |
-| 10B2b2 | Proposta, pendente | Exporters/permissões e coleta de banco, Redis, RabbitMQ e Vault. |
+| 10B2b2a | Implementada localmente | Plugin/scrape RabbitMQ opcionais, agregação e dashboard separado. |
+| 10B2b2b–d | Propostas, pendentes | PostgreSQL, Redis e Vault, com permissões/telemetria por dependência. |
 | 10B3 | Proposta, pendente | Logs estruturados sanitizados e tracing propagado por HTTP/RabbitMQ, com validação de cardinalidade/segredos. |
 
-A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none; a 10B2b1 acrescenta listener JDK opcional em loopback, GET /metrics, sem MVC/Actuator. Default sem listener. A 10B2a acrescenta Compose Prometheus/Grafana validado com IAM real em stack descartável, sem coleta sustentada ou alteração dos serviços persistentes do usuário. Banco, Redis, RabbitMQ e Vault não recebem novos exporters/ACL nesta entrega.
+A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none; a 10B2b1 acrescenta listener JDK opcional em loopback, GET /metrics, sem MVC/Actuator. Default sem listener. A 10B2a acrescenta Compose Prometheus/Grafana validado com IAM real em stack descartável, sem coleta sustentada ou alteração dos serviços persistentes do usuário. A 10B2b2a acrescenta plugin opcional do RabbitMQ; banco, Redis e Vault continuam sem novos exporters/ACL.
 
 ## IAM: superfície e controle de acesso
 
@@ -73,3 +74,11 @@ Conferir nomes efetivamente exportados e available antes de automatizar alertas.
 [Enforcer 10B2b1](runbooks/metricas-enforcer-local.md), [evidências 10B2b1](evidencias/etapa-10b2b1.md), [Coleta/dashboard 10B2a](runbooks/coleta-iam-local.md), [evidências 10B2a](evidencias/etapa-10b2a.md), [runbook 10B1](runbooks/metricas-prometheus-local.md), [ADR-050](adr/050-exportacao-prometheus-protegida.md), [evidências](evidencias/etapa-10b1.md) e [passo a passo](GUIA-DE-IMPLEMENTACAO.md).
 
 Contrato de exportação/histogramas conferido na [documentação Spring Boot 3.5](https://docs.spring.io/spring-boot/3.5/reference/actuator/metrics.html), com [referência Prometheus/Micrometer 1.15](https://docs.micrometer.io/micrometer/reference/1.15/implementations/prometheus). Configuração/autorização descritas acima são decisões deste projeto, verificadas pelos testes locais.
+
+## RabbitMQ — 10B2b2a
+
+Overlay opcional publica 127.0.0.1:15692 (porta externa configurável). Plugin nativo, GET /metrics agregado e intervalo 15 s. Endpoint de leitura sem autenticação local; o listener interno é acessível na rede Docker do broker. Não há credencial AMQP/administrativa no scraper; outros endpoints nativos por objeto não são bloqueados pela agregação.
+
+Dashboard UID securegate-rabbitmq tem seis painéis: up, rabbitmq_queue_messages_ready, rabbitmq_queue_messages_unacked, rabbitmq_connections, rabbitmq_channels e rabbitmq_queue_consumers. Totais são do nó e incluem filas de retry/DLQ. Scrape disponível e consumidores registrados não comprovam progresso/entrega da aplicação. Não mede SLA de revogação ou capacidade.
+
+[Operação](runbooks/metricas-rabbitmq-local.md), [ADR-053](adr/053-coleta-opcional-rabbitmq.md), [evidências](evidencias/etapa-10b2b2a.md). Próximas dependências: PostgreSQL, Redis e Vault.

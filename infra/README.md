@@ -160,3 +160,7 @@ O [Compose de observabilidade](observability/README.md) é separado da stack de 
 ## Métricas/coleta do enforcer — 10B2b1
 
 Initialize-MetricsToken.ps1 -Target Enforcer prepara token próprio e Start-PolicyEnforcer.ps1 -EnableMetrics ativa GET /metrics em loopback (padrão 19091), preservando modo Spring non-web. Para coletar, usar Initialize-Observability.ps1 -IncludeEnforcer na primeira preparação ou Enable-EnforcerCollection.ps1 com coletores parados para migrar configuração existente com backups. Ver [operação](../docs/runbooks/metricas-enforcer-local.md). Sem flag não há listener; exporters das dependências ficam para 10B2b2. Nenhum serviço persistente é modificado pelo build.
+
+## Coleta opcional RabbitMQ — 10B2b2a
+
+O [overlay](docker-compose.rabbitmq-metrics.yml) habilita plugin Prometheus nativo com publicação em loopback (padrão 15692) e configuração agregada, sem alterar o Compose padrão. Aplicação/retirada recriam somente o broker e interrompem conexões; o volume é preservado. Seguir [runbook](../docs/runbooks/metricas-rabbitmq-local.md) para janela, migração de coleta com backup e interpretação do dashboard. Não requer senha AMQP/administrativa no Prometheus. Acesso sem autenticação restrito ao host/rede Docker; coleta remota exige desenho próprio.

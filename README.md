@@ -129,7 +129,9 @@ A **10B2a** acrescenta Compose local de Prometheus/Grafana, token de scrape por 
 
 A **10B2b1** acrescenta listener opcional de métricas do enforcer, token separado, job Prometheus e dashboard de seis painéis. Preserva Spring non-web e modo padrão sem listener. O smoke comprova evento real/projeção/ACK, coleta autenticada e falha de credencial isolada do IAM. Consultar [operação](docs/runbooks/metricas-enforcer-local.md), [ADR-052](docs/adr/052-metricas-opcionais-do-enforcer.md) e [evidências](docs/evidencias/etapa-10b2b1.md).
 
-Próxima implementação: **10B2b2 — exporters das dependências**; **10B3** tratará logs/tracing. Trabalho local em `feat/enforcer-prometheus-metrics`, sobre `123c4b0`, incluída neste commit; push pendente. Publicação/CI, coleta sustentada e aceite de desempenho permanecem pendentes.
+A **10B2b2a** acrescenta coleta opcional RabbitMQ com plugin nativo, porta loopback, métricas agregadas, script de migração com backup e dashboard de seis painéis. O smoke usa mensagens AMQP reais e verifica ready/unacked/ACK e pausa/recuperação do scrape. Consultar [operação](docs/runbooks/metricas-rabbitmq-local.md), [ADR-053](docs/adr/053-coleta-opcional-rabbitmq.md) e [evidências](docs/evidencias/etapa-10b2b2a.md).
+
+Próxima implementação: **10B2b2b — PostgreSQL**, seguida por Redis/Vault e 10B3 logs/tracing. Trabalho local em `feat/rabbitmq-prometheus-metrics`, sobre `7b92e4f`, incluída neste commit; push pendente. Publicação/CI, coleta sustentada e aceite de desempenho permanecem pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

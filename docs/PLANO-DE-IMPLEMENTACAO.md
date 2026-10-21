@@ -308,6 +308,8 @@ A **10B2** foi dividida em **10B2a** (coleta/dashboard IAM) e **10B2b** (enforce
 
 A **10B2b** foi dividida em **10B2b1** (enforcer) e **10B2b2** (exporters das dependências). A **10B2b1** implementa listener JDK opcional, loopback, GET /metrics e token próprio de leitura; preserva Spring non-web e padrão sem listener. Integra job/overlay opcional, dashboard separado e migração de configuração 10B2a com backups sem trocar senha/volumes. Build do módulo verifica segurança/default/lifecycle/consumo/arquitetura/cobertura. Smoke real exige user.locked publicado/processado, projeção Redis e contador ACK no Prometheus/Grafana, com falha de token isolada do IAM e recuperação. Ver [ADR-052](adr/052-metricas-opcionais-do-enforcer.md), [operação](runbooks/metricas-enforcer-local.md) e [evidências](evidencias/etapa-10b2b1.md). Trabalho local em feat/enforcer-prometheus-metrics, sobre 123c4b0, incluída neste commit; push pendente. Não conclui exporters, tracing/logs ou aceite de capacidade.
 
+A **10B2b2** foi dividida em **10B2b2a** (RabbitMQ), **10B2b2b** (PostgreSQL), **10B2b2c** (Redis) e **10B2b2d** (Vault). A **10B2b2a** entrega plugin nativo opcional por overlay, porta loopback, scrape agregado a cada 15 s, migração com backup sem novas credenciais e dashboard separado de seis painéis. Smoke descartável verifica mensagens AMQP ready/unacked/ACK, consultas/frame Grafana e pausa/recuperação do scrape. Endpoint local sem autenticação, dependente de isolamento do host/rede Docker. Não modifica Java/schema/topologia ou a stack persistente. Ver [ADR-053](adr/053-coleta-opcional-rabbitmq.md), [operação](runbooks/metricas-rabbitmq-local.md), [evidências](evidencias/etapa-10b2b2a.md). Trabalho local em feat/rabbitmq-prometheus-metrics sobre 7b92e4f, incluída neste commit; push pendente; aceite completo 10B continua pendente.
+
 ## Etapa 11 — Entrega e hardening
 
 - [ ] Criar imagens multi-stage Java 21 com usuário sem privilégios e versões fixadas.
@@ -377,4 +379,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para **10B2b2 — exporters das dependências**, depois **10B3 — logs/tracing**. A 10B2b1 está implementada localmente em `feat/enforcer-prometheus-metrics`, sobre `123c4b0`, incluída neste commit; push pendente. A 10B2a está versionada em `123c4b0`; publicação/CI a confirmar. Ensaios sustentados 10C, ajustes 10D e verificações gerais de entrega continuam pendentes.
+Seguir para **10B2b2b — PostgreSQL**, depois **10B2b2c — Redis**, **10B2b2d — Vault** e **10B3 — logs/tracing**. A 10B2b2a é o trabalho local em `feat/rabbitmq-prometheus-metrics`, sobre `7b92e4f`, incluída neste commit; push pendente. A 10B2b1 está versionada em `7b92e4f`; publicação/CI a confirmar. Ensaios sustentados 10C, ajustes 10D e verificações gerais de entrega continuam pendentes.

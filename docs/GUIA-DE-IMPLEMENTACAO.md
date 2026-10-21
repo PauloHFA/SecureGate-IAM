@@ -6,18 +6,18 @@ Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B2b1 — métricas/coleta do enforcer |
-| Base desta entrega | 123c4b0 — coleta/dashboard IAM |
+| Última entrega implementada | 10B2b2a — coleta RabbitMQ |
+| Base desta entrega | 7b92e4f — métricas/coleta do enforcer |
 | Trabalho local | Implementação, testes e documentação incluídos neste commit; push pendente |
-| Branch | feat/enforcer-prometheus-metrics |
-| Validação da entrega | 62 testes enforcer + 43 da dependência, arquitetura/cobertura; dois smokes aprovados e verificação canônica final às 12:33:28 UTC−03; reactor completo não repetido |
-| Próxima implementação | 10B2b2 — exporters das dependências |
+| Branch | feat/rabbitmq-prometheus-metrics |
+| Validação da entrega | Smokes RabbitMQ e regressão IAM: 2 testes, zero falhas; BUILD SUCCESS às 13:14:08 UTC−03; suíte completa não repetida |
+| Próxima implementação | 10B2b2b — PostgreSQL |
 | Pendências seguintes | 10B3 — logs/tracing; 10C–10D — medição/ajustes; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a e a 10B2b1 também estão implementadas abaixo. As demais divisões 10B2b2–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1 e a 10B2b2a também estão implementadas abaixo. As demais divisões 10B2b2b–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -393,13 +393,32 @@ Referências: [operação](runbooks/coleta-iam-local.md), [Compose](../infra/obs
 
 Referências: [operação](runbooks/metricas-enforcer-local.md), [ADR-052](adr/052-metricas-opcionais-do-enforcer.md), [evidências 10B2b1](evidencias/etapa-10b2b1.md), [inventário](OBSERVABILIDADE.md). Trabalho local em feat/enforcer-prometheus-metrics, sobre 123c4b0, incluída neste commit; push pendente.
 
+## 10B2b2a — Coleta RabbitMQ
+
+Objetivo: acrescentar métricas reais do broker à coleta local, preservando o Compose padrão e as credenciais existentes. Dividir 10B2b2 em **a: RabbitMQ**, **b: PostgreSQL**, **c: Redis** e **d: Vault** porque cada serviço exige exporter/configuração/permissões e validação próprios.
+
+1. Criar feat/rabbitmq-prometheus-metrics sobre 7b92e4f. Conferir plugin nativo, porta, agregação e intervalo na documentação primária RabbitMQ.
+2. Acrescentar overlay opcional com publicação fixa em loopback e porta externa configurável, mantendo imagem/volume/topologia do broker.
+3. Habilitar management e prometheus por arquivo próprio. Conservar configuração base e explicitar /metrics agregado, porta interna 15692 e autenticação desligada somente para desenvolvimento local.
+4. Acrescentar template de job RabbitMQ, intervalo 15 s, sem credenciais administrativas, nomes de filas ou payload como labels adicionais.
+5. Implementar migração de prometheus.yml com backup, recusa de duplicidade/colisão de coleta e preservação de compose.env/tokens/senha/volumes. O script não executa Docker.
+6. Provisionar dashboard separado de seis painéis: disponibilidade de scrape, mensagens prontas/sem ACK, conexões, canais e consumidores.
+7. Construir smoke opt-in com cópias dos arquivos versionados, dois projetos Docker isolados e credenciais geradas. Conferir padrão sem porta de métricas e conservação das configurações base.
+8. Produzir mensagens AMQP reais em fila exclusiva, manter uma sem ACK, consultar gauges e confirmar redução após ACK; verificar scrape agregado sem nome da fila.
+9. Verificar expressões e frame Grafana, recusa de acesso anônimo, pausa/up=0/retomada do broker e artefatos sem segredos. Remover somente containers/volumes privados do teste.
+10. Registrar comandos/resultados/limites e atualizar índice/plano/inventário. Manter o smoke RabbitMQ independente de IAM/enforcer; não alegar correlação fim a fim, capacidade, CI ou exporters das demais dependências.
+
+Referências: [operação](runbooks/metricas-rabbitmq-local.md), [ADR-053](adr/053-coleta-opcional-rabbitmq.md), [evidências 10B2b2a](evidencias/etapa-10b2b2a.md), [inventário](OBSERVABILIDADE.md). Trabalho local em feat/rabbitmq-prometheus-metrics sobre 7b92e4f, incluída neste commit; push pendente. Nenhuma alteração da stack persistente do usuário.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
 As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10B2b2 — Exporters das dependências | Definir exporters/permissões de fila/banco/Redis/Vault → coletar e correlacionar com IAM/enforcer. | Séries reais das dependências sem ampliar privilégios indevidamente. |
+| 10B2b2b — PostgreSQL | Definir usuário de monitoração e exporter → limitar permissões/consultas → integrar coleta. | Séries reais do banco com leitura limitada. |
+| 10B2b2c — Redis | Definir exporter e ACL de leitura → integrar coleta e testar recuperação. | Séries Redis sem reutilizar acesso administrativo. |
+| 10B2b2d — Vault | Habilitar telemetria e política/token de leitura → coletar e correlacionar dependências. | Séries reais Vault; correlação das quatro dependências documentada. |
 | 10B3 — Logs/tracing | Estruturar logs sanitizados e propagar contexto HTTP/RabbitMQ → validar ausência de payload/segredos e cardinalidade. | Correlação verificável de requisição/evento/dependências. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |

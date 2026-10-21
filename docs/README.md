@@ -11,10 +11,10 @@ Começar pelo [guia de implementação passo a passo](GUIA-DE-IMPLEMENTACAO.md):
 | [Guias operacionais](runbooks/) | Preparação, execução, flags, testes e recuperação. |
 | [Evidências](evidencias/) | Comandos executados, resultados observados, ambiente e pendências históricas. |
 
-Estado desta revisão: **10B2b1 — métricas/coleta do enforcer implementadas localmente**, em feat/enforcer-prometheus-metrics, sobre 123c4b0, incluída neste commit; push pendente. Próximas implementações: 10B2b2, exporters de dependências, e 10B3, logs/tracing. A 10B2a está versionada em 123c4b0; publicação/CI e aceite global de observabilidade/capacidade continuam pendentes.
+Estado desta revisão: **10B2b2a — coleta RabbitMQ implementada localmente**, em feat/rabbitmq-prometheus-metrics sobre 7b92e4f, validada por smoke e regressão IAM, incluída neste commit; push pendente. Próximas: 10B2b2b PostgreSQL, 10B2b2c Redis, 10B2b2d Vault e 10B3 logs/tracing. A 10B2b1 está versionada em 7b92e4f; publicação/CI e aceite global de observabilidade/capacidade continuam pendentes.
 
-Consultar [inventário](OBSERVABILIDADE.md), [runbook do enforcer](runbooks/metricas-enforcer-local.md), [ADR-052](adr/052-metricas-opcionais-do-enforcer.md) e [evidências 10B2b1](evidencias/etapa-10b2b1.md). Listener opcional com token próprio; modo padrão sem HTTP/MVC preservado. Smoke exige fato/projeção/ACK reais e controle de credencial; exporters/tracing/capacidade permanecem pendentes. O [aceite local da etapa 9](runbooks/aceite-etapa9.md) preserva seus riscos e limites.
+Consultar [inventário](OBSERVABILIDADE.md), [runbook RabbitMQ](runbooks/metricas-rabbitmq-local.md), [ADR-053](adr/053-coleta-opcional-rabbitmq.md) e [evidências 10B2b2a](evidencias/etapa-10b2b2a.md). Plugin opcional, scrape agregado e dashboard de seis painéis. O [aceite local da etapa 9](runbooks/aceite-etapa9.md) preserva seus riscos e limites.
 
 Ao implementar uma nova subdivisão, atualizar guia, plano, README, decisões aplicáveis, operação e evidências. Proposta, implementação, validação local, commit, publicação, CI e merge devem permanecer identificáveis separadamente.
 
-O histórico das entregas anteriores e seus resultados permanece nas evidências individuais. O guia referencia também a 10B2b1 e registra suas divisões passo a passo.
+O histórico das entregas anteriores e seus resultados permanece nas evidências individuais. O guia referencia também a 10B2b2a e registra suas divisões passo a passo.
