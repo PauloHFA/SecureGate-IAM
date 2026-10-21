@@ -10,10 +10,10 @@ Começar pelo [guia de implementação passo a passo](GUIA-DE-IMPLEMENTACAO.md):
 | [Guias operacionais](runbooks/) | Preparação, execução, flags, testes e recuperação. |
 | [Evidências](evidencias/) | Comandos executados, resultados observados, ambiente e pendências históricas. |
 
-Estado desta revisão: código implementado até **9C3**, com **748 testes aprovados**, incluído no commit desta entrega sobre `bb48f3f`. Publicação e CI remota continuam pendentes. Próximo trabalho: **9A3**, KV do enforcer; depois hardening/aceite final global da etapa 9.
+Estado desta revisão: **9A3 implementada localmente, com 778 testes aprovados**, na branch feat/enforcer-vault-kv, sobre a9b67f0; incluída neste commit; push/CI remota pendentes. Próximo trabalho: revisão de controles e aceite global da etapa 9, depois 10A.
 
-Para a entrega atual, consultar [jornada PAM integrada](runbooks/jornada-pam-integrada-local.md), [ADR-043](adr/043-aceite-integrado-pam.md) e [evidências 9C3](evidencias/etapa-09c3.md). Para infraestrutura, consultar [infra/README](../infra/README.md).
+Para esta entrega, consultar [KV do enforcer](runbooks/enforcer-vault-kv-local.md), [ADR-044](adr/044-bootstrap-kv-enforcer.md) e [evidências 9A3](evidencias/etapa-09a3.md), incluindo resultados da validação. Para infraestrutura, consultar [infra/README](../infra/README.md).
 
 Ao implementar uma nova subdivisão, atualizar guia, plano, README, decisões aplicáveis, operação e evidências. Proposta, implementação, validação local, commit, publicação, CI e merge devem permanecer identificáveis separadamente.
 
-Revisão documental de 20/10/2026: os 43 registros de evidências de etapas estão referenciados no guia; 903 links locais foram verificados sem referências quebradas. A contagem de 748 testes corresponde ao build completo da 9C3 registrado em suas evidências, concluído às 20:46:17 UTC−03; a documentação foi validada por coerência, cobertura do histórico, links e git diff --check.
+O histórico das entregas anteriores e seus resultados permanece nas evidências individuais. O guia referencia também a 9A3 e registra suas divisões passo a passo.

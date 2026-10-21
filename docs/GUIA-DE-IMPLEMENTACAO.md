@@ -6,18 +6,18 @@ Atualizado em 20/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 9C3 — jornada PAM integrada e bootstrap OAuth com migração externa |
-| Base anterior ao commit desta entrega | 9C2b, bb48f3f |
-| Trabalho incluído no commit desta entrega | 9C3; publicação e CI remota pendentes |
-| Branch | feat/pam-integrated-acceptance |
-| Última validação do código | clean verify aprovado em 20/10/2026 às 20:46:17 UTC−03, 748 testes, cobertura e arquitetura aprovadas |
-| Próxima entrega | 9A3 — KV do enforcer; depois hardening/aceite final da etapa 9 |
-| Outras pendências da etapa 9 | KV do enforcer, hardening e aceite integrado |
+| Última entrega implementada | 9A3 — KV no startup do enforcer |
+| Base desta entrega | a9b67f0 — 9C3 |
+| Trabalho local | 9A3 incluída neste commit; push/CI remota pendentes |
+| Branch | feat/enforcer-vault-kv |
+| Validação da entrega | clean verify aprovado em 20/10/2026 às 22:01:30 UTC−03; 778 testes, arquitetura e cobertura aprovadas |
+| Próxima entrega | Revisão de controles e aceite final global da etapa 9 |
+| Outras pendências da etapa 9 | Aceite global e publicação/CI remota |
 | Etapas posteriores | 10 — carga/observabilidade; 11 — entrega/hardening; 12 — gateway/demonstração opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9C3 abaixo descrevem entregas executadas. As divisões 9A3 e 10–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3 e 9C3, abaixo descrevem entregas executadas. As divisões 10–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -219,7 +219,7 @@ Operação: [guia de recuperação](runbooks/recuperacao-pam-local.md); [ADR-042
 6. Pausar Vault, revogar administrativamente, observar retry sem confirmação antecipada, encerrar IAM e iniciar outra JVM com Vault retomado. Conferir papel/sessão encerrados e fatos centrais com origem/prazo preservados.
 7. Parar RabbitMQ, criar/emitir pedido curto e observar expiração/limpeza com fatos na Outbox não publicada. Retomar broker e aguardar todos os fatos esperados, sem pressupor ordem de chegada.
 8. Consultar a auditoria central por HTTP/correlação e cursor com janela fixa; verificar que senha, usuário SQL e access token não estão nos fatos.
-9. Registrar execução focada, build completo e limites. Não há migração nova; V22 continua atual. KV do enforcer e aceite final global permanecem pendentes.
+9. Registrar execução focada, build completo e limites. Não há migração nova; V22 continua atual. Na conclusão da 9C3, KV do enforcer e aceite global ainda estavam pendentes; o KV é implementado na 9A3 abaixo.
 
 Operação: [jornada integrada](runbooks/jornada-pam-integrada-local.md); [ADR-043](adr/043-aceite-integrado-pam.md); [evidências](evidencias/etapa-09c3.md).
 
@@ -240,15 +240,24 @@ Operação: [jornada integrada](runbooks/jornada-pam-integrada-local.md); [ADR-0
 
 Limites vigentes: senha não é recuperável por GET; resposta perdida exige revogar antes de criar outro pedido. VALID UNTIL controla nova autenticação por senha, não encerra a sessão já autenticada. Sessões ativas podem ultrapassar o TTL com Vault indisponível; sua revogação depende da retomada. Não reutilizar o papel runtime como acesso humano nem tratar diagnóstico como superusuário.
 
-### Próximas divisões propostas da etapa 9
+### Passo a passo da 9A3 — KV do enforcer
 
-A 9C3 acima foi implementada. A divisão abaixo ainda não foi implementada; a ordem imediata é 9A3; KV do enforcer precisa ser concluído antes do aceite final da etapa 9.
+1. Reutilizar AppRole policy-enforcer, ACL e KV v2 já provisionados, sem ampliar permissões.
+2. Registrar postprocessor no próprio módulo, após carregar configuração e antes dos clientes.
+3. Validar flag, endereço, arquivos AppRole e autenticar com timeout limitado.
+4. Ler somente secret/data/securegate/policy-enforcer e validar metadados/valores obrigatórios.
+5. Permitir apenas senha Redis e usuário/senha RabbitMQ; ignorar campos extras e preservar endpoints locais.
+6. Revogar o token de leitura e somente então publicar snapshot prioritário e completo. Abortar em falha sem fallback nem causa sensível.
+7. Acrescentar -EnableVaultKv ao launcher, combinável com -EnableConsumer; deixar credenciais locais vazias nesse modo e restaurar o ambiente ao encerrar.
+8. Testar falhas/precedência em HTTP controlado e ACL real no Vault descartável.
+9. Subir EnforcerApplication real pela descoberta do postprocessor, com credenciais locais inválidas; publicar revogação no broker e comprovar ACK/projeção Redis com credenciais KV.
+10. Validar regressões e documentar ativação, rotação coordenada por reinício e limites do snapshot.
 
-| Proposta | Passos previstos | Critério de aceite previsto |
-| --- | --- | --- |
-| 9A3 — KV do enforcer | Integrar leitura protegida no startup do enforcer → validar campos/precedência → testar falha sem fallback e documentar operação. | Enforcer pode obter segredos pelo caminho protegido; ativação, limites e recuperação testados/documentados. |
+Referências: [ADR-044](adr/044-bootstrap-kv-enforcer.md), [operação](runbooks/enforcer-vault-kv-local.md), [evidências 9A3](evidencias/etapa-09a3.md). Sem nova migração; V22 permanece atual. Implementação local em feat/enforcer-vault-kv, sobre a9b67f0, incluída neste commit; publicação/CI pendentes.
 
-Os números propostos organizam o trabalho futuro; ADRs, migrações e comandos finais serão definidos ao implementá-lo. Não existem evidências de execução dessas subdivisões ainda.
+### Fechamento restante da etapa 9
+
+Revisar controles e critérios globais, reunir evidências de leases/PAM/KV e registrar riscos residuais e estado de publicação/CI. Só declarar o aceite global após essa revisão. A etapa 10 inicia por 10A; imagens, TLS e demais entregas gerais de produção continuam organizados na etapa 11.
 
 ## Etapas 10–12 — Divisão proposta, ainda pendente
 

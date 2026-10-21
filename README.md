@@ -109,7 +109,9 @@ A **9C2b** acrescenta V22, retry persistido e isolamento por item no observador 
 
 A **9C3** valida com JARs reais a jornada OAuth/MFA → pedido → credencial Vault → uso PostgreSQL → revogação/expiração → Outbox/RabbitMQ → ingestão dedicada → consulta central. Inclui pausa do Vault/reinício do IAM, indisponibilidade do broker e isolamento das identidades, além da correção do bootstrap OAuth para execução com migração externa/Flyway desabilitado. Consulte o [guia integrado](docs/runbooks/jornada-pam-integrada-local.md), a [ADR-043](docs/adr/043-aceite-integrado-pam.md) e as [evidências 9C3](docs/evidencias/etapa-09c3.md). V22 continua sendo a migração atual.
 
-Próxima entrega: **9A3**, KV do enforcer; depois hardening/aceite final global da etapa 9. A 9C3 está implementada localmente em `feat/pam-integrated-acceptance`, incluída no commit desta entrega, sobre `bb48f3f`. Publicação/CI remota desde 8C também permanecem pendentes.
+A **9A3** permite iniciar o enforcer com `Start-PolicyEnforcer.ps1 -EnableConsumer -EnableVaultKv`. Obtém credenciais Redis/RabbitMQ por AppRole e KV v2, valida o snapshot completo e revoga o token antes de iniciar os clientes; falhas impedem o startup sem fallback local. Consulte [operação](docs/runbooks/enforcer-vault-kv-local.md), [ADR-044](docs/adr/044-bootstrap-kv-enforcer.md) e [evidências 9A3](docs/evidencias/etapa-09a3.md). Não há refresh em execução nem nova migração.
+
+Próxima entrega: revisão de controles/aceite final global da etapa 9; depois 10A, massa e planos de carga. A 9A3 está implementada localmente em `feat/enforcer-vault-kv`, sobre `a9b67f0`, incluída neste commit; push/CI remota pendentes. As pendências remotas das entregas anteriores permanecem registradas no plano.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
