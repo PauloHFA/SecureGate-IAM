@@ -125,7 +125,9 @@ A **10A2b3** acrescenta produção de fatos pela API, consulta central por corre
 
 A **10B1** acrescenta exportação Prometheus opt-in no IAM, token próprio de leitura por arquivo e histogramas HTTP opcionais. Preserva saúde e administração, sem expor métricas publicamente. Consultar [inventário](docs/OBSERVABILIDADE.md), [operação](docs/runbooks/metricas-prometheus-local.md), [ADR-050](docs/adr/050-exportacao-prometheus-protegida.md) e [evidências](docs/evidencias/etapa-10b1.md).
 
-Próxima implementação: **10B2 — coleta e dashboards**, incluindo estratégia de exposição do enforcer; **10B3** tratará logs/tracing. Trabalho local em `feat/iam-prometheus-metrics`, sobre `42b9707`, incluída neste commit; push pendente. Publicação/CI, observabilidade completa e aceite de desempenho permanecem pendentes.
+A **10B2a** acrescenta Compose local de Prometheus/Grafana, token de scrape por arquivo, senha própria do Grafana e dashboard IAM de 12 painéis. O smoke usa IAM real, valida expressões/datasource, acesso anônimo negado e falha/recuperação de credencial. Consultar [operação](docs/runbooks/coleta-iam-local.md), [Compose](infra/observability/README.md), [ADR-051](docs/adr/051-coleta-e-dashboard-local-do-iam.md) e [evidências](docs/evidencias/etapa-10b2a.md).
+
+Próxima implementação: **10B2b — enforcer e dependências**; **10B3** tratará logs/tracing. Trabalho local em `feat/iam-observability-stack`, sobre `9f5f857`, incluída neste commit; push pendente. Publicação/CI, coleta sustentada e aceite de desempenho permanecem pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

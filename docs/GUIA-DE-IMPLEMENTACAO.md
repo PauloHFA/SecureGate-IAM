@@ -6,18 +6,18 @@ Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B1 — exportação Prometheus protegida e inventário |
-| Base desta entrega | 42b9707 — smokes de recurso/revogação e auditoria |
-| Trabalho local | Implementação, testes e documentação incluídos neste commit; push pendente |
-| Branch | feat/iam-prometheus-metrics |
-| Validação da entrega | clean verify aprovado em 21/10/2026 às 01:05:45 UTC−03: 782 testes, cobertura/arquitetura/E2E; ressalva de encerramento da JVM/Hikari documentada nas evidências |
-| Próxima implementação | 10B2 — coleta/dashboards/enforcer |
-| Pendências seguintes | 10B3 — logs/tracing; 10C–10D — medição/ajustes; publicação/CI |
+| Última entrega implementada | 10B2a — Prometheus/Grafana e dashboard IAM |
+| Base desta entrega | 9f5f857 — exportação Prometheus protegida |
+| Trabalho local | Implementação, smoke opt-in e documentação incluídos neste commit; push pendente |
+| Branch | feat/iam-observability-stack |
+| Validação da entrega | Smoke aprovado em 21/10/2026 às 12:12:43 UTC−03: 1 teste, 12 painéis/14 expressões, frame Grafana e controle de credencial; build completo não repetido |
+| Próxima implementação | 10B2b — enforcer/dependências |
+| Pendências seguintes | 10B2b/10B3; 10C–10D — medição/ajustes; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3 e a 10B1 também estão implementadas abaixo. As demais divisões 10B2–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1 e a 10B2a também estão implementadas abaixo. As demais divisões 10B2b–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -363,13 +363,28 @@ Referências: [operação](../load-tests/jmeter/AUDIT.md), [runbook](runbooks/ca
 
 Referências: [inventário](OBSERVABILIDADE.md), [operação](runbooks/metricas-prometheus-local.md), [ADR-050](adr/050-exportacao-prometheus-protegida.md), [evidências 10B1](evidencias/etapa-10b1.md). Trabalho local em feat/iam-prometheus-metrics, sobre 42b9707, incluída neste commit; push pendente.
 
+### Passo a passo da 10B2a — coleta e dashboard do IAM
+
+1. Criar feat/iam-observability-stack sobre 9f5f857, com diretório limpo, e dividir 10B2 em IAM (10B2a) e enforcer/dependências (10B2b).
+2. Conferir releases/contratos oficiais, baixar imagens Prometheus/Grafana e fixar versões/digests; preservar a stack de negócio.
+3. Criar Compose separado, portas loopback, rede/volumes próprios, healthchecks e limites locais de retenção/memória; não confundir container saudável com scrape up.
+4. Criar template de scrape com host.docker.internal/porta IAM e credentials_file de leitura; gerar config/portas/senha Grafana em pasta privada sem sobrescrita/segredos no YAML/argumentos.
+5. Provisionar datasource e dashboard IAM de 12 painéis por arquivo, sem edição persistida na UI/acesso anônimo; distinguir zero, indisponível e série ausente.
+6. Criar launcher que valida preparação e Compose, inicia com up --wait, sem criar/alterar serviços de negócio. Documentar parada sem remover volumes.
+7. Criar smoke opt-in com cópia dos mesmos arquivos/scripts, IAM real em loopback, portas/projeto isolados e infraestrutura descartável; não criar fixture falsa de métricas.
+8. Exigir up=1, JVM/buckets, 12 painéis provisionados, parsing de todas as expressões e frame real do datasource; comprovar anonimato 401 e credencial inválida gerando up=0/401, depois recuperar token original.
+9. Conferir inicializador sem sobrescrita e artefatos sem credenciais, remover recursos/segredos do teste em finally e registrar limites. Não repetir build completo sem alteração de runtime; registrar validação focalizada separadamente dos 782 testes históricos da 10B1.
+10. Atualizar inventário/plano/README/ADR/runbook/evidências e seguir para 10B2b. V22 e grants/ACL preservados; não declarar coleta de enforcer/dependências, QA visual, capacidade ou SLA.
+
+Referências: [operação](runbooks/coleta-iam-local.md), [Compose](../infra/observability/README.md), [ADR-051](adr/051-coleta-e-dashboard-local-do-iam.md), [evidências 10B2a](evidencias/etapa-10b2a.md). Trabalho local em feat/iam-observability-stack, sobre 9f5f857, incluída neste commit; push pendente.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
 As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10B2 — Coleta/dashboard | Definir scrape/credenciais e exposição do enforcer → subir Prometheus/Grafana → coletar dependências. | Séries e painéis reproduzíveis; sem token administrativo no scraper. |
+| 10B2b — Enforcer/dependências | Definir exposição autenticada do processo enforcer não web e exporters/permissões de dependências → coletar e correlacionar sinais. | Séries reais de fila/banco/Redis/Vault sem ampliar privilégios indevidamente. |
 | 10B3 — Logs/tracing | Estruturar logs sanitizados e propagar contexto HTTP/RabbitMQ → validar ausência de payload/segredos e cardinalidade. | Correlação verificável de requisição/evento/dependências. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |

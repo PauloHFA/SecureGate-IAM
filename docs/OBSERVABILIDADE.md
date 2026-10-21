@@ -1,14 +1,15 @@
-# Observabilidade — inventário e contratos (10B1)
+# Observabilidade — inventário e contratos (10B1/10B2a)
 
 ## Divisão da 10B
 
 | Entrega | Estado | Escopo |
 | --- | --- | --- |
 | 10B1 | Implementada localmente | Inventário, exportação Prometheus protegida no IAM, histogramas HTTP opcionais e testes. |
-| 10B2 | Proposta, pendente | Coleta Prometheus/Grafana, dashboards e estratégia de exposição do enforcer sem HTTP atualmente; coleta das dependências. |
+| 10B2a | Implementada localmente | Compose Prometheus/Grafana, datasource e dashboard IAM; teste real de scrape/consultas/credencial. |
+| 10B2b | Proposta, pendente | Estratégia de exposição do enforcer e exporters/coleta das dependências. |
 | 10B3 | Proposta, pendente | Logs estruturados sanitizados e tracing propagado por HTTP/RabbitMQ, com validação de cardinalidade/segredos. |
 
-A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none e suas métricas internas ainda não têm endpoint HTTP. Não foram instalados Prometheus/Grafana/exporters nem coletadas séries sustentadas nesta entrega. Banco, Redis, RabbitMQ e Vault não recebem novos exporters/ACL.
+A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none e suas métricas internas ainda não têm endpoint HTTP. A 10B2a acrescenta Compose Prometheus/Grafana validado com IAM real em stack descartável, sem coleta sustentada ou alteração dos serviços persistentes do usuário. Banco, Redis, RabbitMQ e Vault não recebem novos exporters/ACL nesta entrega.
 
 ## IAM: superfície e controle de acesso
 
@@ -48,9 +49,9 @@ Nomes Micrometer são normalizados em Prometheus; contadores têm sufixo _total,
 
 Não adicionar token, e-mail, subject/user ID, eventId, correlationId, sid/jti, cursor, URL crua/query ou texto de erro como tags. Templates de rota reduzem cardinalidade de IDs; o teste cobre uma rota parametrizada e query sensível sintética, não todos os meters/extensões possíveis. Não habilitar debug HTTP ou publicar scrape/log bruto sem revisão.
 
-## Consultas propostas para a 10B2
+## Consultas de análise — base 10B2a
 
-São exemplos para futura coleta; não foram executados em um servidor Prometheus nesta etapa. Exigem tráfego suficiente e histórico de pelo menos a janela, sem inferir capacidade de um smoke.
+As expressões foram aceitas por Prometheus real no smoke 10B2a, e o datasource Grafana retornou um frame JVM. Isso não valida percentis de uma janela sustentada: análises exigem tráfego suficiente e histórico de pelo menos a janela, sem inferir capacidade do smoke.
 
 ```promql
 # Taxa HTTP por rota/método, excluindo scrapes/health.
@@ -68,6 +69,6 @@ Conferir nomes efetivamente exportados e available antes de automatizar alertas.
 
 ## Operação, validação e fontes
 
-[Runbook 10B1](runbooks/metricas-prometheus-local.md), [ADR-050](adr/050-exportacao-prometheus-protegida.md), [evidências](evidencias/etapa-10b1.md) e [passo a passo](GUIA-DE-IMPLEMENTACAO.md).
+[Coleta/dashboard 10B2a](runbooks/coleta-iam-local.md), [evidências 10B2a](evidencias/etapa-10b2a.md), [runbook 10B1](runbooks/metricas-prometheus-local.md), [ADR-050](adr/050-exportacao-prometheus-protegida.md), [evidências](evidencias/etapa-10b1.md) e [passo a passo](GUIA-DE-IMPLEMENTACAO.md).
 
 Contrato de exportação/histogramas conferido na [documentação Spring Boot 3.5](https://docs.spring.io/spring-boot/3.5/reference/actuator/metrics.html), com [referência Prometheus/Micrometer 1.15](https://docs.micrometer.io/micrometer/reference/1.15/implementations/prometheus). Configuração/autorização descritas acima são decisões deste projeto, verificadas pelos testes locais.

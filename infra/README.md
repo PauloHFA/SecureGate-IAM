@@ -152,3 +152,7 @@ O [guia da 9C3](../docs/runbooks/jornada-pam-integrada-local.md) combina emissã
 ## Métricas IAM — 10B1
 
 Exportação Prometheus é opt-in, com token de leitura próprio: executar Initialize-MetricsToken.ps1 e iniciar Start-IamCore.ps1 -EnablePrometheus; -EnableHttpHistograms acrescenta buckets HTTP. Nenhuma ativação automática, alteração de .env ou inicialização de collector/Grafana. Ver [runbook](../docs/runbooks/metricas-prometheus-local.md) e [inventário](../docs/OBSERVABILIDADE.md); enforcer continua sem servidor HTTP. O arquivo infra/.local/iam-metrics-token é privado/ignorado e exige proteção por permissões locais.
+
+## Coleta e dashboard IAM — 10B2a
+
+O [Compose de observabilidade](observability/README.md) é separado da stack de negócio. Initialize-Observability.ps1 prepara config/portas/senha Grafana privados; Start-Observability.ps1 inicia Prometheus/Grafana em loopback com dashboard IAM provisionado. Seguir o [runbook](../docs/runbooks/coleta-iam-local.md); não usa token administrativo IAM e não inicia exporters/enforcer. O teste opt-in remove somente sua stack descartável; nada é iniciado/alterado automaticamente no ambiente persistente.

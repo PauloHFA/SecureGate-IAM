@@ -304,6 +304,8 @@ A **10A2b1** acrescenta massa de usuários por API, plano de senha incorreta/usu
 
 A **10B** está dividida em **10B1** (inventário/exportação IAM), **10B2** (coleta/dashboards/enforcer/dependências) e **10B3** (logs estruturados e tracing HTTP/RabbitMQ). A **10B1** implementa registry Prometheus gerenciado pelo BOM, endpoint opt-in com token METRICS_READ em arquivo privado e histogramas HTTP opcionais (1 ms–10 s), sem reutilizar token administrativo. Testes verificam isolamento, padrão desligado e métricas sem query/credenciais sintéticas. O enforcer continua sem HTTP; stack de coleta/tracing não implementada. Ver [inventário](OBSERVABILIDADE.md), [ADR-050](adr/050-exportacao-prometheus-protegida.md), [runbook](runbooks/metricas-prometheus-local.md) e [evidências](evidencias/etapa-10b1.md). Trabalho local em feat/iam-prometheus-metrics, sobre 42b9707, incluída neste commit; push pendente. Itens globais de observabilidade e aceite de desempenho permanecem abertos.
 
+A **10B2** foi dividida em **10B2a** (coleta/dashboard IAM) e **10B2b** (enforcer/dependências). A **10B2a** entrega Compose separado com Prometheus/Grafana por versão/digest, portas loopback, credenciais por arquivo, datasource e dashboard IAM de 12 painéis. Smoke opt-in usa IAM/JARs reais e os arquivos versionados copiados, confere parsing das expressões, frame de datasource, ausência de acesso anônimo, falha 401/up=0 e recuperação com token original. Não modifica runtime Java, schema, grants/ACL ou stack persistente. Ver [ADR-051](adr/051-coleta-e-dashboard-local-do-iam.md), [operação](runbooks/coleta-iam-local.md), [evidências](evidencias/etapa-10b2a.md) e [inventário](OBSERVABILIDADE.md). Trabalho local em feat/iam-observability-stack, sobre 9f5f857, incluída neste commit; push pendente. Não conclui o item de correlação com todas as dependências, logs/tracing ou aceite de desempenho.
+
 ## Etapa 11 — Entrega e hardening
 
 - [ ] Criar imagens multi-stage Java 21 com usuário sem privilégios e versões fixadas.
@@ -373,4 +375,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para **10B2 — coleta e dashboards**, incluindo estratégia de exposição do enforcer e dependências, depois **10B3 — logs/tracing**. A 10B1 está implementada localmente em `feat/iam-prometheus-metrics`, sobre `42b9707`, incluída neste commit; push pendente. A cobertura funcional 10A está versionada em `42b9707`; publicação/CI a confirmar. Ensaios sustentados 10C, ajustes 10D e verificações gerais de entrega continuam pendentes.
+Seguir para **10B2b — enforcer e dependências**, depois **10B3 — logs/tracing**. A 10B2a está implementada localmente em `feat/iam-observability-stack`, sobre `9f5f857`, incluída neste commit; push pendente. A 10B1 está versionada em `9f5f857`; publicação/CI a confirmar. Ensaios sustentados 10C, ajustes 10D e verificações gerais de entrega continuam pendentes.
