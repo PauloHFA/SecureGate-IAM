@@ -1,6 +1,6 @@
 # JMeter — 10A1: Client Credentials e massa sintética
 
-Plano executável de smoke: dois clientes sintéticos, duas threads e duas iterações produzem oito amostras. A 10A está dividida: **10A1** implementa esta base; **10A2** acrescentará massa humana, PKCE, falhas de login, validação/revogação e auditoria. O aceite de carga da etapa 10 depende também de observabilidade/medições posteriores.
+Plano executável de smoke: dois clientes sintéticos, duas threads e duas iterações produzem oito amostras. A 10A está dividida: **10A1** implementa esta base; **10A2a** acrescenta massa humana e PKCE/replay; **10A2b** ainda precisa cobrir falhas de login, validação/revogação e auditoria. O aceite de carga da etapa 10 depende também de observabilidade/medições posteriores.
 
 ## Pré-requisitos
 
@@ -71,3 +71,7 @@ O agregado mistura emissão e negativa: não o usar como latência de emissão. 
 Ver [ADR-045](../../docs/adr/045-base-de-carga-jmeter.md), [evidências 10A1](../../docs/evidencias/etapa-10a1.md) e [guia passo a passo](../../docs/GUIA-DE-IMPLEMENTACAO.md).
 
 Referências técnicas: [execução CLI e relatório](https://jmeter.apache.org/usermanual/get-started.html), [persistência de amostras e propriedades](https://jmeter.apache.org/usermanual/listeners.html). Somente o comportamento efetivamente exercitado é declarado validado.
+
+## Plano humano e PKCE — 10A2a
+
+Consultar [HUMAN-PKCE.md](HUMAN-PKCE.md) para gerador de usuários/clientes/políticas, jornada com cookies/CSRF/state/S256, rejeição de replay e injeção de verifier incorreto. O teste opt-in é JMeterHumanSmoke; cada amostra é uma jornada agregada, não uma chamada isolada ao endpoint de token.

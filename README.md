@@ -115,7 +115,9 @@ A **9D** consolida o [aceite técnico local da etapa 9](docs/runbooks/aceite-eta
 
 A **10A1** inicia a etapa de carga com massa sintética de clientes, plano JMeter Client Credentials, sucesso/invalid_client separados e runner que falha quando as asserções não passam. O smoke opt-in usa IAM real e serviços descartáveis; resultados não incluem corpos/tokens/cabeçalhos. Consultar [operação](load-tests/jmeter/README.md), [ADR-045](docs/adr/045-base-de-carga-jmeter.md) e [evidências](docs/evidencias/etapa-10a1.md). Não comprova capacidade ou metas de latência.
 
-Próxima implementação: **10A2 — massa humana, PKCE e demais cenários**. A 10A1 está em `feat/load-client-credentials-smoke`, sobre `255fdff`, incluída neste commit; publicação/CI a verificar separadamente. A 9D está versionada em `255fdff`; as pendências de publicação/CI e verificações de entrega permanecem registradas no plano.
+A **10A2a** acrescenta massa humana sintética e jornada PKCE com cookies, CSRF, state, consentimento, identidade/TTL e recusa de replay. O smoke opt-in prova também que verifier incorreto resulta em HTTP 400 e falha do runner. Consultar [operação humana](load-tests/jmeter/HUMAN-PKCE.md), [ADR-046](docs/adr/046-carga-humana-pkce.md) e [evidências](docs/evidencias/etapa-10a2a.md). A duração é agregada por jornada, sem comprovar capacidade ou metas.
+
+Próxima implementação: **10A2b — falhas de login, recursos/revogação e auditoria**. A 10A2a está em `feat/load-human-pkce-smoke`, sobre `1e7a201`, incluída neste commit; push pendente. A 10A1 foi publicada na sessão anterior; PR/CI e verificações de entrega permanecem pendentes de confirmação.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

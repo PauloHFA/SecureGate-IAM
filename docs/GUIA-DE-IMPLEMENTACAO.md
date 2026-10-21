@@ -6,18 +6,18 @@ Atualizado em 20/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10A1 — massa de clientes sintéticos e smoke JMeter Client Credentials |
-| Base desta entrega | 255fdff — 9D |
-| Trabalho local | Implementação, teste opt-in e documentação; incluída neste commit; publicação/CI a verificar separadamente |
-| Branch | feat/load-client-credentials-smoke |
-| Validação da entrega | Smoke opt-in aprovado separadamente; clean verify às 23:02:24 UTC−03 em 20/10/2026, 778 testes, cobertura e arquitetura aprovadas |
-| Próxima implementação | 10A2 — massa humana/PKCE e demais cenários |
+| Última entrega implementada | 10A2a — massa humana, PKCE e replay de código |
+| Base desta entrega | 1e7a201 — 10A1 |
+| Trabalho local | Implementação, teste opt-in e documentação; incluída neste commit; push pendente |
+| Branch | feat/load-human-pkce-smoke |
+| Validação da entrega | Smoke humano opt-in aprovado; clean verify em 20/10/2026 às 23:30:33 UTC−03, 778 testes; ocorrência de teardown Hikari registrada nas evidências |
+| Próxima implementação | 10A2b — falhas de login, recursos/revogação e auditoria |
 | Pendências de aceite global/remoto | Publicação/CI e verificações de entrega; imagens na etapa 11 |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1 também está implementada abaixo. As demais divisões 10A2–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1 e a 10A2a também estão implementadas abaixo. As demais divisões 10A2b–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -274,7 +274,7 @@ A 9D consolida o aceite técnico local, sem declarar aceite global/remoto ou pro
 
 ### Divisão da 10A e passo a passo da 10A1
 
-Separar o primeiro plano máquina das jornadas humanas permite validar massa, asserções, persistência segura de resultados e runner antes de ampliar os cenários. A 10A1 é a base Client Credentials; a 10A2 ainda precisa cobrir massa humana, PKCE, falhas de login, validação/revogação e auditoria. Isso não conclui a 10A nem o aceite de carga da etapa 10.
+Separar o primeiro plano máquina das jornadas humanas permite validar massa, asserções, persistência segura de resultados e runner antes de ampliar os cenários. A 10A1 é a base Client Credentials; a 10A2a abaixo acrescenta massa humana/PKCE/replay. Falhas de login, validação/revogação e auditoria continuam na 10A2b. Isso não conclui a 10A nem o aceite de carga da etapa 10.
 
 1. Fixar JMeter 5.6.3 como baseline exercitada, obter distribuição Apache e conferir SHA-512; manter binários fora do Git.
 2. Criar New-ClientMass.ps1: IDs prefixados/escopo/audience reproduzíveis, criação pela API administrativa e segredo novo do servidor, fora da janela cronometrada.
@@ -287,7 +287,22 @@ Separar o primeiro plano máquina das jornadas humanas permite validar massa, as
 9. Corromper a massa na mesma validação e exigir recusa do runner; remover arquivos privados ao encerrar.
 10. Validar build padrão sem execução automática/download de JMeter e registrar operação, evidências e limites antes de commit/publicação.
 
-Referências: [operação JMeter](../load-tests/jmeter/README.md), [runbook](runbooks/carga-client-credentials-local.md), [ADR-045](adr/045-base-de-carga-jmeter.md), [evidências 10A1](evidencias/etapa-10a1.md). Sem mudança de aplicação/schema; V22 permanece atual. Trabalho local em feat/load-client-credentials-smoke, sobre 255fdff, incluída neste commit; publicação/CI a verificar separadamente.
+Referências: [operação JMeter](../load-tests/jmeter/README.md), [runbook](runbooks/carga-client-credentials-local.md), [ADR-045](adr/045-base-de-carga-jmeter.md), [evidências 10A1](evidencias/etapa-10a1.md). Sem mudança de aplicação/schema; V22 permanece atual. Versionada em 1e7a201, na branch feat/load-client-credentials-smoke; push confirmado na sessão anterior, PR/CI não verificados.
+
+### Passo a passo da 10A2a — massa humana e PKCE
+
+1. Dividir a 10A2 em massa/PKCE/replay (10A2a) e os demais cenários (10A2b), sem declarar a 10A concluída.
+2. Criar New-HumanMass.ps1 para usuários example.test, senhas CSPRNG, clientes confidenciais e políticas ALLOW_LIMITED pela API, fora da parte cronometrada.
+3. Restringir a política ao cliente gerado, api:read e TTL de 120 s. Gravar CSV privado com IDs/credenciais nos diretórios ignorados, sem sobrescrever arquivo existente.
+4. Criar human-pkce.jmx e roteiro Groovy JSR223: HttpClient/cookies novos por jornada, S256/state novos e formulários CSRF reais.
+5. Autenticar/consentir, aceitar consentimento já concedido e validar callback/state sem acessar o callback nem seguir redirects de navegação externos.
+6. Trocar código por token, conferir sub/client_id/TTL e manter apenas o contexto necessário em memória para provar replay recusado.
+7. Acrescentar Run-HumanPkce.ps1 com rótulos/contagens distintos, dashboard, resultados redigidos e injeção WrongVerifier para testar falha real.
+8. Testar JMeterHumanSmoke com fixture descartável, perfil de risco sintético explícito, duas jornadas, dois replays recusados e verifier incorreto com HTTP 400.
+9. Procurar credenciais/e-mails sintéticos/Basic/JWT nos artefatos e remover arquivos privados ao encerrar. O gerador não modifica risco/MFA; a configuração sintética pertence à fixture/receita manual dedicada.
+10. Validar a suíte padrão separadamente e registrar que elapsed é agregado, sem latência de rede instrumentada, assinatura JWT validada pelo plano ou metas de capacidade comprovadas.
+
+Referências: [operação humana](../load-tests/jmeter/HUMAN-PKCE.md), [runbook](runbooks/carga-humana-pkce-local.md), [ADR-046](adr/046-carga-humana-pkce.md), [evidências 10A2a](evidencias/etapa-10a2a.md). Sem mudança de aplicação/schema; V22 permanece atual. Trabalho local em feat/load-human-pkce-smoke, sobre 1e7a201, incluída neste commit; push pendente.
 
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
@@ -295,7 +310,7 @@ As metas e o escopo principal continuam no plano. As divisões abaixo são uma p
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10A2 — Jornadas restantes | Preparar usuários sintéticos → PKCE/login e negativas → validação/revogação e auditoria → validar isolamento e artefatos. | Jornadas repetíveis, segredos protegidos e falhas esperadas separadas. |
+| 10A2b — Jornadas restantes | Falhas de login → validação/revogação em recursos → auditoria → validar limites, isolamento e artefatos. | Planos repetíveis, negativas separadas e dados privados protegidos. |
 | 10B — Observabilidade | Definir métricas, logs sanitizados e tracing HTTP/RabbitMQ → correlacionar dependências e filas. | Diagnóstico de latência/erro sem payload sensível. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
