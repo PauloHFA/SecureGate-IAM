@@ -6,18 +6,18 @@ Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B3b2 — clientes HTTP Vault |
-| Base desta entrega | d0ef5e2 — tracing HTTP entrante |
+| Última entrega implementada | 10B3c1 — contexto durável no outbox |
+| Base desta entrega | 32f3bfa — clientes HTTP Vault |
 | Trabalho local | Implementação local; incluída neste commit; push pendente |
-| Branch | feat/vault-http-client-tracing |
-| Validação da entrega | Build completo: 810 testes, zero falhas; cobertura/arquitetura atendidas; BUILD SUCCESS às 15:46:50 UTC−03 |
-| Próxima implementação | 10B3c — contexto outbox/RabbitMQ |
-| Pendências seguintes | 10B3c — outbox/RabbitMQ; 10C–10D; publicação/CI |
+| Branch | feat/outbox-trace-context |
+| Validação da entrega | Build completo: 818 testes, zero falhas; cobertura/arquitetura atendidas; BUILD SUCCESS às 16:21:51 UTC−03 |
+| Próxima implementação | 10B3c2 — publicação AMQP |
+| Pendências seguintes | 10B3c2/c3 — publicação/consumo; 10C–10D; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1 e a 10B3b2 também estão implementadas abaixo. As demais divisões 10B3c–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2 e a 10B3c1 também estão implementadas abaixo. As demais divisões 10B3c2–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -516,13 +516,31 @@ A 10B3b foi dividida em 10B3b1 (entrada servlet) e 10B3b2 (clientes JDK/Vault), 
 
 [ADR-059](adr/059-tracing-clientes-http-vault.md), [operação](runbooks/tracing-http-local.md), [evidências](evidencias/etapa-10b3b2.md). Branch feat/vault-http-client-tracing sobre d0ef5e2, incluída neste commit; push pendente. Próxima: 10B3c. Stack persistente e .env preservados.
 
+## Etapa 10B3c1 — Contexto durável no outbox
+
+Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3 (consumo) permite validar a transação antes do transporte. c2/c3 continuam propostas, pendentes.
+
+1. Identificar transação de auditoria/outbox e worker assíncrono; contexto de thread do request não chega ao scheduler.
+2. Criar V23 aditiva: trace_parent nullable VARCHAR(55), CHECK W3C/IDs/flags e extensão do trigger imutável; eventos antigos ficam NULL.
+3. Preservar JSON/versão v1 de SecurityEvent e construtores antigos dos adapters/claims.
+4. Capturar apenas traceparent do span corrente no bootstrap, com Tracer/Propagator opcionais; fornecer Supplier ao adapter sem SDK na aplicação/domínio.
+5. Validar em Java e SQL; gravar coluna e envelope no mesmo INSERT/transação. Não usar MDC/correlationId ou mapa de headers para persistência.
+6. Carregar metadado no claim; leases/retries/ACK/quarentena não podem reescrevê-lo; omitir contexto no toString.
+7. Testar PostgreSQL real: upgrade V22 com evento antigo, rollback audit/outbox, NULL/invalid, constraint/trigger e recusa de UPDATE runtime.
+8. Reinstanciar store após retry e comparar parent/payload/identidade, incluindo rejeição de claim antigo; distinguir isso de reinício de JVM.
+9. Capturar contexto de requisição HTTP IAM real e verificar o span servidor persistido fora do payload; manter regressões RabbitMQ existentes.
+10. Executar build completo, atualizar mapa/rollout/evidências e registrar que V23 precede o novo binário; não migrar stack persistente nem declarar AMQP/consumidores implementados.
+
+[ADR-060](adr/060-contexto-duravel-no-outbox.md), [operação](runbooks/tracing-outbox-local.md), [evidências](evidencias/etapa-10b3c1.md). Branch feat/outbox-trace-context sobre 32f3bfa, incluída neste commit; push pendente. Próxima: 10B3c2.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
 As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10B3c — Tracing assíncrono | Persistir contexto outbox → propagar AMQP → restaurar/limpar no consumo e testar retries. | Correlação durável fim a fim, sem payload/segredos em spans. |
+| 10B3c2 — Publicação AMQP | Criar span com parent persistido → injetar header restrito → testar retry/confirm/headers hostis. | Contexto durável publicado sem modificar JSON v1. |
+| 10B3c3 — Consumo | Extrair/validar contexto → restaurar/limpar escopo IAM/enforcer → testar redelivery/falhas. | Correlação verificável de publicação/consumo sem payload/segredos em spans. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
 | 11A — Imagens/stack | Criar imagens Java 21 sem root → perfil Compose full → probes e smoke em ambiente limpo. | Stack completa executável conforme guia. |
@@ -561,6 +579,7 @@ O diretório [db/migration](../iam-core/src/main/resources/db/migration/) conté
 | V20 | 9C1 | Correlação de origem e observação transacional da expiração PAM. |
 | V21 | 9C2a | Agenda persistida e metadados de retry da limpeza PAM. |
 | V22 | 9C2b | Agenda persistida e metadados de retry da observação de pedidos PAM. |
+| V23 | 10B3c1 | Parent de tracing opcional e imutável no outbox, separado do envelope v1. |
 
 Não editar migrações já aplicadas para implementar a próxima etapa. Mudanças novas de schema devem ser aditivas/versionadas e acompanhadas de compatibilidade e atualização das concessões necessárias.
 

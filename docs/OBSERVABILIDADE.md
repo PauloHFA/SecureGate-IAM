@@ -14,7 +14,9 @@
 | 10B3a | Implementada localmente | Perfil JSON restrito nos dois executáveis, catálogo finito e hash de correlação; sem payload/MDC livre. |
 | 10B3b1 | Implementada e validada localmente | HTTP servlet entrante opcional, W3C restrito, spans finitos e IDs nos logs IAM; sem exporter. |
 | 10B3b2 | Implementada e validada localmente | Transporte dos clientes JDK runtime Vault, origem/path restritos, quatro atributos e contexto restaurado. |
-| 10B3c | Proposta, pendente | Contexto durável outbox/RabbitMQ e restauração no consumo. |
+| 10B3c1 | Implementada e validada localmente | V23: parent opcional/imutável no outbox, capturado na transação e recuperado em claim/retry. |
+| 10B3c2 | Proposta, pendente | Injeção restrita do contexto persistido na publicação AMQP. |
+| 10B3c3 | Proposta, pendente | Restauração/limpeza no consumo IAM/enforcer. |
 
 A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none; a 10B2b1 acrescenta listener JDK opcional em loopback, GET /metrics, sem MVC/Actuator. Default sem listener. A 10B2a acrescenta Compose Prometheus/Grafana validado com IAM real em stack descartável, sem coleta sustentada ou alteração dos serviços persistentes do usuário. A 10B2b2a acrescenta plugin opcional do RabbitMQ; a 10B2b2b acrescenta exporter PostgreSQL e login de monitoração; a 10B2b2c acrescenta ACL/exporter Redis; a 10B2b2d acrescenta listener/token Vault próprios. Execução conjunta sustentada ainda não foi validada.
 
@@ -129,3 +131,7 @@ W3C traceparent versão 00 validado; duplicados/malformados criam nova raiz. Bag
 ## Clientes HTTP Vault — 10B3b2
 
 Transporte síncrono compartilhado para Transit/MFA, banco dinâmico e PAM. Com tracing ativo, somente origem e rotas conhecidas recebem traceparent; headers de contexto anteriores são removidos da cópia. Sem tracer, requisição original preservada. Spans CLIENT vault.http com vault.operation, http.method, http.status_class e http.failure; sem URI/token/body/credenciais/erro livre. Raízes quando não há parent, sem contexto retido em tokens/leases ou propagação de scheduler. Sem novas métricas/labels/exporter. KV pré-Spring permanece sem tracing; 10B3c e backend/retensão pendentes. [ADR-059](adr/059-tracing-clientes-http-vault.md), [operação](runbooks/tracing-http-local.md), [evidências](evidencias/etapa-10b3b2.md).
+
+## Contexto durável no outbox — 10B3c1
+
+V23 armazena trace_parent opcional (55 caracteres W3C 00, flags 00/01, IDs não nulos) como coluna separada do envelope v1. Captura do span corrente somente na transação de append; sem contexto vira NULL, inclusive eventos históricos. Trigger impede alteração posterior; leases/retries/ACK mantêm valor original. Claim transporta o metadado até a camada de publicação, mas RabbitEventTransport ainda não o utiliza. Sem novos spans, métricas ou headers AMQP, sem alteração de consumidores. IDs não autorizam nem viram labels; sem baggage/tracestate/PII. [ADR-060](adr/060-contexto-duravel-no-outbox.md), [operação](runbooks/tracing-outbox-local.md), [evidências](evidencias/etapa-10b3c1.md).

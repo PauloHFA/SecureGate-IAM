@@ -11,8 +11,8 @@ Começar pelo [guia de implementação passo a passo](GUIA-DE-IMPLEMENTACAO.md):
 | [Guias operacionais](runbooks/) | Preparação, execução, flags, testes e recuperação. |
 | [Evidências](evidencias/) | Comandos executados, resultados observados, ambiente e pendências históricas. |
 
-Estado desta revisão: **10B3b2 — clientes HTTP Vault implementados e validados localmente**, em feat/vault-http-client-tracing sobre d0ef5e2, incluída neste commit; push pendente. Build completo: 810 testes aprovados, cobertura/arquitetura atendidas. [Operação](runbooks/tracing-http-local.md), [ADR-059](adr/059-tracing-clientes-http-vault.md), [evidências](evidencias/etapa-10b3b2.md). Próxima: 10B3c outbox/RabbitMQ. KV anterior ao Spring, backend/retensão, capacidade e publicação/CI continuam pendentes.
+Estado desta revisão: **10B3c1 — contexto persistido no outbox implementado e validado localmente**, em feat/outbox-trace-context sobre 32f3bfa, incluída neste commit; push pendente. Build completo: 818 testes aprovados, cobertura/arquitetura atendidas. V23 deve preceder o novo binário. [Operação](runbooks/tracing-outbox-local.md), [ADR-060](adr/060-contexto-duravel-no-outbox.md), [evidências](evidencias/etapa-10b3c1.md). Próximas: 10B3c2 publicação AMQP e 10B3c3 consumo. Stack persistente não migrada; publicação/CI e aceite global pendentes.
 
 Ao implementar uma nova subdivisão, atualizar guia, plano, README, decisões aplicáveis, operação e evidências. Proposta, implementação, validação local, commit, publicação, CI e merge devem permanecer identificáveis separadamente.
 
-O histórico das entregas anteriores e seus resultados permanece nas evidências individuais. O guia referencia também a 10B3b2 e registra suas divisões passo a passo.
+O histórico das entregas anteriores e seus resultados permanece nas evidências individuais. O guia referencia também a 10B3c1 e registra suas divisões passo a passo.

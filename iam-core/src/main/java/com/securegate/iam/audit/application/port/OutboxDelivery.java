@@ -17,7 +17,22 @@ public interface OutboxDelivery {
       int schemaVersion,
       String payload,
       int attempts,
-      UUID claimId) {
+      UUID claimId,
+      String traceParent) {
+    public Claim(
+        UUID eventId,
+        String eventType,
+        int schemaVersion,
+        String payload,
+        int attempts,
+        UUID claimId) {
+      this(eventId, eventType, schemaVersion, payload, attempts, claimId, null);
+    }
+
+    public Claim {
+      traceParent = OutboxTraceParent.safeOrNull(traceParent);
+    }
+
     @Override
     public String toString() {
       return "OutboxClaim[eventId=" + eventId + ", attempts=" + attempts + ", payload=redacted]";

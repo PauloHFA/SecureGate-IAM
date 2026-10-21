@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.securegate.events.SecurityEvent;
+import com.securegate.iam.audit.application.port.OutboxTraceParent;
 import java.sql.Timestamp;
+import java.util.function.Supplier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -13,8 +15,14 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 public class JdbcOutboxEvents {
   private final JdbcTemplate jdbc;
   private final ObjectWriter json;
+  private final Supplier<String> traceParent;
 
   public JdbcOutboxEvents(JdbcTemplate jdbc, ObjectMapper json) {
+    this(jdbc, json, () -> null);
+  }
+
+  public JdbcOutboxEvents(JdbcTemplate jdbc, ObjectMapper json, Supplier<String> traceParent) {
+    this.traceParent = traceParent;
     this.jdbc = jdbc;
     this.json =
         json.writerFor(SecurityEvent.class).without(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
@@ -26,12 +34,13 @@ public class JdbcOutboxEvents {
     }
     try {
       jdbc.update(
-          "INSERT INTO iam_audit.outbox_events(event_id,event_type,schema_version,occurred_at,payload) VALUES (?,?,?,?,?::jsonb)",
+          "INSERT INTO iam_audit.outbox_events(event_id,event_type,schema_version,occurred_at,payload,trace_parent) VALUES (?,?,?,?,?::jsonb,?)",
           event.eventId(),
           event.eventType(),
           event.schemaVersion(),
           Timestamp.from(event.occurredAt()),
-          json.writeValueAsString(event));
+          json.writeValueAsString(event),
+          OutboxTraceParent.safeOrNull(traceParent.get()));
     } catch (JsonProcessingException failure) {
       throw new IllegalStateException("Event serialization failed.");
     }

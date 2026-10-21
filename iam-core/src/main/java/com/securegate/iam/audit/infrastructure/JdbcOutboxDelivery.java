@@ -44,7 +44,7 @@ public final class JdbcOutboxDelivery implements OutboxDelivery {
         SET claim_id=?,lease_until=clock_timestamp()+(? * interval '1 second'),
             attempts=LEAST(attempts,999999)+1
         FROM candidate c WHERE o.event_id=c.event_id
-        RETURNING o.event_id,o.event_type,o.schema_version,o.payload::text,o.attempts,o.claim_id
+        RETURNING o.event_id,o.event_type,o.schema_version,o.payload::text,o.attempts,o.claim_id,o.trace_parent
         """,
                     (rs, row) ->
                         new Claim(
@@ -53,7 +53,8 @@ public final class JdbcOutboxDelivery implements OutboxDelivery {
                             rs.getInt(3),
                             rs.getString(4),
                             rs.getInt(5),
-                            rs.getObject(6, UUID.class)),
+                            rs.getObject(6, UUID.class),
+                            rs.getString(7)),
                     UUID.randomUUID(),
                     leaseSeconds)
                 .stream()

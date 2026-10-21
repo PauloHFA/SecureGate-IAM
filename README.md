@@ -143,7 +143,9 @@ A **10B3b1** acrescenta tracing HTTP entrante opcional (perfil http-tracing), W3
 
 A **10B3b2** instrumenta os envios JDK runtime para Vault (Transit/MFA, banco dinâmico e PAM), com contexto restrito à origem/rotas configuradas e spans sem segredos. KV pré-Spring permanece fora do tracing. Consultar [operação](docs/runbooks/tracing-http-local.md), [ADR-059](docs/adr/059-tracing-clientes-http-vault.md) e [evidências](docs/evidencias/etapa-10b3b2.md).
 
-Próxima implementação: **10B3c — contexto durável outbox/RabbitMQ**. Trabalho local em `feat/vault-http-client-tracing`, sobre `d0ef5e2`, incluída neste commit; push pendente. Publicação/CI, backend de tracing e aceite de desempenho permanecem pendentes.
+A **10B3c1** acrescenta V23: contexto W3C opcional e imutável persistido na mesma transação do outbox, fora do payload v1, preservado em claims/retries. **Migrar antes do novo binário**, inclusive com tracing desligado. Consultar [operação](docs/runbooks/tracing-outbox-local.md), [ADR-060](docs/adr/060-contexto-duravel-no-outbox.md) e [evidências](docs/evidencias/etapa-10b3c1.md).
+
+Próxima implementação: **10B3c2 — publicação do contexto em AMQP**, depois **10B3c3 — consumo**. Trabalho local em `feat/outbox-trace-context`, sobre `32f3bfa`, incluída neste commit; push pendente. Publicação/CI, backend e aceite de desempenho permanecem pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

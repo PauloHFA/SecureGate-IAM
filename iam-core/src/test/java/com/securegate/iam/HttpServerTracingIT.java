@@ -204,6 +204,25 @@ class HttpServerTracingIT {
     assertThat(vaultFixture.contextExtras).isEmpty();
   }
 
+  @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+  @Test
+  void persistsActualHttpServerSpanInOutboxOutsideTheEventPayload() throws Exception {
+    String trace = id();
+    var response = get("/trace-test/outbox", "00-" + trace + "-" + id().substring(0, 16) + "-01");
+    assertThat(response.statusCode()).isEqualTo(200);
+    var body = json.readTree(response.body());
+    String correlation = body.get("correlation").asText();
+    var row =
+        jdbc.queryForMap(
+            "SELECT trace_parent,payload::text AS payload FROM iam_audit.outbox_events WHERE payload->>'correlationId'=?",
+            correlation);
+    assertThat(row.get("trace_parent"))
+        .isEqualTo("00-" + trace + "-" + body.get("serverSpan").asText() + "-01");
+    assertThat(row.get("payload").toString())
+        .doesNotContain(trace, "traceparent", "tracestate", "baggage");
+  }
+
   static class VaultFixture implements AutoCloseable {
     final com.sun.net.httpserver.HttpServer server;
     final String token = UUID.randomUUID().toString();
@@ -290,8 +309,9 @@ class HttpServerTracingIT {
     Endpoint endpoint(
         Tracer tracer,
         com.securegate.iam.shared.infrastructure.VaultHttpTransport transport,
-        VaultFixture vault) {
-      return new Endpoint(tracer, transport, vault);
+        VaultFixture vault,
+        com.securegate.iam.audit.application.port.AuditTrail audit) {
+      return new Endpoint(tracer, transport, vault, audit);
     }
 
     @Bean(destroyMethod = "close")
@@ -315,14 +335,30 @@ class HttpServerTracingIT {
 
     final com.securegate.iam.shared.infrastructure.VaultHttpTransport transport;
     final VaultFixture vault;
+    final com.securegate.iam.audit.application.port.AuditTrail audit;
 
     Endpoint(
         Tracer tracer,
         com.securegate.iam.shared.infrastructure.VaultHttpTransport transport,
-        VaultFixture vault) {
+        VaultFixture vault,
+        com.securegate.iam.audit.application.port.AuditTrail audit) {
       this.tracer = tracer;
       this.transport = transport;
       this.vault = vault;
+      this.audit = audit;
+    }
+
+    @GetMapping("/trace-test/outbox")
+    Map<String, String> outbox() {
+      String correlation = UUID.randomUUID().toString();
+      audit.record(
+          new com.securegate.iam.audit.application.port.AuditRecord(
+              new com.securegate.events.SecurityEventType("test.outbox"),
+              "synthetic",
+              new com.securegate.iam.shared.application.port.OperationContext("test", correlation),
+              Map.of("version", "1")));
+      return Map.of(
+          "correlation", correlation, "serverSpan", tracer.currentSpan().context().spanId());
     }
 
     @GetMapping("/trace-test/vault")

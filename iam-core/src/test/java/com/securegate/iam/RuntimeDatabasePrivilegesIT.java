@@ -201,6 +201,7 @@ class RuntimeDatabasePrivilegesIT {
         "SELECT iam_audit.archive_event_month(date '2020-01-01',6)",
         "SELECT iam_audit.set_outbox_quarantine(NULL,true)",
         "UPDATE iam_audit.outbox_events SET payload=payload WHERE false",
+        "UPDATE iam_audit.outbox_events SET trace_parent=trace_parent WHERE false",
         "UPDATE iam_audit.security_events SET actor=actor WHERE false",
         "DELETE FROM iam_audit.security_events WHERE false",
         "UPDATE iam_authorization.privileged_requests SET justification=justification WHERE false",
