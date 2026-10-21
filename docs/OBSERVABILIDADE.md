@@ -9,10 +9,11 @@
 | 10B2b1 | Implementada localmente | Listener JDK opcional do enforcer, token próprio, job/overlay e dashboard separado. |
 | 10B2b2a | Implementada localmente | Plugin/scrape RabbitMQ opcionais, agregação e dashboard separado. |
 | 10B2b2b | Implementada localmente | Login dedicado, exporter PostgreSQL opcional, senha por arquivo e estatísticas do cluster. |
-| 10B2b2c–d | Propostas, pendentes | Redis e Vault, com permissões/telemetria por dependência. |
+| 10B2b2c | Implementada localmente | ACL própria sem acesso a chaves, exporter Redis opcional e estatísticas agregadas. |
+| 10B2b2d | Proposta, pendente | Vault, com política/token e telemetria próprios. |
 | 10B3 | Proposta, pendente | Logs estruturados sanitizados e tracing propagado por HTTP/RabbitMQ, com validação de cardinalidade/segredos. |
 
-A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none; a 10B2b1 acrescenta listener JDK opcional em loopback, GET /metrics, sem MVC/Actuator. Default sem listener. A 10B2a acrescenta Compose Prometheus/Grafana validado com IAM real em stack descartável, sem coleta sustentada ou alteração dos serviços persistentes do usuário. A 10B2b2a acrescenta plugin opcional do RabbitMQ; a 10B2b2b acrescenta exporter PostgreSQL e login de monitoração; Redis e Vault continuam pendentes.
+A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none; a 10B2b1 acrescenta listener JDK opcional em loopback, GET /metrics, sem MVC/Actuator. Default sem listener. A 10B2a acrescenta Compose Prometheus/Grafana validado com IAM real em stack descartável, sem coleta sustentada ou alteração dos serviços persistentes do usuário. A 10B2b2a acrescenta plugin opcional do RabbitMQ; a 10B2b2b acrescenta exporter PostgreSQL e login de monitoração; a 10B2b2c acrescenta ACL/exporter Redis; Vault continua pendente.
 
 ## IAM: superfície e controle de acesso
 
@@ -82,7 +83,7 @@ Overlay opcional publica 127.0.0.1:15692 (porta externa configurável). Plugin n
 
 Dashboard UID securegate-rabbitmq tem seis painéis: up, rabbitmq_queue_messages_ready, rabbitmq_queue_messages_unacked, rabbitmq_connections, rabbitmq_channels e rabbitmq_queue_consumers. Totais são do nó e incluem filas de retry/DLQ. Scrape disponível e consumidores registrados não comprovam progresso/entrega da aplicação. Não mede SLA de revogação ou capacidade.
 
-[Operação](runbooks/metricas-rabbitmq-local.md), [ADR-053](adr/053-coleta-opcional-rabbitmq.md), [evidências](evidencias/etapa-10b2b2a.md). PostgreSQL segue na 10B2b2b; próximas dependências: Redis e Vault.
+[Operação](runbooks/metricas-rabbitmq-local.md), [ADR-053](adr/053-coleta-opcional-rabbitmq.md), [evidências](evidencias/etapa-10b2b2a.md). PostgreSQL segue na 10B2b2b; Redis segue na 10B2b2c; próxima dependência: Vault.
 
 ## PostgreSQL — 10B2b2b
 
@@ -90,4 +91,12 @@ Exporter 0.19.1 fixado por digest em overlay opcional, publicação 127.0.0.1:19
 
 Dashboard UID securegate-postgres: up, pg_up, pg_stat_database_numbackends, pg_stat_database_xact_commit, pg_database_size_bytes e pg_stat_database_deadlocks (seis painéis). Up=1 com pg_up=0 é possível em erro SQL; conferir também presença dos dados/erros dos coletores. Commits incluem monitoração e estatísticas de outros bancos. Não representam throughput IAM ou capacidade.
 
-pg_monitor permite ler estatísticas/configuração e funções amplas do cluster, inclusive informações de sessões/SQL pelas interfaces PostgreSQL; o exporter escolhido não exporta esse texto. PUBLIC não foi alterado. ACLs, não default_transaction_read_only, impedem SELECT/DML em tabelas de negócio. [Operação](runbooks/metricas-postgres-local.md), [ADR-054](adr/054-coleta-opcional-postgresql.md), [evidências](evidencias/etapa-10b2b2b.md). Próximas: Redis e Vault.
+pg_monitor permite ler estatísticas/configuração e funções amplas do cluster, inclusive informações de sessões/SQL pelas interfaces PostgreSQL; o exporter escolhido não exporta esse texto. PUBLIC não foi alterado. ACLs, não default_transaction_read_only, impedem SELECT/DML em tabelas de negócio. [Operação](runbooks/metricas-postgres-local.md), [ADR-054](adr/054-coleta-opcional-postgresql.md), [evidências](evidencias/etapa-10b2b2b.md). Redis segue na 10B2b2c; próxima: Vault.
+
+## Redis — 10B2b2c
+
+redis_exporter 1.95.0-alpine fixado por digest, overlay opcional loopback 19121 e senha JSON por arquivo. Usuário securegate_metrics: -@all e INFO/PING/CLIENT SETNAME/COMMAND INFO/SLOWLOG LEN, sem padrões de chaves/canais. CONFIG/GET/SET/SCAN/EVAL/ACL/FLUSHDB/SLOWLOG GET negados. Preparador recusa ACL customizada e gera arquivo persistente que mantém senha/permissões default e AOF; aplicação exige janela de reinício.
+
+Dashboard UID securegate-redis: up, redis_up, redis_memory_used_bytes, redis_connected_clients, redis_db_keys e redis_commands_processed_total. Conferir também redis_exporter_last_scrape_error: erro de senha pode produzir up=1 com redis_up=0. INFO keyspace fornece contagens por DB, sem ler nomes/valores. Comandos/clientes incluem coleta; não medem throughput/SLA IAM.
+
+SLOWLOG GET é tentado e recusado intencionalmente, gerando ACL LOG e ausência das métricas do último comando lento. CONFIG e /scrape arbitrário desabilitados; não habilitar checks de chaves, CLIENT LIST, scripts ou debug. Endpoint HTTP e Redis local sem TLS; host/rede/arquivos são limites. [Operação](runbooks/metricas-redis-local.md), [ADR-055](adr/055-coleta-opcional-redis.md), [evidências](evidencias/etapa-10b2b2c.md). Próxima: Vault.

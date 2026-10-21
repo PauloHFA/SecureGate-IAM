@@ -312,6 +312,8 @@ A **10B2b2** foi dividida em **10B2b2a** (RabbitMQ), **10B2b2b** (PostgreSQL), *
 
 A **10B2b2b** implementa login próprio pg_monitor, senha por arquivo e exporter 0.19.1 fixado por digest em overlay opcional loopback. Provisionamento transacional recusa ACLs/memberships/atributos inesperados sem modificar os logins da aplicação. Coletores limitados a database/stat_database/stat_bgwriter, sem tabelas/SQL de negócio. Job/migração com backup e dashboard de seis painéis distinguem up HTTP de pg_up SQL. Smoke exige ACL real com read-only desligado, estatísticas/transações/Grafana, credencial inválida com HTTP disponível e recuperação. Ver [ADR-054](adr/054-coleta-opcional-postgresql.md), [operação](runbooks/metricas-postgres-local.md), [evidências](evidencias/etapa-10b2b2b.md). Trabalho local em feat/postgres-prometheus-metrics sobre eea6f52, incluída neste commit; push pendente. pg_monitor lê estatísticas amplas do cluster; não equivale a isolamento por banco nem mede capacidade.
 
+A **10B2b2c** implementa ACL Redis dedicada sem acesso a chaves/canais, arquivos privados com hashes/senha JSON e overlay que mantém autenticação default/AOF e acrescenta redis_exporter 1.95.0 fixado por digest. Preparador verifica ACL ativa e recusa usuários/permissões inesperados sem alterar o serviço. Job/migração com backup e dashboard de seis painéis distinguem HTTP up de redis_up; SLOWLOG GET é negado deliberadamente. Smoke exige recusas de dados/admin, preservação após reinício, Grafana e falha/recuperação de senha. Ver [ADR-055](adr/055-coleta-opcional-redis.md), [operação](runbooks/metricas-redis-local.md), [evidências](evidencias/etapa-10b2b2c.md). Trabalho local em feat/redis-prometheus-metrics sobre 6a48bb6, incluída neste commit; push pendente. Aplicação da ACL requer reinício local; não houve alteração da stack persistente ou Java/migrations.
+
 ## Etapa 11 — Entrega e hardening
 
 - [ ] Criar imagens multi-stage Java 21 com usuário sem privilégios e versões fixadas.
@@ -381,4 +383,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para **10B2b2c — Redis**, depois **10B2b2d — Vault** e **10B3 — logs/tracing**. A 10B2b2b é o trabalho local em `feat/postgres-prometheus-metrics`, sobre `eea6f52`, incluída neste commit; push pendente. A 10B2b2a está versionada em `eea6f52`; publicação/CI a confirmar. Ensaios sustentados 10C, ajustes 10D e verificações gerais de entrega continuam pendentes.
+Seguir para **10B2b2d — Vault**, depois **10B3 — logs/tracing**. A 10B2b2c é o trabalho local em `feat/redis-prometheus-metrics`, sobre `6a48bb6`, incluída neste commit; push pendente. A 10B2b2b está versionada em `6a48bb6`; publicação/CI a confirmar. Ensaios sustentados 10C, ajustes 10D e verificações gerais de entrega continuam pendentes.

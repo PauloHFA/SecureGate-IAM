@@ -168,3 +168,7 @@ O [overlay](docker-compose.rabbitmq-metrics.yml) habilita plugin Prometheus nati
 ## Coleta opcional PostgreSQL — 10B2b2b
 
 [Provisionamento](scripts/Provision-PostgresMetrics.ps1) administrativo explícito cria login dedicado pg_monitor e senha em arquivo privado, sem alterar grants IAM/auditoria/PAM. O [overlay](docker-compose.postgres-metrics.yml) acrescenta somente postgres-exporter, com digest fixado e publicação loopback padrão 19187. Não recria o banco nem modifica o Compose base. Seguir [runbook](../docs/runbooks/metricas-postgres-local.md) para permissões, inclusão do job com backup, interpretação de up versus pg_up e rotação/retirada. Esta entrega foi validada em projetos descartáveis; não provisionou o banco persistente do usuário.
+
+## Coleta opcional Redis — 10B2b2c
+
+[Preparador](scripts/Initialize-RedisMetrics.ps1) verifica ACL ativa do Redis base antes de gerar par privado de senha/ACL, preservando autenticação default e recusando configurações customizadas. O [overlay](docker-compose.redis-metrics.yml) carrega ACL persistente com AOF/volume preservados e acrescenta exporter por digest, senha por arquivo e porta loopback padrão 19121. Aplicar exige reinício Redis; preparador não muda ACL ativa. Seguir [runbook](../docs/runbooks/metricas-redis-local.md) para janela, comandos, permissões, migração de coleta com backup e retirada. Validado em projetos descartáveis; a stack persistente do usuário não foi reconfigurada.

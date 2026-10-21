@@ -6,18 +6,18 @@ Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B2b2b — coleta PostgreSQL |
-| Base desta entrega | eea6f52 — coleta RabbitMQ |
+| Última entrega implementada | 10B2b2c — coleta Redis |
+| Base desta entrega | 6a48bb6 — coleta PostgreSQL |
 | Trabalho local | Implementação, testes e documentação incluídos neste commit; push pendente |
-| Branch | feat/postgres-prometheus-metrics |
-| Validação da entrega | Smokes PostgreSQL e regressão IAM: 2 testes, zero falhas; BUILD SUCCESS às 13:27:35 UTC−03; suíte completa não repetida |
-| Próxima implementação | 10B2b2c — Redis |
+| Branch | feat/redis-prometheus-metrics |
+| Validação da entrega | Smokes Redis/IAM aprovados; Redis revalidado às 13:49:35 UTC−03 após ajuste de caixa; suíte completa não repetida |
+| Próxima implementação | 10B2b2d — Vault |
 | Pendências seguintes | 10B3 — logs/tracing; 10C–10D — medição/ajustes; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a e a 10B2b2b também estão implementadas abaixo. As demais divisões 10B2b2c–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b e a 10B2b2c também estão implementadas abaixo. As demais divisões 10B2b2d–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -429,13 +429,31 @@ pg_monitor permite leitura ampla de estatísticas/configuração do cluster e po
 
 Referências: [operação](runbooks/metricas-postgres-local.md), [ADR-054](adr/054-coleta-opcional-postgresql.md), [evidências 10B2b2b](evidencias/etapa-10b2b2b.md), [inventário](OBSERVABILIDADE.md). Trabalho local em feat/postgres-prometheus-metrics sobre eea6f52, incluída neste commit; push pendente; sem provisionar a stack persistente. V22 e grants IAM/auditoria/PAM preservados.
 
+## 10B2b2c — Coleta Redis
+
+Objetivo: coletar estatísticas Redis sem ler nomes/valores de chaves de sessão/enforcement. Sucede PostgreSQL 10B2b2b; Vault permanece na 10B2b2d.
+
+1. Criar feat/redis-prometheus-metrics sobre 6a48bb6. Conferir versão/digest/flags e código do redis_exporter, mapa de senha e regras ACL oficiais.
+2. Selecionar comandos mínimos de monitoração e desabilitar CONFIG, extração de chaves/valores, histogramas de latência e endpoint /scrape de alvos arbitrários. Manter SLOWLOG GET negado, mesmo sendo tentado pelo exporter.
+3. Implementar preparador administrativo que consulta ACL ativa com autenticação por ambiente temporário e recusa usuários/default/metrics fora do contrato base. Não normalizar ACL customizada silenciosamente.
+4. Gerar par de arquivos privados com senha CSPRNG JSON e ACL com hashes de default/metrics; preservar senha/permissões default e limitar metrics a INFO/PING e metadados sem chaves/canais. Reutilizar somente par válido; recusar arquivos parciais/divergentes.
+5. Criar overlay que carrega ACL file no Redis com AOF/volume preservados e acrescenta exporter por digest, senha montada read-only, recursos limitados e porta loopback. Bind não cria arquivos ausentes.
+6. Registrar necessidade de reinício/janela, origem da senha default no ACL file, rotação e retirada explícitas. Preparador não altera ACL ativa nem executa reinício/ACL SAVE/CONFIG REWRITE.
+7. Adicionar job a cada 15 s, migração com backup/recusa de duplicidade e dashboard de seis painéis. Distinguir HTTP up, redis_up e last_scrape_error.
+8. Construir smoke descartável com arquivos versionados e Redis/exporter/coleta reais. Recusar ACL customizada (inclusive usuário com caixa diferente), URI do mapa divergente, arquivo alterado, grants inesperados e comandos de leitura/escrita/scan/admin/logs com credencial metrics.
+9. Validar estatísticas agregadas, seis consultas/frame Grafana e scrape sem chave/payload/segredos. Invalidar senha em memória, exigir up=1/redis_up=0, restaurar e confirmar recuperação.
+10. Reiniciar Redis e confirmar autenticação metrics/default e dados AOF. Limpar somente projetos privados, revisar artefatos e registrar resultados/limites e próxima entrega.
+
+O smoke pode recarregar a ACL original de sua fixture descartável para desfazer injeção de grant; o preparador do produto não executa ACL LOAD. Regra -get redundante também é recusada pela comparação estrita de comandos. INFO expõe estatísticas operacionais; a ACL não permite acesso a chaves/canais. SLOWLOG GET negado gera ACL LOG esperado e limita métricas de comandos lentos.
+
+Referências: [operação](runbooks/metricas-redis-local.md), [ADR-055](adr/055-coleta-opcional-redis.md), [evidências 10B2b2c](evidencias/etapa-10b2b2c.md), [inventário](OBSERVABILIDADE.md). Trabalho local em feat/redis-prometheus-metrics sobre 6a48bb6, incluída neste commit; push pendente. Nenhuma reconfiguração da stack persistente do usuário, aplicação Java ou migrations.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
 As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10B2b2c — Redis | Definir exporter e ACL de leitura → integrar coleta e testar recuperação. | Séries Redis sem reutilizar acesso administrativo. |
 | 10B2b2d — Vault | Habilitar telemetria e política/token de leitura → coletar e correlacionar dependências. | Séries reais Vault; correlação das quatro dependências documentada. |
 | 10B3 — Logs/tracing | Estruturar logs sanitizados e propagar contexto HTTP/RabbitMQ → validar ausência de payload/segredos e cardinalidade. | Correlação verificável de requisição/evento/dependências. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
