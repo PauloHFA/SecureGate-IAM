@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement, [switch]$EnableAuditPartitions, [switch]$EnableAuditIngestion, [switch]$EnableAuditConsumer, [switch]$EnableAuditQuery, [switch]$EnableVaultKv, [switch]$EnableVaultDatabase, [switch]$EnablePam, [switch]$EnablePamCredentials)
+param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnablePrometheus, [switch]$EnableHttpHistograms, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement, [switch]$EnableAuditPartitions, [switch]$EnableAuditIngestion, [switch]$EnableAuditConsumer, [switch]$EnableAuditQuery, [switch]$EnableVaultKv, [switch]$EnableVaultDatabase, [switch]$EnablePam, [switch]$EnablePamCredentials)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LocalEnvironment.ps1')
@@ -12,6 +12,10 @@ if ($EnableResourceEnforcement -or $EnablePam) { $EnableAuthorization = $true }
 if ($EnableAuthorization) { $EnableTransit = $true }
 if ($EnableBootstrap -and (-not $settings.ContainsKey('IAM_BOOTSTRAP_TOKEN') -or $settings.IAM_BOOTSTRAP_TOKEN.Length -lt 32)) {
   throw 'Token bootstrap ausente ou invalido. Execute Initialize-Local.ps1 antes de ativar a administracao.'
+}
+$metricsTokenPath = Join-Path $projectPath 'infra/.local/iam-metrics-token'
+if ($EnablePrometheus -and -not (Test-Path -LiteralPath $metricsTokenPath)) {
+  throw 'Arquivo de token de metricas ausente. Execute Initialize-MetricsToken.ps1.'
 }
 $jarPath = Join-Path $projectPath 'iam-core/target/iam-core-0.1.0-SNAPSHOT.jar'
 $vaultRole = if ($EnableVaultDatabase) { 'iam-runtime' } else { 'iam-core' }
@@ -34,6 +38,9 @@ if (-not (Test-Path -LiteralPath $jarPath)) {
   throw 'JAR ausente. Execute .\mvnw.cmd verify na raiz antes de iniciar.'
 }
 $applicationEnvironment = @{
+  IAM_PROMETHEUS_ENABLED = $EnablePrometheus.IsPresent.ToString().ToLowerInvariant()
+  IAM_HTTP_HISTOGRAMS_ENABLED = $EnableHttpHistograms.IsPresent.ToString().ToLowerInvariant()
+  IAM_METRICS_TOKEN_FILE = $(if ($EnablePrometheus) { $metricsTokenPath } else { '' })
   PGPASSWORD = ''
   VAULT_TOKEN = ''
   VAULT_DEV_ROOT_TOKEN_ID = ''

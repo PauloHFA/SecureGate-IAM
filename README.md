@@ -123,7 +123,9 @@ A **10A2b2** acrescenta acesso Bearer ao recurso de conta, recusa de token invá
 
 A **10A2b3** acrescenta produção de fatos pela API, consulta central por correlação/tipo, duas páginas com cursor real e recusa sem credencial. O smoke compara envelopes com a Outbox e detecta correlação inexistente. Consultar [operação](load-tests/jmeter/AUDIT.md), [ADR-049](docs/adr/049-carga-de-auditoria-central.md) e [evidências](docs/evidencias/etapa-10a2b3.md). Os planos 10A cobrem os cenários funcionais; medições de capacidade/SLA permanecem pendentes.
 
-Próxima implementação: **10B — observabilidade**. Trabalho local em `feat/load-audit-smoke`, sobre `860d125`, com 10A2b2 e 10A2b3 incluídas neste commit; push pendente. Publicação/CI e verificações gerais de entrega permanecem separadas.
+A **10B1** acrescenta exportação Prometheus opt-in no IAM, token próprio de leitura por arquivo e histogramas HTTP opcionais. Preserva saúde e administração, sem expor métricas publicamente. Consultar [inventário](docs/OBSERVABILIDADE.md), [operação](docs/runbooks/metricas-prometheus-local.md), [ADR-050](docs/adr/050-exportacao-prometheus-protegida.md) e [evidências](docs/evidencias/etapa-10b1.md).
+
+Próxima implementação: **10B2 — coleta e dashboards**, incluindo estratégia de exposição do enforcer; **10B3** tratará logs/tracing. Trabalho local em `feat/iam-prometheus-metrics`, sobre `42b9707`, incluída neste commit; push pendente. Publicação/CI, observabilidade completa e aceite de desempenho permanecem pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

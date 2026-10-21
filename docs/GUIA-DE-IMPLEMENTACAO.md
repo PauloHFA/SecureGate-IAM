@@ -6,18 +6,18 @@ Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10A2b3 — produção, ingestão, consulta e cursor de auditoria |
-| Base desta entrega | 860d125 — 10A2b1; 10A2b2/10A2b3 incluídas neste commit |
-| Trabalho local | Implementação, teste opt-in e documentação incluídos neste commit; push pendente |
-| Branch | feat/load-audit-smoke |
-| Validação da entrega | Smoke de auditoria aprovado em 21/10/2026 às 00:45:27 UTC−03 (1 teste, oito amostras normais, controle detectado); regressão de recurso/revogação também aprovada; clean verify não repetido |
-| Próxima implementação | 10B — observabilidade |
-| Pendências seguintes | 10B–10D e aceite de desempenho; 10A2b2/10A2b3 incluídas neste commit; push pendente; publicação/CI |
+| Última entrega implementada | 10B1 — exportação Prometheus protegida e inventário |
+| Base desta entrega | 42b9707 — smokes de recurso/revogação e auditoria |
+| Trabalho local | Implementação, testes e documentação incluídos neste commit; push pendente |
+| Branch | feat/iam-prometheus-metrics |
+| Validação da entrega | clean verify aprovado em 21/10/2026 às 01:05:45 UTC−03: 782 testes, cobertura/arquitetura/E2E; ressalva de encerramento da JVM/Hikari documentada nas evidências |
+| Próxima implementação | 10B2 — coleta/dashboards/enforcer |
+| Pendências seguintes | 10B3 — logs/tracing; 10C–10D — medição/ajustes; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a e a 10A2b1–3 também estão implementadas abaixo. As demais divisões 10B–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3 e a 10B1 também estão implementadas abaixo. As demais divisões 10B2–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -349,13 +349,28 @@ Referências: [operação](../load-tests/jmeter/RESOURCE-REVOCATION.md), [runboo
 
 Referências: [operação](../load-tests/jmeter/AUDIT.md), [runbook](runbooks/carga-auditoria-local.md), [ADR-049](adr/049-carga-de-auditoria-central.md), [evidências 10A2b3](evidencias/etapa-10a2b3.md). Trabalho atual em feat/load-audit-smoke preserva 10A2b2/10A2b3 incluídas neste commit; push pendente.
 
+### Passo a passo da 10B1 — exportação de métricas do IAM
+
+1. Criar feat/iam-prometheus-metrics sobre 42b9707, com diretório de trabalho limpo, e inventariar meters/flags existentes. Identificar que enforcer é não web.
+2. Dividir 10B: 10B1 prepara inventário/exportação IAM; 10B2 tratará coleta/Grafana/enforcer/dependências; 10B3 tratará logs/tracing. Não declarar a 10B completa.
+3. Conferir contrato oficial Spring Boot 3.5/Micrometer e acrescentar micrometer-registry-prometheus com versão do BOM.
+4. Configurar endpoint desligado por padrão e tag application fixa; histogramas HTTP opt-in com faixa esperada 1 ms–10 s, sem tags de usuário/token/correlação.
+5. Criar cadeia exata para /actuator/prometheus: token de leitura próprio por arquivo, digest constante, somente GET e nenhuma sessão; manter admin/JSON metrics/probes separados.
+6. Criar inicializador CSPRNG que recusa sobrescrita e flags EnablePrometheus/EnableHttpHistograms no launcher local. Falhar cedo se credencial necessária não existir; não alterar .env/stack persistente.
+7. Testar arquivo inválido/ausente, erro sanitizado, padrão desligado, autenticação/duplicidade/POST e isolamento de admin/metrics/env. Conferir JVM/buckets/template de rota sem query/credenciais no scrape.
+8. Executar testes focados e build completo com cobertura/arquitetura/E2E; validar scripts em cópia isolada e registrar ocorrências sem inventar causas/resultados.
+9. Documentar inventário, consultas propostas e operação, atualizar evidências/índices e avançar para 10B2. Schema/ACL permanecem sem alteração, V22 atual. Nenhum scrape sustentado/capacidade/SLA foi aceito.
+
+Referências: [inventário](OBSERVABILIDADE.md), [operação](runbooks/metricas-prometheus-local.md), [ADR-050](adr/050-exportacao-prometheus-protegida.md), [evidências 10B1](evidencias/etapa-10b1.md). Trabalho local em feat/iam-prometheus-metrics, sobre 42b9707, incluída neste commit; push pendente.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
 As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10B — Observabilidade | Definir métricas, logs sanitizados e tracing HTTP/RabbitMQ → correlacionar dependências e filas. | Diagnóstico de latência/erro sem payload sensível. |
+| 10B2 — Coleta/dashboard | Definir scrape/credenciais e exposição do enforcer → subir Prometheus/Grafana → coletar dependências. | Séries e painéis reproduzíveis; sem token administrativo no scraper. |
+| 10B3 — Logs/tracing | Estruturar logs sanitizados e propagar contexto HTTP/RabbitMQ → validar ausência de payload/segredos e cardinalidade. | Correlação verificável de requisição/evento/dependências. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
 | 11A — Imagens/stack | Criar imagens Java 21 sem root → perfil Compose full → probes e smoke em ambiente limpo. | Stack completa executável conforme guia. |

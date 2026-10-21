@@ -1,0 +1,73 @@
+# Observabilidade — inventário e contratos (10B1)
+
+## Divisão da 10B
+
+| Entrega | Estado | Escopo |
+| --- | --- | --- |
+| 10B1 | Implementada localmente | Inventário, exportação Prometheus protegida no IAM, histogramas HTTP opcionais e testes. |
+| 10B2 | Proposta, pendente | Coleta Prometheus/Grafana, dashboards e estratégia de exposição do enforcer sem HTTP atualmente; coleta das dependências. |
+| 10B3 | Proposta, pendente | Logs estruturados sanitizados e tracing propagado por HTTP/RabbitMQ, com validação de cardinalidade/segredos. |
+
+A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none e suas métricas internas ainda não têm endpoint HTTP. Não foram instalados Prometheus/Grafana/exporters nem coletadas séries sustentadas nesta entrega. Banco, Redis, RabbitMQ e Vault não recebem novos exporters/ACL.
+
+## IAM: superfície e controle de acesso
+
+A dependência micrometer-registry-prometheus usa a versão gerenciada pelo Spring Boot do projeto; não há versão paralela fixada. Endpoint e histogramas são opt-in:
+
+| Configuração | Padrão | Efeito |
+| --- | --- | --- |
+| IAM_PROMETHEUS_ENABLED | false | Habilita GET /actuator/prometheus e a cadeia de segurança dedicada. |
+| IAM_METRICS_TOKEN_FILE | vazio | Arquivo privado UTF-8 com token de leitura; obrigatório quando o endpoint está ativo. |
+| IAM_HTTP_HISTOGRAMS_ENABLED | false | Ativa buckets do timer HTTP para agregação futura de percentis; aumenta séries/memória. |
+
+O token tem 32–256 caracteres sem espaços internos; espaços/quebras nas extremidades são removidos. Arquivo regular de até 512 bytes; inválido/ausente aborta startup sem imprimir caminho/valor na mensagem de validação. Inicializador cria 32 bytes CSPRNG como 64 caracteres hexadecimais e recusa sobrescrita. A aplicação carrega digest SHA-256 no startup; troca do arquivo exige reinício. Diretórios/arquivos usam permissões do sistema; o inicializador não configura ACL.
+
+Somente GET é autorizado com METRICS_READ, sem sessão/cookies e com comparação constante do digest. Authorization ausente, incorreto, duplicado ou token administrativo recebe 401. POST com token de leitura recebe 403. O token não autentica em /api/admin/** nem /actuator/metrics; env/configprops/beans continuam sem exposição. Sem a flag, a rota é negada pela segurança padrão (403), sem bean do endpoint; não existe leitura pública de métricas. Health/readiness/liveness preservam seu contrato.
+
+O registro Prometheus está no classpath mesmo quando a rota está desligada; desligar o endpoint não desliga toda a instrumentação Micrometer interna. Histograma HTTP usa faixa esperada de 1 ms a 10 s para limitar buckets; observações fora da faixa ainda contam no timer. Isso não impõe timeout nem rejeita requisições. A tag application é o nome fixo da aplicação.
+
+## Inventário de métricas existentes
+
+Nomes Micrometer são normalizados em Prometheus; contadores têm sufixo _total, timers têm _seconds_count/_seconds_sum e histogramas habilitados têm _seconds_bucket. Famílias abaixo não são séries garantidas antes de suas funcionalidades/eventos serem exercitados.
+
+| Família no código | Forma/finalidade | Ativação e leitura |
+| --- | --- | --- |
+| http.server.requests | Contagem/tempo por method, uri de rota, status/outcome/exception | Tráfego HTTP; buckets opcionais. A exportação inclui o próprio scrape; excluir rotas Actuator nas análises de negócio. |
+| jvm.*, process.*, system.* | Memória, GC, threads, CPU/uptime disponíveis pelos binders | Distinguir heap de memória total/RSS; não equivale a métricas de todos os containers/host. |
+| hikaricp.* / jdbc.connections.* | Uso/limites dos pools, quando o binder/pool suporta | Correlacionar saturação com latência; modo Vault dinâmico tem também sinais próprios. |
+| iam.outbox.pending/published/quarantined/due/leased/expired/failed/oldest_seconds | Gauges de snapshot periódico | Snapshot disponível não comprova entrega no consumidor. |
+| iam.outbox.snapshot.available/timestamp | Disponibilidade e instante do snapshot | Tratar NaN/available=0 e idade do snapshot como indisponibilidade, não backlog zero. |
+| iam.outbox.delivery, iam.outbox.store.errors, iam.outbox.maintenance.errors | Contadores result/operation | Publisher/erros; dependem de flags/eventos, não são taxa final de ingestão. |
+| iam.audit.consumer.messages/batches/errors | Contadores result/lotes/erros | Consumer ligado; APPENDED/DUPLICATE/INVALID/CONFLICT/RETRY/LATE conforme contrato existente. |
+| iam.audit.partitions.available/runs/created | Gauge/contadores | Manutenção de partições ligada; não atesta ingestão. |
+| iam.transit.requests/rejected | Timer operation/outcome e contador de rejeições | Transit ativo; operation limitada a sign/encrypt/decrypt/login/keys. |
+| iam.resources.enforcement | Contador operation/result | Enforcement Redis ativo; allowed/denied/unavailable e present/absent conforme operação. |
+| iam.database.vault.* | Disponibilidade, leases, rotações, renovações e falhas | Modo banco dinâmico ativo; não equivale a uma visão completa do Vault. |
+| iam.pam.cleanup.* e iam.pam.expiration.* | Gauges de snapshots/freshness e contadores de falhas | PAM opcional; snapshot pode ficar indisponível; não consultar banco durante scrape para fabricar valor fresco. |
+| iam.enforcer.revocation.* / iam.enforcer.block-policy.* | Contadores internos messages/result e connection.errors | **No processo enforcer**, sem scrape HTTP nesta entrega. |
+
+Não adicionar token, e-mail, subject/user ID, eventId, correlationId, sid/jti, cursor, URL crua/query ou texto de erro como tags. Templates de rota reduzem cardinalidade de IDs; o teste cobre uma rota parametrizada e query sensível sintética, não todos os meters/extensões possíveis. Não habilitar debug HTTP ou publicar scrape/log bruto sem revisão.
+
+## Consultas propostas para a 10B2
+
+São exemplos para futura coleta; não foram executados em um servidor Prometheus nesta etapa. Exigem tráfego suficiente e histórico de pelo menos a janela, sem inferir capacidade de um smoke.
+
+```promql
+# Taxa HTTP por rota/método, excluindo scrapes/health.
+sum by (uri, method) (rate(http_server_requests_seconds_count{application="iam-core",uri!~"/actuator/.*"}[5m]))
+
+# p95 por rota/método, somente quando buckets estão ligados.
+histogram_quantile(0.95, sum by (le, uri, method) (rate(http_server_requests_seconds_bucket{application="iam-core",uri!~"/actuator/.*"}[5m])))
+
+# Backlog observado e idade do snapshot são sinais separados.
+iam_outbox_pending{application="iam-core"}
+time() - iam_outbox_snapshot_timestamp{application="iam-core"}
+```
+
+Conferir nomes efetivamente exportados e available antes de automatizar alertas. Valores/ausência de séries não comprovam ausência de falha. Percentis por instância não devem ser simplesmente promediados; os exemplos usam buckets agregáveis, sem publicar percentis calculados no cliente.
+
+## Operação, validação e fontes
+
+[Runbook 10B1](runbooks/metricas-prometheus-local.md), [ADR-050](adr/050-exportacao-prometheus-protegida.md), [evidências](evidencias/etapa-10b1.md) e [passo a passo](GUIA-DE-IMPLEMENTACAO.md).
+
+Contrato de exportação/histogramas conferido na [documentação Spring Boot 3.5](https://docs.spring.io/spring-boot/3.5/reference/actuator/metrics.html), com [referência Prometheus/Micrometer 1.15](https://docs.micrometer.io/micrometer/reference/1.15/implementations/prometheus). Configuração/autorização descritas acima são decisões deste projeto, verificadas pelos testes locais.

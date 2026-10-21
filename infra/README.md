@@ -148,3 +148,7 @@ Na 9C2b, a V22 acrescenta agenda e metadados de retry do observador de pedidos. 
 ## Jornada PAM integrada — 9C3
 
 O [guia da 9C3](../docs/runbooks/jornada-pam-integrada-local.md) combina emissão PAM, publicador, consumidor/ingestão e consulta central com identidades separadas. O aceite usa JARs reais e infraestrutura descartável, sem alterar a stack persistente. Não há migração nova além da V22. O bootstrap OAuth passa a respeitar a inicialização de banco disponível, permitindo runtime sem Flyway após migração externa; configuração/schema inválidos continuam sendo erro.
+
+## Métricas IAM — 10B1
+
+Exportação Prometheus é opt-in, com token de leitura próprio: executar Initialize-MetricsToken.ps1 e iniciar Start-IamCore.ps1 -EnablePrometheus; -EnableHttpHistograms acrescenta buckets HTTP. Nenhuma ativação automática, alteração de .env ou inicialização de collector/Grafana. Ver [runbook](../docs/runbooks/metricas-prometheus-local.md) e [inventário](../docs/OBSERVABILIDADE.md); enforcer continua sem servidor HTTP. O arquivo infra/.local/iam-metrics-token é privado/ignorado e exige proteção por permissões locais.

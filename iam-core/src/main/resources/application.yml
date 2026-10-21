@@ -114,10 +114,22 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,metrics
+        include: health,metrics,prometheus
       discovery:
         enabled: false
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: ${IAM_HTTP_HISTOGRAMS_ENABLED:false}
+      minimum-expected-value:
+        http.server.requests: 1ms
+      maximum-expected-value:
+        http.server.requests: 10s
   endpoint:
+    prometheus:
+      enabled: ${IAM_PROMETHEUS_ENABLED:false}
     health:
       show-details: never
       show-components: never

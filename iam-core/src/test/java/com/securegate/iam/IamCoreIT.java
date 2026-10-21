@@ -172,6 +172,12 @@ class IamCoreIT {
 
   @Test
   void deniesBusinessAndUnexposedManagementRoutesWithProblemDetails() throws Exception {
+    assertTrue(
+        context
+            .getBeansOfType(
+                org.springframework.boot.actuate.metrics.export.prometheus.PrometheusScrapeEndpoint
+                    .class)
+            .isEmpty());
     for (String path :
         List.of(
             "/api/users",
@@ -180,6 +186,7 @@ class IamCoreIT {
             "/oauth2/jwks",
             "/actuator/env",
             "/actuator/metrics",
+            "/actuator/prometheus",
             "/actuator/metrics/iam.outbox.pending",
             "/actuator",
             "/actuator/health/db")) {
