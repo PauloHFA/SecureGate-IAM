@@ -58,6 +58,16 @@ class PrometheusIT {
     Files.deleteIfExists(TOKEN.getParent());
   }
 
+  @org.springframework.beans.factory.annotation.Autowired
+  org.springframework.context.ApplicationContext context;
+
+  @Test
+  void defaultRuntimeHasNoTracerOrProvider() {
+    assertTrue(context.getBeansOfType(io.micrometer.tracing.Tracer.class).isEmpty());
+    assertTrue(
+        context.getBeansOfType(io.opentelemetry.sdk.trace.SdkTracerProvider.class).isEmpty());
+  }
+
   @LocalServerPort int port;
   private final HttpClient http = HttpClient.newHttpClient();
 

@@ -139,7 +139,9 @@ A **10B2b2d** acrescenta listener Vault dev autenticado, política mínima, toke
 
 A **10B3a** implementa perfil opcional structured-logs no IAM/enforcer: JSON com campos controlados, catálogo finito e hash de correlação, excluindo mensagens, argumentos, exceções e MDC livre. Consultar [operação](docs/runbooks/logs-estruturados-local.md), [ADR-057](docs/adr/057-logs-operacionais-json-restritos.md) e [evidências](docs/evidencias/etapa-10b3a.md).
 
-Próxima implementação: **10B3b — tracing HTTP**; depois **10B3c — contexto outbox/RabbitMQ**. Trabalho local em `feat/structured-operational-logs`, sobre `771487a`, incluída neste commit; push pendente. Publicação/CI, execução conjunta sustentada e aceite de desempenho permanecem pendentes.
+A **10B3b1** acrescenta tracing HTTP entrante opcional (perfil http-tracing), W3C restrito, amostragem local, spans sem URL/payload/erros livres e IDs no JSON IAM. Sem envio externo. Consultar [operação](docs/runbooks/tracing-http-local.md), [ADR-058](docs/adr/058-tracing-http-entrante-restrito.md) e [evidências](docs/evidencias/etapa-10b3b1.md).
+
+Próxima implementação: **10B3b2 — tracing dos clientes HTTP JDK/Vault**; depois **10B3c — contexto outbox/RabbitMQ**. Trabalho local em `feat/http-server-tracing`, sobre `b6e2363`, incluída neste commit; push pendente. Publicação/CI, execução conjunta sustentada e aceite de desempenho permanecem pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

@@ -26,6 +26,8 @@ Sem perfil, a saída anterior é preservada. O perfil não habilita consumers, l
 
 Catálogo IAM: request.failure, audit.consumer.unavailable, login.history.unavailable, outbox.publisher.unavailable, outbox.maintenance.unavailable, audit.partitions.unavailable, policy.issuance.unavailable e policy.evaluation.unavailable. Enforcer: security.consumer.unavailable. Os códigos dependem de template exato; parâmetros e posição da exceção não são exportados. Outros logs, inclusive de bibliotecas e startup, usam log.record. Não derivar métricas de detalhes livres; o catálogo tem 9 valores possíveis no IAM e 2 no enforcer, contando o genérico.
 
+Desde a 10B3b1, o IAM acrescenta traceId/spanId validados (sete campos); o enforcer mantém os cinco campos acima. Fora de contexto, os IDs ficam vazios. Ver [tracing HTTP](tracing-http-local.md).
+
 Um registro JSON é uma linha terminada por LF. Mensagem, argumento, exceção, stack trace, nome de logger/thread, marker, pares SLF4J e MDC livre ficam fora do schema. Isto sacrifica diagnóstico detalhado; usar métricas e códigos para localizar o componente. Não é auditoria persistida nem access log.
 
 ## Correlação e limites
@@ -43,4 +45,4 @@ Apenas logging pelos encoders configurados é coberto. System.out/err, outros ap
 
 O teste de perfil inicia contexto Boot mínimo sem autoconfiguração de banco/broker, ativa encoders reais de console/arquivo e remove seu arquivo temporário. Não é um smoke de IAM/enforcer completos. Os testes injetam somente marcadores sintéticos em mensagem, argumentos, exceção, MDC e pares SLF4J. Contratos testam CR/LF, tamanho e hash conhecido. verify inclui suites normais e gates de cobertura/arquitetura; smokes opcionais de observabilidade não são incluídos pelo nome.
 
-Próximas entregas propostas: 10B3b tracing HTTP; 10B3c contexto persistido no outbox/AMQP, restauração/limpeza no consumidor e validação fim a fim. Coleta/retensão centralizada de logs e backend de traces exigem decisão própria. [ADR-057](../adr/057-logs-operacionais-json-restritos.md), [evidências](../evidencias/etapa-10b3a.md).
+Próximas entregas propostas: 10B3b2 clientes HTTP JDK/Vault; 10B3c contexto persistido no outbox/AMQP, restauração/limpeza no consumidor e validação fim a fim. Coleta/retensão centralizada de logs e backend de traces exigem decisão própria. [ADR-057](../adr/057-logs-operacionais-json-restritos.md), [evidências](../evidencias/etapa-10b3a.md).

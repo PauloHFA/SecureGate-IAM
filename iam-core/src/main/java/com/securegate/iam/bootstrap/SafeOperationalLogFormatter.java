@@ -38,11 +38,22 @@ public final class SafeOperationalLogFormatter implements StructuredLogFormatter
                         ? "log.record"
                         : EVENTS.getOrDefault(event.getMessage(), "log.record"));
             members.add("correlationHash", SafeOperationalLogFormatter::correlationHash);
+            members.add("traceId", event -> traceField(event, "traceId", 32));
+            members.add("spanId", event -> traceField(event, "spanId", 16));
           });
 
   @Override
   public String format(ILoggingEvent event) {
     return writer.writeToString(event) + "\n";
+  }
+
+  private static String traceField(ILoggingEvent event, String key, int length) {
+    String value = event.getMDCPropertyMap().get(key);
+    return value != null
+            && value.matches("[0-9a-f]{" + length + "}")
+            && !value.equals("0".repeat(length))
+        ? value
+        : "";
   }
 
   private static String correlationHash(ILoggingEvent event) {

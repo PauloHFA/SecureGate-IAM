@@ -14,6 +14,32 @@ class SafeOperationalLogFormatterTest {
   private final ObjectMapper json = new ObjectMapper();
 
   @Test
+  void onlyExportsBoundedNonzeroHexadecimalTraceIdentifiers() throws Exception {
+    var context = new LoggerContext();
+    try {
+      var event =
+          new LoggingEvent(
+              "synthetic", context.getLogger("worker"), Level.INFO, "test", null, null);
+      var mdc = new java.util.HashMap<String, String>();
+      mdc.put("traceId", "1".repeat(32));
+      mdc.put("spanId", "2".repeat(16));
+      event.setMDCPropertyMap(mdc);
+      var tree = json.readTree(formatter.format(event));
+      assertThat(tree.get("traceId").asText()).isEqualTo(mdc.get("traceId"));
+      assertThat(tree.get("spanId").asText()).isEqualTo(mdc.get("spanId"));
+      for (String invalid : java.util.List.of("0".repeat(32), "SECRET\r\n", "x".repeat(2000))) {
+        mdc.put("traceId", invalid);
+        mdc.put("spanId", invalid);
+        tree = json.readTree(formatter.format(event));
+        assertThat(tree.get("traceId").asText()).isEmpty();
+        assertThat(tree.get("spanId").asText()).isEmpty();
+      }
+    } finally {
+      context.stop();
+    }
+  }
+
+  @Test
   void handlesNullMessageWithoutBreakingLogging() throws Exception {
     var context = new LoggerContext();
     try {
@@ -45,7 +71,7 @@ class SafeOperationalLogFormatterTest {
       String line = formatter.format(event);
       assertThat(line.lines().count()).isEqualTo(1);
       var tree = json.readTree(line);
-      assertThat(tree.size()).isEqualTo(5);
+      assertThat(tree.size()).isEqualTo(7);
       assertThat(tree.get("service").asText()).isEqualTo("iam-core");
       assertThat(tree.get("event").asText()).isEqualTo("log.record");
       assertThat(tree.get("correlationHash").asText()).isEmpty();

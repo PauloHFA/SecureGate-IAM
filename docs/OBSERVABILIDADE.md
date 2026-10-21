@@ -12,7 +12,8 @@
 | 10B2b2c | Implementada localmente | ACL própria sem acesso a chaves, exporter Redis opcional e estatísticas agregadas. |
 | 10B2b2d | Implementada localmente | Listener Vault dev autenticado, token mínimo de 1h/rotação e coleta nativa. |
 | 10B3a | Implementada localmente | Perfil JSON restrito nos dois executáveis, catálogo finito e hash de correlação; sem payload/MDC livre. |
-| 10B3b | Proposta, pendente | Tracing HTTP e validação de contexto/segredos. |
+| 10B3b1 | Implementada e validada localmente | HTTP servlet entrante opcional, W3C restrito, spans finitos e IDs nos logs IAM; sem exporter. |
+| 10B3b2 | Proposta, pendente | Instrumentação dos clientes HTTP JDK/Vault. |
 | 10B3c | Proposta, pendente | Contexto durável outbox/RabbitMQ e restauração no consumo. |
 
 A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none; a 10B2b1 acrescenta listener JDK opcional em loopback, GET /metrics, sem MVC/Actuator. Default sem listener. A 10B2a acrescenta Compose Prometheus/Grafana validado com IAM real em stack descartável, sem coleta sustentada ou alteração dos serviços persistentes do usuário. A 10B2b2a acrescenta plugin opcional do RabbitMQ; a 10B2b2b acrescenta exporter PostgreSQL e login de monitoração; a 10B2b2c acrescenta ACL/exporter Redis; a 10B2b2d acrescenta listener/token Vault próprios. Execução conjunta sustentada ainda não foi validada.
@@ -117,4 +118,10 @@ Dashboard UID securegate-vault: up, vault_core_unsealed e contagens dos timers v
 
 Perfil opcional structured-logs configura console/arquivo com StructuredLogFormatter nativo do Boot. Cinco campos: timestamp, level, service, event e correlationHash. Códigos finitos (9 IAM/2 enforcer, incluindo log.record), mensagens/argumentos/exceções/pares SLF4J/MDC livre omitidos. O hash é SHA-256 do correlationId limitado; não é label de métrica, identidade ou trace distribuído. Enforcer sem contexto recebe vazio. Mensagens desconhecidas usam código genérico, reduzindo diagnóstico.
 
-A proteção vale apenas para os encoders deste perfil, não para stdout/err direto, inicialização anterior, falhas internas do logging ou configurações externas. Sem collector de logs, backend de tracing ou spans; 10B3b/10B3c pendentes. [Operação](runbooks/logs-estruturados-local.md), [ADR-057](adr/057-logs-operacionais-json-restritos.md), [evidências](evidencias/etapa-10b3a.md).
+A proteção vale apenas para os encoders deste perfil, não para stdout/err direto, inicialização anterior, falhas internas do logging ou configurações externas. A 10B3a não adicionou collector de logs, backend de tracing ou spans; a seção 10B3b1 abaixo registra a evolução HTTP. [Operação](runbooks/logs-estruturados-local.md), [ADR-057](adr/057-logs-operacionais-json-restritos.md), [evidências](evidencias/etapa-10b3a.md).
+
+## Tracing HTTP entrante — 10B3b1
+
+Perfil http-tracing: provider/bridge explícitos, somente handler servlet e três atributos finitos (método, classe de status, flag de falha). Sem URL/query/header/identidade/payload ou evento de exceção. Resource fixo service.name=iam-core. Nenhum exporter/processamento de exportação é instalado; spans concluídos não são armazenados em produção. Métricas mantêm convenções/labels regulares; exemplares automáticos OpenMetrics não foram verificados por scrape nesta entrega. Padrão sem tracer/provider; configurações genéricas de tracing/logging OTel excluídas.
+
+W3C traceparent versão 00 validado; duplicados/malformados criam nova raiz. Baggage/tracestate/B3 não são aceitos. Sampler local padrão 0,1, independente do sampled remoto; não é quota. JSON IAM agora tem sete campos (traceId/spanId adicionais, vazios fora do contexto); enforcer mantém cinco. IDs não são autoridade nem label de métrica. 10B3b2/10B3c, backend/retensão e medição ainda pendentes. [Operação](runbooks/tracing-http-local.md), [ADR-058](adr/058-tracing-http-entrante-restrito.md), [evidências](evidencias/etapa-10b3b1.md).

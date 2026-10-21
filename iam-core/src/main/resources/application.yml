@@ -1,6 +1,11 @@
 spring:
   autoconfigure:
     exclude:
+      - org.springframework.boot.actuate.autoconfigure.logging.OpenTelemetryLoggingAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.opentelemetry.OpenTelemetryAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.tracing.OpenTelemetryTracingAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.tracing.MicrometerTracingAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.tracing.NoopTracerAutoConfiguration
       - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
       - org.springframework.boot.autoconfigure.data.redis.RedisReactiveAutoConfiguration
       - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
@@ -111,6 +116,8 @@ server:
       enabled: false
 
 management:
+  tracing:
+    enabled: false
   endpoints:
     web:
       exposure:

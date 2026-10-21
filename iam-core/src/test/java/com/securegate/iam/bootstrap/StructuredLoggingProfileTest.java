@@ -52,7 +52,7 @@ class StructuredLoggingProfileTest {
         for (String line : captured.lines().filter(l -> !l.isBlank()).toList()) {
           var tree = new ObjectMapper().readTree(line);
           assertThat(tree.get("service").asText()).isEqualTo("iam-core");
-          assertThat(tree.size()).isEqualTo(5);
+          assertThat(tree.size()).isEqualTo(7);
         }
         assertThat(captured).contains("correlationHash");
       }

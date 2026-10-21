@@ -11,8 +11,8 @@ Começar pelo [guia de implementação passo a passo](GUIA-DE-IMPLEMENTACAO.md):
 | [Guias operacionais](runbooks/) | Preparação, execução, flags, testes e recuperação. |
 | [Evidências](evidencias/) | Comandos executados, resultados observados, ambiente e pendências históricas. |
 
-Estado desta revisão: **10B3a — logs operacionais JSON implementados localmente**, em feat/structured-operational-logs sobre 771487a, incluída neste commit; push pendente. Build completo aprovado (793 testes), seguido de revisão final direcionada (11 testes); contagens sobrepostas. Próximas: 10B3b tracing HTTP e 10B3c contexto outbox/RabbitMQ. Consultar [operação](runbooks/logs-estruturados-local.md), [ADR-057](adr/057-logs-operacionais-json-restritos.md) e [evidências](evidencias/etapa-10b3a.md). A 10B2b2d está versionada em 771487a. Publicação/CI e aceite global de observabilidade/capacidade continuam pendentes.
+Estado desta revisão: **10B3b1 — tracing HTTP entrante implementado e validado localmente**, em feat/http-server-tracing sobre b6e2363, incluída neste commit; push pendente. Build completo: 804 testes aprovados, cobertura/arquitetura atendidas; ressalva de encerramento Hikari nas evidências. Perfis http-tracing e structured-logs, contexto W3C limitado e schema finito, sem exporter/backend. Próxima: 10B3b2 clientes JDK/Vault; depois 10B3c outbox/RabbitMQ. [Operação](runbooks/tracing-http-local.md), [ADR-058](adr/058-tracing-http-entrante-restrito.md), [evidências](evidencias/etapa-10b3b1.md). Publicação/CI e aceite global continuam pendentes.
 
 Ao implementar uma nova subdivisão, atualizar guia, plano, README, decisões aplicáveis, operação e evidências. Proposta, implementação, validação local, commit, publicação, CI e merge devem permanecer identificáveis separadamente.
 
-O histórico das entregas anteriores e seus resultados permanece nas evidências individuais. O guia referencia também a 10B3a e registra suas divisões passo a passo.
+O histórico das entregas anteriores e seus resultados permanece nas evidências individuais. O guia referencia também a 10B3b1 e registra suas divisões passo a passo.

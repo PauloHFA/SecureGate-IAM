@@ -6,18 +6,18 @@ Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B3a — logs operacionais JSON restritos |
-| Base desta entrega | 771487a — coleta autenticada Vault |
+| Última entrega implementada | 10B3b1 — tracing HTTP entrante |
+| Base desta entrega | b6e2363 — logs JSON restritos |
 | Trabalho local | Implementação local; incluída neste commit; push pendente |
-| Branch | feat/structured-operational-logs |
-| Validação da entrega | Build completo: 793 testes, zero falhas, cobertura atendida; revisão final: 11 testes direcionados (ver evidências) |
-| Próxima implementação | 10B3b — tracing HTTP |
-| Pendências seguintes | 10B3b–c — tracing HTTP/outbox/RabbitMQ; 10C–10D; publicação/CI |
+| Branch | feat/http-server-tracing |
+| Validação da entrega | Build completo: 804 testes, zero falhas; cobertura/arquitetura atendidas; BUILD SUCCESS às 15:21:46 UTC−03; aviso de shutdown Hikari registrado nas evidências |
+| Próxima implementação | 10B3b2 — clientes HTTP JDK/Vault |
+| Pendências seguintes | 10B3b2/10B3c — clientes HTTP/outbox/RabbitMQ; 10C–10D; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d e a 10B3a também estão implementadas abaixo. As demais divisões 10B3b–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a e a 10B3b1 também estão implementadas abaixo. As demais divisões 10B3b2–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -484,13 +484,30 @@ Separar serialização de logs (10B3a), tracing HTTP (10B3b) e contexto durável
 
 [Operação](runbooks/logs-estruturados-local.md), [ADR-057](adr/057-logs-operacionais-json-restritos.md), [evidências](evidencias/etapa-10b3a.md). Branch feat/structured-operational-logs sobre 771487a, incluída neste commit; push pendente. Sem alteração da stack persistente, schema ou protocolo de eventos.
 
+## Etapa 10B3b1 — Tracing HTTP entrante restrito
+
+A 10B3b foi dividida em 10B3b1 (entrada servlet) e 10B3b2 (clientes JDK/Vault), porque a instrumentação Spring não cobre os HttpClients atuais. 10B3b2 e 10B3c continuam propostas, pendentes.
+
+1. Inventariar filtro de correlação, métricas, logging e clientes atuais; preservar convenções de métricas e domínio/eventos V22.
+2. Adicionar bridge Micrometer/OpenTelemetry gerenciada pelo BOM, sem exporter/agente/backend.
+3. Excluir pipelines genéricos e criar provider/tracer/propagator/handler somente sob management.tracing.enabled=true; perfil http-tracing opt-in, padrão false.
+4. Definir Resource fixo service.name=iam-core, lifecycle close e amostragem local [0,1], padrão 0,1; parent remoto não impõe sampled.
+5. Restringir parser W3C à versão 00/55 caracteres; recusar duplicados e malformados. Não extrair baggage/tracestate/B3.
+6. Integrar ao filtro servlet nativo com handler de nome fixo e somente método/classe de status/flag de falha. Descartar attrs da observação, Throwable e eventos.
+7. Manter handler de métricas independente do contexto de tracing para que observações Spring Security sem span continuem válidas; preservar long-task timer e labels regulares. Exemplares automáticos OpenMetrics não foram validados por scrape.
+8. Registrar EventPublisher como bean para o listener de escopo Boot sincronizar/restaurar MDC. Acrescentar traceId/spanId validados ao JSON IAM (sete campos); enforcer continua com cinco.
+9. Testar com IAM/PostgreSQL reais: parent remoto/child, MDC, raiz nova, duplicados, status 500/403 e ausência de dados sintéticos em spans concluídos. Conferir padrão sem tracer e histogramas Prometheus.
+10. Executar build completo com integração/arquitetura/cobertura e atualizar operação/evidências com resultados reais; não declarar spans de Vault/AMQP ou tracing fim a fim.
+
+[Operação](runbooks/tracing-http-local.md), [ADR-058](adr/058-tracing-http-entrante-restrito.md), [evidências](evidencias/etapa-10b3b1.md). Branch feat/http-server-tracing sobre b6e2363, incluída neste commit; push pendente; stack persistente e .env preservados.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
 As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10B3b — Tracing HTTP | Definir spans/amostragem e propagação → testar limites/segredos/contexto. | Correlação HTTP verificável. |
+| 10B3b2 — Clientes HTTP | Instrumentar clientes JDK/Vault → propagar contexto somente aos destinos previstos → testar limites/segredos e falhas. | Relação verificável entre HTTP entrante e saída. |
 | 10B3c — Tracing assíncrono | Persistir contexto outbox → propagar AMQP → restaurar/limpar no consumo e testar retries. | Correlação durável fim a fim, sem payload/segredos em spans. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
