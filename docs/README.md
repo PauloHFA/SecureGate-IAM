@@ -10,10 +10,10 @@ Começar pelo [guia de implementação passo a passo](GUIA-DE-IMPLEMENTACAO.md):
 | [Guias operacionais](runbooks/) | Preparação, execução, flags, testes e recuperação. |
 | [Evidências](evidencias/) | Comandos executados, resultados observados, ambiente e pendências históricas. |
 
-Estado desta revisão: **9A3 implementada localmente, com 778 testes aprovados**, na branch feat/enforcer-vault-kv, sobre a9b67f0; incluída neste commit; push/CI remota pendentes. Próximo trabalho: revisão de controles e aceite global da etapa 9, depois 10A.
+Estado desta revisão: **9D — aceite técnico local da etapa 9 consolidado**, sobre 6d08c2a; revisão documental incluída neste commit, sem novo build; push pendente em docs/stage-nine-acceptance. Próxima implementação local: 10A, massa sintética e planos JMeter. Aceite global/remoto, CI e verificações de entrega aplicáveis permanecem pendentes.
 
-Para esta entrega, consultar [KV do enforcer](runbooks/enforcer-vault-kv-local.md), [ADR-044](adr/044-bootstrap-kv-enforcer.md) e [evidências 9A3](evidencias/etapa-09a3.md), incluindo resultados da validação. Para infraestrutura, consultar [infra/README](../infra/README.md).
+Consultar [matriz de controles e reprodução](runbooks/aceite-etapa9.md), [evidências 9D](evidencias/etapa-09d.md) e [último build funcional, 9A3](evidencias/etapa-09a3.md): 778 testes aprovados em 20/10/2026 às 22:01:30 UTC−03. Para infraestrutura, consultar [infra/README](../infra/README.md).
 
 Ao implementar uma nova subdivisão, atualizar guia, plano, README, decisões aplicáveis, operação e evidências. Proposta, implementação, validação local, commit, publicação, CI e merge devem permanecer identificáveis separadamente.
 
-O histórico das entregas anteriores e seus resultados permanece nas evidências individuais. O guia referencia também a 9A3 e registra suas divisões passo a passo.
+O histórico das entregas anteriores e seus resultados permanece nas evidências individuais. O guia referencia também a revisão 9D e registra suas divisões passo a passo.

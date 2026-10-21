@@ -111,7 +111,9 @@ A **9C3** valida com JARs reais a jornada OAuth/MFA → pedido → credencial Va
 
 A **9A3** permite iniciar o enforcer com `Start-PolicyEnforcer.ps1 -EnableConsumer -EnableVaultKv`. Obtém credenciais Redis/RabbitMQ por AppRole e KV v2, valida o snapshot completo e revoga o token antes de iniciar os clientes; falhas impedem o startup sem fallback local. Consulte [operação](docs/runbooks/enforcer-vault-kv-local.md), [ADR-044](docs/adr/044-bootstrap-kv-enforcer.md) e [evidências 9A3](docs/evidencias/etapa-09a3.md). Não há refresh em execução nem nova migração.
 
-Próxima entrega: revisão de controles/aceite final global da etapa 9; depois 10A, massa e planos de carga. A 9A3 está implementada localmente em `feat/enforcer-vault-kv`, sobre `a9b67f0`, incluída neste commit; push/CI remota pendentes. As pendências remotas das entregas anteriores permanecem registradas no plano.
+A **9D** consolida o [aceite técnico local da etapa 9](docs/runbooks/aceite-etapa9.md), com matriz de controles, testes e riscos residuais; consulte as [evidências 9D](docs/evidencias/etapa-09d.md). Usa os 778 testes do build da 9A3, sem nova execução funcional. A 9A3 está versionada em `6d08c2a`.
+
+Próxima implementação local: **10A — massa sintética e planos JMeter**. Publicação/CI e verificações de entrega/imagens continuam pendentes; a revisão local não declara aceite global/remoto ou prontidão de produção. Documentação da 9D em `docs/stage-nine-acceptance`, incluída neste commit; push pendente.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

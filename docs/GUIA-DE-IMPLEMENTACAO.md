@@ -6,18 +6,18 @@ Atualizado em 20/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 9A3 — KV no startup do enforcer |
-| Base desta entrega | a9b67f0 — 9C3 |
-| Trabalho local | 9A3 incluída neste commit; push/CI remota pendentes |
-| Branch | feat/enforcer-vault-kv |
-| Validação da entrega | clean verify aprovado em 20/10/2026 às 22:01:30 UTC−03; 778 testes, arquitetura e cobertura aprovadas |
-| Próxima entrega | Revisão de controles e aceite final global da etapa 9 |
-| Outras pendências da etapa 9 | Aceite global e publicação/CI remota |
+| Última entrega | 9D — revisão de controles e aceite técnico local da etapa 9 |
+| Base revisada | 6d08c2a — 9A3 |
+| Trabalho local | Revisão documental; incluída neste commit, sem novo build; push pendente |
+| Branch | docs/stage-nine-acceptance |
+| Última validação funcional | Build da 9A3 em 20/10/2026 às 22:01:30 UTC−03; 778 testes, arquitetura e cobertura aprovadas |
+| Próxima implementação local | 10A — massa sintética e planos JMeter |
+| Pendências de aceite global/remoto | Publicação/CI e verificações aplicáveis de entrega; imagens na etapa 11 |
 | Etapas posteriores | 10 — carga/observabilidade; 11 — entrega/hardening; 12 — gateway/demonstração opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3 e 9C3, abaixo descrevem entregas executadas. As divisões 10–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. As divisões 10–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -253,11 +253,22 @@ Limites vigentes: senha não é recuperável por GET; resposta perdida exige rev
 9. Subir EnforcerApplication real pela descoberta do postprocessor, com credenciais locais inválidas; publicar revogação no broker e comprovar ACK/projeção Redis com credenciais KV.
 10. Validar regressões e documentar ativação, rotação coordenada por reinício e limites do snapshot.
 
-Referências: [ADR-044](adr/044-bootstrap-kv-enforcer.md), [operação](runbooks/enforcer-vault-kv-local.md), [evidências 9A3](evidencias/etapa-09a3.md). Sem nova migração; V22 permanece atual. Implementação local em feat/enforcer-vault-kv, sobre a9b67f0, incluída neste commit; publicação/CI pendentes.
+Referências: [ADR-044](adr/044-bootstrap-kv-enforcer.md), [operação](runbooks/enforcer-vault-kv-local.md), [evidências 9A3](evidencias/etapa-09a3.md). Sem nova migração; V22 permanece atual. Implementação local em feat/enforcer-vault-kv, sobre a9b67f0, versionada em 6d08c2a; publicação/CI pendentes.
 
-### Fechamento restante da etapa 9
+### Passo a passo da 9D — revisão e aceite técnico local
 
-Revisar controles e critérios globais, reunir evidências de leases/PAM/KV e registrar riscos residuais e estado de publicação/CI. Só declarar o aceite global após essa revisão. A etapa 10 inicia por 10A; imagens, TLS e demais entregas gerais de produção continuam organizados na etapa 11.
+1. Fixar a base 6d08c2a e distinguir validação funcional anterior de nova revisão documental.
+2. Confrontar critérios da etapa 9 com ACL, endpoints, persistência, tratamento de erros/segredos e testes atuais.
+3. Consolidar os 72 relatórios existentes do build da 9A3: 778 testes aprovados, incluindo 11 E2E; sem executar novo build para documentação.
+4. Associar cada controle à prova revisada e ao limite operacional na matriz de aceite.
+5. Conferir exclusões/nomes no índice Git e gatilhos da CI, sem imprimir segredos ou afirmar scan completo/publicação remota.
+6. Registrar riscos de Vault dev, KV estático, emissão ambígua e sessões PAM durante indisponibilidade.
+7. Separar aceite técnico local de aceite global/remoto e verificações de imagens, ainda pendentes.
+8. Atualizar documentação, verificar links/diff e preparar a próxima implementação local, 10A.
+
+Referências: [matriz de aceite e reprodução](runbooks/aceite-etapa9.md), [evidências 9D](evidencias/etapa-09d.md). Não há alteração funcional, nova migração ou decisão arquitetural. Revisão local em docs/stage-nine-acceptance, incluída neste commit; push pendente.
+
+A 9D consolida o aceite técnico local, sem declarar aceite global/remoto ou produção. Publicação/CI continuam pendentes; imagens e hardening geral pertencem à etapa 11. A preparação local de carga segue pela 10A; metas só serão declaradas após medição.
 
 ## Etapas 10–12 — Divisão proposta, ainda pendente
 
