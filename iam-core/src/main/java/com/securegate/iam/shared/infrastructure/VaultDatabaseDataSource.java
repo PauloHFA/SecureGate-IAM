@@ -25,6 +25,7 @@ public final class VaultDatabaseDataSource extends AbstractDataSource implements
   private final Path roleFile;
   private final Path secretFile;
   private final MeterRegistry metrics;
+  private final VaultHttpTransport transport;
   private final List<VaultDatabasePool> retiring = new ArrayList<>();
   private final ScheduledThreadPoolExecutor control = scheduler("vault-database-renewal");
   private final ScheduledThreadPoolExecutor expiry = scheduler("vault-database-expiry");
@@ -35,6 +36,17 @@ public final class VaultDatabaseDataSource extends AbstractDataSource implements
 
   public VaultDatabaseDataSource(
       String url, URI address, Path roleFile, Path secretFile, MeterRegistry metrics) {
+    this(url, address, roleFile, secretFile, metrics, VaultHttpTransport.untraced());
+  }
+
+  public VaultDatabaseDataSource(
+      String url,
+      URI address,
+      Path roleFile,
+      Path secretFile,
+      MeterRegistry metrics,
+      VaultHttpTransport transport) {
+    this.transport = transport;
     this.url = url;
     this.address = address;
     this.roleFile = roleFile;
@@ -75,7 +87,7 @@ public final class VaultDatabaseDataSource extends AbstractDataSource implements
   }
 
   private VaultDatabasePool open() {
-    return new VaultDatabasePool(url, address, roleFile, secretFile, metrics);
+    return new VaultDatabasePool(url, address, roleFile, secretFile, metrics, transport);
   }
 
   private boolean available() {

@@ -6,18 +6,18 @@ Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B3b1 — tracing HTTP entrante |
-| Base desta entrega | b6e2363 — logs JSON restritos |
+| Última entrega implementada | 10B3b2 — clientes HTTP Vault |
+| Base desta entrega | d0ef5e2 — tracing HTTP entrante |
 | Trabalho local | Implementação local; incluída neste commit; push pendente |
-| Branch | feat/http-server-tracing |
-| Validação da entrega | Build completo: 804 testes, zero falhas; cobertura/arquitetura atendidas; BUILD SUCCESS às 15:21:46 UTC−03; aviso de shutdown Hikari registrado nas evidências |
-| Próxima implementação | 10B3b2 — clientes HTTP JDK/Vault |
-| Pendências seguintes | 10B3b2/10B3c — clientes HTTP/outbox/RabbitMQ; 10C–10D; publicação/CI |
+| Branch | feat/vault-http-client-tracing |
+| Validação da entrega | Build completo: 810 testes, zero falhas; cobertura/arquitetura atendidas; BUILD SUCCESS às 15:46:50 UTC−03 |
+| Próxima implementação | 10B3c — contexto outbox/RabbitMQ |
+| Pendências seguintes | 10B3c — outbox/RabbitMQ; 10C–10D; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a e a 10B3b1 também estão implementadas abaixo. As demais divisões 10B3b2–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1 e a 10B3b2 também estão implementadas abaixo. As demais divisões 10B3c–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -469,7 +469,7 @@ Referências: [operação](runbooks/metricas-vault-local.md), [ADR-056](adr/056-
 
 ## Etapa 10B3a — Logs operacionais JSON restritos
 
-Separar serialização de logs (10B3a), tracing HTTP (10B3b) e contexto durável outbox/RabbitMQ (10B3c) permite verificar segurança do formato antes de alterar o transporte. 10B3b/10B3c são propostas, não funcionalidades existentes.
+Separar serialização de logs (10B3a), tracing HTTP (10B3b) e contexto durável outbox/RabbitMQ (10B3c) permite verificar segurança do formato antes de alterar o transporte. Na conclusão da 10B3a, 10B3b/10B3c eram propostas; as seções seguintes registram a implementação HTTP.
 
 1. Inventariar logs atuais e filtro X-Correlation-ID; preservar respostas, restauração MDC e padrão anterior sem perfil.
 2. Conferir StructuredLogFormatter/JsonWriter na versão Boot 3.5.16 e documentação oficial.
@@ -486,7 +486,7 @@ Separar serialização de logs (10B3a), tracing HTTP (10B3b) e contexto durável
 
 ## Etapa 10B3b1 — Tracing HTTP entrante restrito
 
-A 10B3b foi dividida em 10B3b1 (entrada servlet) e 10B3b2 (clientes JDK/Vault), porque a instrumentação Spring não cobre os HttpClients atuais. 10B3b2 e 10B3c continuam propostas, pendentes.
+A 10B3b foi dividida em 10B3b1 (entrada servlet) e 10B3b2 (clientes JDK/Vault), porque a instrumentação Spring não cobre os HttpClients atuais. Na conclusão da 10B3b1, 10B3b2 e 10B3c eram propostas; a seção seguinte registra a implementação da 10B3b2.
 
 1. Inventariar filtro de correlação, métricas, logging e clientes atuais; preservar convenções de métricas e domínio/eventos V22.
 2. Adicionar bridge Micrometer/OpenTelemetry gerenciada pelo BOM, sem exporter/agente/backend.
@@ -501,13 +501,27 @@ A 10B3b foi dividida em 10B3b1 (entrada servlet) e 10B3b2 (clientes JDK/Vault), 
 
 [Operação](runbooks/tracing-http-local.md), [ADR-058](adr/058-tracing-http-entrante-restrito.md), [evidências](evidencias/etapa-10b3b1.md). Branch feat/http-server-tracing sobre b6e2363, incluída neste commit; push pendente; stack persistente e .env preservados.
 
+## Etapa 10B3b2 — Clientes HTTP Vault runtime
+
+1. Inventariar HttpClients de Transit/MFA, banco dinâmico e PAM; separar KV pré-Spring, sem tracer disponível.
+2. Criar transporte compartilhado na infraestrutura, sem dependência do bootstrap e sem alterar domínio/eventos/schema.
+3. Manter construtores antigos sem tracing e injetar transporte nos beans Spring; resolver dependências opcionais na criação do bean para ordenar sua destruição.
+4. Preservar requisição original quando desligado. Quando ligado, copiar método/body/timeouts e remover contexto anterior W3C/B3/baggage.
+5. Limitar nova injeção a traceparent, origem configurada e catálogo de paths, sem query/fragment/userinfo e sem redirects habilitados.
+6. Criar span CLIENT vault.http como filho corrente ou raiz; não guardar parent no cache de token/sessão/lease.
+7. Registrar quatro atributos finitos, sem URL/key/role/lease/SQL/token/body/erro livre; fechar escopo em sucesso/erro, sem retries extras.
+8. Testar transporte real HTTP local, default, limites, corpo/credenciais preservados, 403/500/302 e IOException/interrupção.
+9. Estender teste IAM real para AppRole → consulta → revogação por JDK, três spans filhos e parent restaurado; Vault HTTP simulado explicitamente.
+10. Executar build completo com integrações Vault funcionais existentes, arquitetura e cobertura; registrar horários, avisos e limites, sem afirmar tracing interno de Vault ou async.
+
+[ADR-059](adr/059-tracing-clientes-http-vault.md), [operação](runbooks/tracing-http-local.md), [evidências](evidencias/etapa-10b3b2.md). Branch feat/vault-http-client-tracing sobre d0ef5e2, incluída neste commit; push pendente. Próxima: 10B3c. Stack persistente e .env preservados.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
 As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10B3b2 — Clientes HTTP | Instrumentar clientes JDK/Vault → propagar contexto somente aos destinos previstos → testar limites/segredos e falhas. | Relação verificável entre HTTP entrante e saída. |
 | 10B3c — Tracing assíncrono | Persistir contexto outbox → propagar AMQP → restaurar/limpar no consumo e testar retries. | Correlação durável fim a fim, sem payload/segredos em spans. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |

@@ -6,6 +6,7 @@ import com.securegate.iam.authorization.application.PrivilegedRequestService;
 import com.securegate.iam.authorization.application.ResourceAccessService;
 import com.securegate.iam.authorization.infrastructure.*;
 import com.securegate.iam.shared.application.port.UnitOfWork;
+import com.securegate.iam.shared.infrastructure.VaultHttpTransport;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.net.URI;
 import java.nio.file.Path;
@@ -30,11 +31,12 @@ public class PamCredentialConfiguration {
       PrivilegedRequestService requests,
       @Value("${iam.pam.credentials.address}") URI address,
       @Value("${iam.pam.credentials.role-id-file}") Path role,
-      @Value("${iam.pam.credentials.secret-id-file}") Path secret) {
+      @Value("${iam.pam.credentials.secret-id-file}") Path secret,
+      VaultHttpTransport transport) {
     return new PamCredentialService(
         new JdbcPrivilegedRequests(jdbc),
         new JdbcPrivilegedIssuances(jdbc),
-        new VaultPamCredentials(address, role, secret),
+        new VaultPamCredentials(address, role, secret, transport),
         access,
         transactions,
         audit,

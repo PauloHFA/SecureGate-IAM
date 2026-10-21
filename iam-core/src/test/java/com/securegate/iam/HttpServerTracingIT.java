@@ -166,6 +166,101 @@ class HttpServerTracingIT {
     bounded(span(trace));
   }
 
+  @Autowired VaultFixture vaultFixture;
+
+  @Test
+  void propagatesServerContextThroughRealJdkVaultSessionAndRestoresParent() throws Exception {
+    String trace = id();
+    var response = get("/trace-test/vault", "00-" + trace + "-" + id().substring(0, 16) + "-01");
+    assertThat(response.statusCode()).isEqualTo(200);
+    var body = json.readTree(response.body());
+    String serverSpan = body.get("serverSpan").asText();
+    assertThat(body.get("restoredSpan").asText()).isEqualTo(serverSpan);
+    var clients =
+        capture.spans.stream()
+            .filter(
+                data ->
+                    data.getTraceId().equals(trace)
+                        && data.getKind() == io.opentelemetry.api.trace.SpanKind.CLIENT)
+            .toList();
+    assertThat(clients).hasSize(3);
+    for (var data : clients) {
+      assertThat(data.getName()).isEqualTo("vault.http");
+      assertThat(data.getParentSpanId()).isEqualTo(serverSpan);
+      assertThat(data.getAttributes().size()).isEqualTo(4);
+      assertThat(data.getEvents()).isEmpty();
+      assertThat(data.toString())
+          .doesNotContain(
+              vaultFixture.token,
+              "secret_id",
+              "role_id",
+              "localhost",
+              "127.0.0.1",
+              "username",
+              "password");
+      assertThat(vaultFixture.parents)
+          .anyMatch(parent -> parent.contains(data.getSpanId()) && parent.contains(trace));
+    }
+    assertThat(vaultFixture.contextExtras).isEmpty();
+  }
+
+  static class VaultFixture implements AutoCloseable {
+    final com.sun.net.httpserver.HttpServer server;
+    final String token = UUID.randomUUID().toString();
+    final java.nio.file.Path directory, role, secret;
+    final ConcurrentLinkedQueue<String> parents = new ConcurrentLinkedQueue<>();
+    final ConcurrentLinkedQueue<String> contextExtras = new ConcurrentLinkedQueue<>();
+
+    VaultFixture() throws Exception {
+      directory = java.nio.file.Files.createTempDirectory("securegate-vault-trace-");
+      role =
+          java.nio.file.Files.writeString(directory.resolve("role"), UUID.randomUUID().toString());
+      secret =
+          java.nio.file.Files.writeString(
+              directory.resolve("secret"), UUID.randomUUID().toString());
+      server =
+          com.sun.net.httpserver.HttpServer.create(
+              new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+      server.createContext(
+          "/v1/",
+          exchange -> {
+            String parent = exchange.getRequestHeaders().getFirst("traceparent");
+            if (parent != null) parents.add(parent);
+            for (String key : java.util.List.of("baggage", "tracestate", "b3")) {
+              if (exchange.getRequestHeaders().containsKey(key)) contextExtras.add(key);
+            }
+            String path = exchange.getRequestURI().getPath();
+            Object result =
+                path.endsWith("login")
+                    ? Map.of(
+                        "auth",
+                        Map.of("client_token", token, "lease_duration", 60, "renewable", true))
+                    : Map.of(
+                        "data",
+                        Map.of("username", "synthetic-user", "password", "synthetic-password"));
+            byte[] bytes = new ObjectMapper().writeValueAsBytes(result);
+            exchange.getRequestBody().readAllBytes();
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (var output = exchange.getResponseBody()) {
+              output.write(bytes);
+            }
+            exchange.close();
+          });
+      server.start();
+    }
+
+    URI address() {
+      return URI.create("http://127.0.0.1:" + server.getAddress().getPort());
+    }
+
+    public void close() throws Exception {
+      server.stop(0);
+      java.nio.file.Files.deleteIfExists(role);
+      java.nio.file.Files.deleteIfExists(secret);
+      java.nio.file.Files.deleteIfExists(directory);
+    }
+  }
+
   static class Capture implements SpanProcessor {
     final ConcurrentLinkedQueue<SpanData> spans = new ConcurrentLinkedQueue<>();
 
@@ -192,8 +287,16 @@ class HttpServerTracingIT {
     }
 
     @Bean
-    Endpoint endpoint(Tracer tracer) {
-      return new Endpoint(tracer);
+    Endpoint endpoint(
+        Tracer tracer,
+        com.securegate.iam.shared.infrastructure.VaultHttpTransport transport,
+        VaultFixture vault) {
+      return new Endpoint(tracer, transport, vault);
+    }
+
+    @Bean(destroyMethod = "close")
+    VaultFixture vaultFixture() throws Exception {
+      return new VaultFixture();
     }
 
     @Bean
@@ -210,8 +313,28 @@ class HttpServerTracingIT {
   static class Endpoint {
     final Tracer tracer;
 
-    Endpoint(Tracer tracer) {
+    final com.securegate.iam.shared.infrastructure.VaultHttpTransport transport;
+    final VaultFixture vault;
+
+    Endpoint(
+        Tracer tracer,
+        com.securegate.iam.shared.infrastructure.VaultHttpTransport transport,
+        VaultFixture vault) {
       this.tracer = tracer;
+      this.transport = transport;
+      this.vault = vault;
+    }
+
+    @GetMapping("/trace-test/vault")
+    Map<String, String> vault() {
+      String serverSpan = tracer.currentSpan().context().spanId();
+      try (var session =
+          new com.securegate.iam.shared.infrastructure.VaultDatabaseSession(
+              vault.address(), vault.role, vault.secret, transport)) {
+        session.request("database/creds/iam-runtime", null);
+      }
+      return Map.of(
+          "serverSpan", serverSpan, "restoredSpan", tracer.currentSpan().context().spanId());
     }
 
     @GetMapping("/trace-test/echo")

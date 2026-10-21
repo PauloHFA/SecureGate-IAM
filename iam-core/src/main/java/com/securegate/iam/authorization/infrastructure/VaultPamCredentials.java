@@ -2,6 +2,7 @@ package com.securegate.iam.authorization.infrastructure;
 
 import com.securegate.iam.authorization.application.port.PamCredentials;
 import com.securegate.iam.shared.infrastructure.VaultDatabaseSession;
+import com.securegate.iam.shared.infrastructure.VaultHttpTransport;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -10,16 +11,22 @@ import java.util.Set;
 
 public final class VaultPamCredentials implements PamCredentials {
   private final URI address;
+  private final VaultHttpTransport transport;
   private final Path role, secret;
 
   public VaultPamCredentials(URI address, Path role, Path secret) {
+    this(address, role, secret, VaultHttpTransport.untraced());
+  }
+
+  public VaultPamCredentials(URI address, Path role, Path secret, VaultHttpTransport transport) {
+    this.transport = transport;
     this.address = address;
     this.role = role;
     this.secret = secret;
   }
 
   private VaultDatabaseSession session() {
-    var session = new VaultDatabaseSession(address, role, secret);
+    var session = new VaultDatabaseSession(address, role, secret, transport);
     if (session.deadline() - System.nanoTime() > Duration.ofSeconds(300).toNanos()) {
       session.close();
       throw new IllegalStateException("PAM Vault unavailable.");

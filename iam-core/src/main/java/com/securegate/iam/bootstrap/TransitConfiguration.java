@@ -8,6 +8,7 @@ import com.securegate.iam.authorization.infrastructure.VaultTransitSettings;
 import com.securegate.iam.authorization.infrastructure.VaultTransitSigningKeys;
 import com.securegate.iam.identity.application.port.MfaSecretProtector;
 import com.securegate.iam.identity.infrastructure.TransitMfaSecretProtector;
+import com.securegate.iam.shared.infrastructure.VaultHttpTransport;
 import com.securegate.iam.shared.presentation.ProblemResponses;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -28,8 +29,11 @@ import org.springframework.security.web.SecurityFilterChain;
 public class TransitConfiguration {
   @Bean
   VaultTransitSigningKeys signingKeys(
-      VaultTransitSettings settings, ObjectMapper json, MeterRegistry metrics) {
-    return new VaultTransitSigningKeys(settings, json, metrics);
+      VaultTransitSettings settings,
+      ObjectMapper json,
+      MeterRegistry metrics,
+      VaultHttpTransport transport) {
+    return new VaultTransitSigningKeys(settings, json, metrics, transport);
   }
 
   @Bean

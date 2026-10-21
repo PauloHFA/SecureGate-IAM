@@ -28,9 +28,15 @@ final class VaultDatabasePool {
   boolean revoked;
   Future<?> closing;
 
-  VaultDatabasePool(String url, URI address, Path role, Path secret, MeterRegistry metrics) {
+  VaultDatabasePool(
+      String url,
+      URI address,
+      Path role,
+      Path secret,
+      MeterRegistry metrics,
+      VaultHttpTransport transport) {
     this.metrics = metrics;
-    session = new VaultDatabaseSession(address, role, secret);
+    session = new VaultDatabaseSession(address, role, secret, transport);
     HikariDataSource candidate = null;
     try {
       long started = System.nanoTime();

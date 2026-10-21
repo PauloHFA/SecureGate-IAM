@@ -16,6 +16,7 @@ public final class VaultDatabaseSession implements AutoCloseable {
   private final HttpClient http =
       HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
   private final URI address;
+  private final VaultHttpTransport transport;
   private String token;
   private volatile long deadline;
   private volatile long renewAt;
@@ -23,6 +24,12 @@ public final class VaultDatabaseSession implements AutoCloseable {
   private boolean renewable;
 
   public VaultDatabaseSession(URI address, Path roleFile, Path secretFile) {
+    this(address, roleFile, secretFile, VaultHttpTransport.untraced());
+  }
+
+  public VaultDatabaseSession(
+      URI address, Path roleFile, Path secretFile, VaultHttpTransport transport) {
+    this.transport = transport;
     this.address = address;
     try {
       boolean local =
@@ -100,7 +107,8 @@ public final class VaultDatabaseSession implements AutoCloseable {
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)));
       }
-      var response = http.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+      var response =
+          transport.send(http, builder.build(), HttpResponse.BodyHandlers.ofByteArray(), address);
       if (response.statusCode() < 200
           || response.statusCode() >= 300
           || response.body().length > 65536) {
