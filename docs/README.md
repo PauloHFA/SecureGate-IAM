@@ -11,10 +11,10 @@ Começar pelo [guia de implementação passo a passo](GUIA-DE-IMPLEMENTACAO.md):
 | [Guias operacionais](runbooks/) | Preparação, execução, flags, testes e recuperação. |
 | [Evidências](evidencias/) | Comandos executados, resultados observados, ambiente e pendências históricas. |
 
-Estado desta revisão: **10B2b2a — coleta RabbitMQ implementada localmente**, em feat/rabbitmq-prometheus-metrics sobre 7b92e4f, validada por smoke e regressão IAM, incluída neste commit; push pendente. Próximas: 10B2b2b PostgreSQL, 10B2b2c Redis, 10B2b2d Vault e 10B3 logs/tracing. A 10B2b1 está versionada em 7b92e4f; publicação/CI e aceite global de observabilidade/capacidade continuam pendentes.
+Estado desta revisão: **10B2b2b — coleta PostgreSQL implementada localmente**, em feat/postgres-prometheus-metrics sobre eea6f52, validada por smoke e regressão IAM, incluída neste commit; push pendente. Próximas: 10B2b2c Redis, 10B2b2d Vault e 10B3 logs/tracing. A 10B2b2a está versionada em eea6f52; publicação/CI e aceite global de observabilidade/capacidade continuam pendentes.
 
-Consultar [inventário](OBSERVABILIDADE.md), [runbook RabbitMQ](runbooks/metricas-rabbitmq-local.md), [ADR-053](adr/053-coleta-opcional-rabbitmq.md) e [evidências 10B2b2a](evidencias/etapa-10b2b2a.md). Plugin opcional, scrape agregado e dashboard de seis painéis. O [aceite local da etapa 9](runbooks/aceite-etapa9.md) preserva seus riscos e limites.
+Consultar [inventário](OBSERVABILIDADE.md), [runbook PostgreSQL](runbooks/metricas-postgres-local.md), [ADR-054](adr/054-coleta-opcional-postgresql.md) e [evidências 10B2b2b](evidencias/etapa-10b2b2b.md). Login dedicado, exporter opcional com senha por arquivo, coletores limitados e dashboard de seis painéis. O [aceite local da etapa 9](runbooks/aceite-etapa9.md) preserva seus riscos e limites.
 
 Ao implementar uma nova subdivisão, atualizar guia, plano, README, decisões aplicáveis, operação e evidências. Proposta, implementação, validação local, commit, publicação, CI e merge devem permanecer identificáveis separadamente.
 
-O histórico das entregas anteriores e seus resultados permanece nas evidências individuais. O guia referencia também a 10B2b2a e registra suas divisões passo a passo.
+O histórico das entregas anteriores e seus resultados permanece nas evidências individuais. O guia referencia também a 10B2b2b e registra suas divisões passo a passo.

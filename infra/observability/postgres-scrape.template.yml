@@ -1,0 +1,6 @@
+  - job_name: postgres
+    metrics_path: /metrics
+    scheme: http
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['host.docker.internal:__POSTGRES_METRICS_PORT__']

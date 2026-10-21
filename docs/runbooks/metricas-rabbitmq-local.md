@@ -61,3 +61,5 @@ Não usar down --volumes na infraestrutura persistente. No smoke, volumes são r
 ```
 
 O smoke usa broker real com configuração/overlay versionados, cria fila exclusiva e verifica ready/unacked/ACK, seis expressões, frame Grafana, acesso anônimo negado e pausa/recuperação do scrape. O IAM não é iniciado: seu job fica up=0, esperado nesta fixture isolada. Credenciais aleatórias de teste não são reutilizadas no projeto. Não é ensaio sustentado ou teste fim a fim de IAM/enforcer. [Evidências e limitações](../evidencias/etapa-10b2b2a.md).
+
+A [coleta PostgreSQL 10B2b2b](metricas-postgres-local.md) é um overlay separado, com login dedicado e senha por arquivo; não modifica a configuração RabbitMQ. Próximas dependências: Redis e Vault.

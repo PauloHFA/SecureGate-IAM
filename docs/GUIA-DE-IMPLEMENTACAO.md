@@ -6,18 +6,18 @@ Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B2b2a — coleta RabbitMQ |
-| Base desta entrega | 7b92e4f — métricas/coleta do enforcer |
+| Última entrega implementada | 10B2b2b — coleta PostgreSQL |
+| Base desta entrega | eea6f52 — coleta RabbitMQ |
 | Trabalho local | Implementação, testes e documentação incluídos neste commit; push pendente |
-| Branch | feat/rabbitmq-prometheus-metrics |
-| Validação da entrega | Smokes RabbitMQ e regressão IAM: 2 testes, zero falhas; BUILD SUCCESS às 13:14:08 UTC−03; suíte completa não repetida |
-| Próxima implementação | 10B2b2b — PostgreSQL |
+| Branch | feat/postgres-prometheus-metrics |
+| Validação da entrega | Smokes PostgreSQL e regressão IAM: 2 testes, zero falhas; BUILD SUCCESS às 13:27:35 UTC−03; suíte completa não repetida |
+| Próxima implementação | 10B2b2c — Redis |
 | Pendências seguintes | 10B3 — logs/tracing; 10C–10D — medição/ajustes; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1 e a 10B2b2a também estão implementadas abaixo. As demais divisões 10B2b2b–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a e a 10B2b2b também estão implementadas abaixo. As demais divisões 10B2b2c–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -410,13 +410,31 @@ Objetivo: acrescentar métricas reais do broker à coleta local, preservando o C
 
 Referências: [operação](runbooks/metricas-rabbitmq-local.md), [ADR-053](adr/053-coleta-opcional-rabbitmq.md), [evidências 10B2b2a](evidencias/etapa-10b2b2a.md), [inventário](OBSERVABILIDADE.md). Trabalho local em feat/rabbitmq-prometheus-metrics sobre 7b92e4f, incluída neste commit; push pendente. Nenhuma alteração da stack persistente do usuário.
 
+## 10B2b2b — Coleta PostgreSQL
+
+Objetivo: acrescentar estatísticas reais do servidor sem fornecer a credencial administrativa ao exporter nem consultar tabelas IAM durante scrape. Depende da coleta 10B2a e sucede RabbitMQ 10B2b2a; Redis/Vault seguem separados.
+
+1. Criar feat/postgres-prometheus-metrics sobre eea6f52. Conferir README 0.19.1, --help da imagem real, digest e papéis PostgreSQL 16.
+2. Criar SQL administrativo opt-in fora de Flyway para securegate_metrics: pg_monitor, limite de conexões/timeouts e atributos sem administração, sem grants em tabelas IAM.
+3. Recusar atributos/memberships/ownership/ACL inesperados, inclusive SELECT de coluna e CREATE herdado. Não corrigir grants suspeitos silenciosamente. Aplicar criação/configuração/senha em transação.
+4. Implementar provisionador com senha CSPRNG em arquivo privado, formato estrito, reuso/rotação explícitos e transmissão ao psql por ambiente temporário; não imprimir valores nem passar senha em argumento.
+5. Acrescentar overlay separado com imagem fixada por digest, senha montada read-only, bind que recusa arquivo ausente, porta loopback, filesystem read-only e recursos limitados. O Compose base não inicia exporter.
+6. Escolher somente database/stat_database/stat_bgwriter; desabilitar métricas legadas/settings, SQL/tabelas, roles, locks, replication, vacuum e WAL. Não descobrir bancos automaticamente nem exportar payload/query.
+7. Acrescentar job a cada 15 s e script de inclusão com backup, recusa de duplicidade/colisão e preservação dos outros jobs/segredos/volumes.
+8. Provisionar dashboard de seis painéis distinguindo HTTP up de conexão SQL pg_up, além de conexões, commits, tamanho e deadlocks do cluster.
+9. Executar smoke com arquivos versionados, PostgreSQL/exporter/coleta reais descartáveis; verificar ACL com read-only desligado, grants inesperados, arquivo inválido preservado, commits, background writer e seis consultas/frame Grafana.
+10. Invalidar credencial SQL e encerrar somente sessões desse login no teste: exigir up=1/pg_up=0; restaurar arquivo/login e exigir recuperação. Revisar artefatos sem segredos, limpar apenas projetos gerados e registrar limites/resultados.
+
+pg_monitor permite leitura ampla de estatísticas/configuração do cluster e pode revelar SQL por interfaces PostgreSQL; os coletores escolhidos não exportam esse texto. PUBLIC permanece existente e o padrão read-only é alterável pelo cliente. Não representa sandbox, capacidade ou correlação distribuída sob carga.
+
+Referências: [operação](runbooks/metricas-postgres-local.md), [ADR-054](adr/054-coleta-opcional-postgresql.md), [evidências 10B2b2b](evidencias/etapa-10b2b2b.md), [inventário](OBSERVABILIDADE.md). Trabalho local em feat/postgres-prometheus-metrics sobre eea6f52, incluída neste commit; push pendente; sem provisionar a stack persistente. V22 e grants IAM/auditoria/PAM preservados.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
 As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10B2b2b — PostgreSQL | Definir usuário de monitoração e exporter → limitar permissões/consultas → integrar coleta. | Séries reais do banco com leitura limitada. |
 | 10B2b2c — Redis | Definir exporter e ACL de leitura → integrar coleta e testar recuperação. | Séries Redis sem reutilizar acesso administrativo. |
 | 10B2b2d — Vault | Habilitar telemetria e política/token de leitura → coletar e correlacionar dependências. | Séries reais Vault; correlação das quatro dependências documentada. |
 | 10B3 — Logs/tracing | Estruturar logs sanitizados e propagar contexto HTTP/RabbitMQ → validar ausência de payload/segredos e cardinalidade. | Correlação verificável de requisição/evento/dependências. |

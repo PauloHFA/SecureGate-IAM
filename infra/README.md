@@ -164,3 +164,7 @@ Initialize-MetricsToken.ps1 -Target Enforcer prepara token próprio e Start-Poli
 ## Coleta opcional RabbitMQ — 10B2b2a
 
 O [overlay](docker-compose.rabbitmq-metrics.yml) habilita plugin Prometheus nativo com publicação em loopback (padrão 15692) e configuração agregada, sem alterar o Compose padrão. Aplicação/retirada recriam somente o broker e interrompem conexões; o volume é preservado. Seguir [runbook](../docs/runbooks/metricas-rabbitmq-local.md) para janela, migração de coleta com backup e interpretação do dashboard. Não requer senha AMQP/administrativa no Prometheus. Acesso sem autenticação restrito ao host/rede Docker; coleta remota exige desenho próprio.
+
+## Coleta opcional PostgreSQL — 10B2b2b
+
+[Provisionamento](scripts/Provision-PostgresMetrics.ps1) administrativo explícito cria login dedicado pg_monitor e senha em arquivo privado, sem alterar grants IAM/auditoria/PAM. O [overlay](docker-compose.postgres-metrics.yml) acrescenta somente postgres-exporter, com digest fixado e publicação loopback padrão 19187. Não recria o banco nem modifica o Compose base. Seguir [runbook](../docs/runbooks/metricas-postgres-local.md) para permissões, inclusão do job com backup, interpretação de up versus pg_up e rotação/retirada. Esta entrega foi validada em projetos descartáveis; não provisionou o banco persistente do usuário.

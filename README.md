@@ -131,7 +131,9 @@ A **10B2b1** acrescenta listener opcional de métricas do enforcer, token separa
 
 A **10B2b2a** acrescenta coleta opcional RabbitMQ com plugin nativo, porta loopback, métricas agregadas, script de migração com backup e dashboard de seis painéis. O smoke usa mensagens AMQP reais e verifica ready/unacked/ACK e pausa/recuperação do scrape. Consultar [operação](docs/runbooks/metricas-rabbitmq-local.md), [ADR-053](docs/adr/053-coleta-opcional-rabbitmq.md) e [evidências](docs/evidencias/etapa-10b2b2a.md).
 
-Próxima implementação: **10B2b2b — PostgreSQL**, seguida por Redis/Vault e 10B3 logs/tracing. Trabalho local em `feat/rabbitmq-prometheus-metrics`, sobre `7b92e4f`, incluída neste commit; push pendente. Publicação/CI, coleta sustentada e aceite de desempenho permanecem pendentes.
+A **10B2b2b** acrescenta login de monitoração PostgreSQL, exporter opcional com senha por arquivo e imagem fixada por digest, coleta de estatísticas e dashboard de seis painéis. Smoke verifica ACLs reais e falha de credencial SQL com scrape HTTP disponível, seguida de recuperação. Consultar [operação](docs/runbooks/metricas-postgres-local.md), [ADR-054](docs/adr/054-coleta-opcional-postgresql.md) e [evidências](docs/evidencias/etapa-10b2b2b.md).
+
+Próxima implementação: **10B2b2c — Redis**, seguida por Vault e 10B3 logs/tracing. Trabalho local em `feat/postgres-prometheus-metrics`, sobre `eea6f52`, incluída neste commit; push pendente. Publicação/CI, coleta sustentada e aceite de desempenho permanecem pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

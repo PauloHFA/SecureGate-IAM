@@ -8,10 +8,11 @@
 | 10B2a | Implementada localmente | Compose Prometheus/Grafana, datasource e dashboard IAM; teste real de scrape/consultas/credencial. |
 | 10B2b1 | Implementada localmente | Listener JDK opcional do enforcer, token próprio, job/overlay e dashboard separado. |
 | 10B2b2a | Implementada localmente | Plugin/scrape RabbitMQ opcionais, agregação e dashboard separado. |
-| 10B2b2b–d | Propostas, pendentes | PostgreSQL, Redis e Vault, com permissões/telemetria por dependência. |
+| 10B2b2b | Implementada localmente | Login dedicado, exporter PostgreSQL opcional, senha por arquivo e estatísticas do cluster. |
+| 10B2b2c–d | Propostas, pendentes | Redis e Vault, com permissões/telemetria por dependência. |
 | 10B3 | Proposta, pendente | Logs estruturados sanitizados e tracing propagado por HTTP/RabbitMQ, com validação de cardinalidade/segredos. |
 
-A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none; a 10B2b1 acrescenta listener JDK opcional em loopback, GET /metrics, sem MVC/Actuator. Default sem listener. A 10B2a acrescenta Compose Prometheus/Grafana validado com IAM real em stack descartável, sem coleta sustentada ou alteração dos serviços persistentes do usuário. A 10B2b2a acrescenta plugin opcional do RabbitMQ; banco, Redis e Vault continuam sem novos exporters/ACL.
+A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none; a 10B2b1 acrescenta listener JDK opcional em loopback, GET /metrics, sem MVC/Actuator. Default sem listener. A 10B2a acrescenta Compose Prometheus/Grafana validado com IAM real em stack descartável, sem coleta sustentada ou alteração dos serviços persistentes do usuário. A 10B2b2a acrescenta plugin opcional do RabbitMQ; a 10B2b2b acrescenta exporter PostgreSQL e login de monitoração; Redis e Vault continuam pendentes.
 
 ## IAM: superfície e controle de acesso
 
@@ -81,4 +82,12 @@ Overlay opcional publica 127.0.0.1:15692 (porta externa configurável). Plugin n
 
 Dashboard UID securegate-rabbitmq tem seis painéis: up, rabbitmq_queue_messages_ready, rabbitmq_queue_messages_unacked, rabbitmq_connections, rabbitmq_channels e rabbitmq_queue_consumers. Totais são do nó e incluem filas de retry/DLQ. Scrape disponível e consumidores registrados não comprovam progresso/entrega da aplicação. Não mede SLA de revogação ou capacidade.
 
-[Operação](runbooks/metricas-rabbitmq-local.md), [ADR-053](adr/053-coleta-opcional-rabbitmq.md), [evidências](evidencias/etapa-10b2b2a.md). Próximas dependências: PostgreSQL, Redis e Vault.
+[Operação](runbooks/metricas-rabbitmq-local.md), [ADR-053](adr/053-coleta-opcional-rabbitmq.md), [evidências](evidencias/etapa-10b2b2a.md). PostgreSQL segue na 10B2b2b; próximas dependências: Redis e Vault.
+
+## PostgreSQL — 10B2b2b
+
+Exporter 0.19.1 fixado por digest em overlay opcional, publicação 127.0.0.1:19187 (externa configurável), senha em arquivo e login securegate_metrics/pg_monitor. Sem credencial administrativa no exporter ou Prometheus. Coletores database/stat_database/stat_bgwriter, sem tabelas/SQL/roles/settings de negócio. Coleta a cada 15 s. TLS/autenticação HTTP não configurados para esta operação local.
+
+Dashboard UID securegate-postgres: up, pg_up, pg_stat_database_numbackends, pg_stat_database_xact_commit, pg_database_size_bytes e pg_stat_database_deadlocks (seis painéis). Up=1 com pg_up=0 é possível em erro SQL; conferir também presença dos dados/erros dos coletores. Commits incluem monitoração e estatísticas de outros bancos. Não representam throughput IAM ou capacidade.
+
+pg_monitor permite ler estatísticas/configuração e funções amplas do cluster, inclusive informações de sessões/SQL pelas interfaces PostgreSQL; o exporter escolhido não exporta esse texto. PUBLIC não foi alterado. ACLs, não default_transaction_read_only, impedem SELECT/DML em tabelas de negócio. [Operação](runbooks/metricas-postgres-local.md), [ADR-054](adr/054-coleta-opcional-postgresql.md), [evidências](evidencias/etapa-10b2b2b.md). Próximas: Redis e Vault.
