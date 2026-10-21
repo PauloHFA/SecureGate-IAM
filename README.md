@@ -145,7 +145,9 @@ A **10B3b2** instrumenta os envios JDK runtime para Vault (Transit/MFA, banco di
 
 A **10B3c1** acrescenta V23: contexto W3C opcional e imutável persistido na mesma transação do outbox, fora do payload v1, preservado em claims/retries. **Migrar antes do novo binário**, inclusive com tracing desligado. Consultar [operação](docs/runbooks/tracing-outbox-local.md), [ADR-060](docs/adr/060-contexto-duravel-no-outbox.md) e [evidências](docs/evidencias/etapa-10b3c1.md).
 
-Próxima implementação: **10B3c2 — publicação do contexto em AMQP**, depois **10B3c3 — consumo**. Trabalho local em `feat/outbox-trace-context`, sobre `32f3bfa`, incluída neste commit; push pendente. Publicação/CI, backend e aceite de desempenho permanecem pendentes.
+A **10B3c2** adiciona span PRODUCER por tentativa de publicação, com parent durável ou raiz explícita, e somente traceparent adicional nos headers AMQP. Mantém payload v1 e regras de confirm/retry/lease. Consultar [operação](docs/runbooks/tracing-outbox-local.md), [ADR-061](docs/adr/061-tracing-publicacao-amqp.md) e [evidências](docs/evidencias/etapa-10b3c2.md).
+
+Próxima implementação: **10B3c3 — consumo IAM/enforcer**. Trabalho local em `feat/outbox-trace-context`, sobre `57f34bf`, incluída neste commit; push pendente; build completo aprovado com 824 testes e gates de cobertura/arquitetura. Publicação/CI, backend e aceite de desempenho permanecem pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

@@ -6,18 +6,18 @@ Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B3c1 — contexto durável no outbox |
-| Base desta entrega | 32f3bfa — clientes HTTP Vault |
+| Última entrega implementada | 10B3c2 — tracing da publicação AMQP |
+| Base desta entrega | 57f34bf — contexto durável no outbox |
 | Trabalho local | Implementação local; incluída neste commit; push pendente |
 | Branch | feat/outbox-trace-context |
-| Validação da entrega | Build completo: 818 testes, zero falhas; cobertura/arquitetura atendidas; BUILD SUCCESS às 16:21:51 UTC−03 |
-| Próxima implementação | 10B3c2 — publicação AMQP |
-| Pendências seguintes | 10B3c2/c3 — publicação/consumo; 10C–10D; publicação/CI |
+| Validação da entrega | Build completo: 824 testes, zero falhas/erros/skips; cobertura/arquitetura atendidas; BUILD SUCCESS às 20:33:29 UTC−03 |
+| Próxima implementação | 10B3c3 — consumo IAM/enforcer |
+| Pendências seguintes | 10B3c3 — consumo; 10C–10D; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2 e a 10B3c1 também estão implementadas abaixo. As demais divisões 10B3c2–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1 e a 10B3c2 também estão implementadas abaixo. As demais divisões 10B3c3–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -518,7 +518,7 @@ A 10B3b foi dividida em 10B3b1 (entrada servlet) e 10B3b2 (clientes JDK/Vault), 
 
 ## Etapa 10B3c1 — Contexto durável no outbox
 
-Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3 (consumo) permite validar a transação antes do transporte. c2/c3 continuam propostas, pendentes.
+Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3 (consumo) permite validar a transação antes do transporte. Na entrega c1, c2/c3 eram propostas pendentes; a seção seguinte registra a implementação c2.
 
 1. Identificar transação de auditoria/outbox e worker assíncrono; contexto de thread do request não chega ao scheduler.
 2. Criar V23 aditiva: trace_parent nullable VARCHAR(55), CHECK W3C/IDs/flags e extensão do trigger imutável; eventos antigos ficam NULL.
@@ -533,13 +533,27 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 
 [ADR-060](adr/060-contexto-duravel-no-outbox.md), [operação](runbooks/tracing-outbox-local.md), [evidências](evidencias/etapa-10b3c1.md). Branch feat/outbox-trace-context sobre 32f3bfa, incluída neste commit; push pendente. Próxima: 10B3c2.
 
+## Etapa 10B3c2 — Tracing da publicação AMQP
+
+1. Revisar claim/confirm/retry e manter OutboxPublisher sem dependências do SDK; instrumentar somente o adapter RabbitEventTransport.
+2. Conectar Tracer opcional no bootstrap, reutilizando http-tracing; preservar construtor antigo e publicador desabilitado por padrão.
+3. Validar parent durável novamente; construir parent explícito com traceId/spanId/sampled. Usar raiz explícita quando ausente/inválido, sem herdar worker/MDC/correlationId.
+4. Criar span outbox.publish PRODUCER para cada tentativa; sampler local determina flags, mesmo diante de parent sampled.
+5. Serializar somente traceparent W3C 00 a partir do filho produtor e validar. Criar mapa novo com schemaVersion e, quando ativo, traceparent; não copiar baggage/tracestate/B3/maps externos.
+6. Preservar body UTF-8, messageId/correlationId, persistência, routing e confirm mandatory. Encerrar escopo/span em finally; não alterar lease/backoff/ACK.
+7. Limitar atributos a messaging.system=rabbitmq e messaging.outcome finito; não registrar exceções livres/payload/identidades/host do broker.
+8. Testar SDK real com canal simulado: tracing desligado, parent durável versus worker, retries com filhos diferentes, NULL/contexto hostil, sampler zero e fechamento em falhas.
+9. Testar banco/broker reais: captura audit/outbox, confirm antes de UPDATE, lease expirada e store/transport reinstanciados; verificar redelivery idempotente em identidade/body, parent imutável e header do novo produtor. Simular queda sem alegar reinício real de JVM.
+10. Executar seleção e verify completo; atualizar decisões, guia operacional, inventário e evidências, preservando a pendência de consumo 10B3c3 e de exporter/backend/desempenho.
+
+[ADR-061](adr/061-tracing-publicacao-amqp.md), [operação](runbooks/tracing-outbox-local.md), [evidências](evidencias/etapa-10b3c2.md). Branch feat/outbox-trace-context sobre 57f34bf; incluída neste commit; push pendente. Sem nova migração; V23 segue obrigatória e stack persistente não foi migrada.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
 As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10B3c2 — Publicação AMQP | Criar span com parent persistido → injetar header restrito → testar retry/confirm/headers hostis. | Contexto durável publicado sem modificar JSON v1. |
 | 10B3c3 — Consumo | Extrair/validar contexto → restaurar/limpar escopo IAM/enforcer → testar redelivery/falhas. | Correlação verificável de publicação/consumo sem payload/segredos em spans. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |

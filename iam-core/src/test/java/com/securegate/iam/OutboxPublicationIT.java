@@ -12,11 +12,17 @@ import com.securegate.iam.audit.application.port.AuditRecord;
 import com.securegate.iam.audit.application.port.AuditTrail;
 import com.securegate.iam.audit.application.port.EventTransport;
 import com.securegate.iam.audit.application.port.OutboxDelivery;
+import com.securegate.iam.audit.infrastructure.JdbcAuditTrail;
 import com.securegate.iam.audit.infrastructure.JdbcOutboxDelivery;
+import com.securegate.iam.audit.infrastructure.JdbcOutboxEvents;
 import com.securegate.iam.audit.infrastructure.OutboxWorker;
 import com.securegate.iam.audit.infrastructure.RabbitEventTransport;
 import com.securegate.iam.audit.infrastructure.RabbitTopology;
 import com.securegate.iam.shared.application.port.OperationContext;
+import io.micrometer.tracing.otel.bridge.OtelCurrentTraceContext;
+import io.micrometer.tracing.otel.bridge.OtelTracer;
+import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.sdk.trace.samplers.Sampler;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.HashSet;
@@ -475,5 +481,96 @@ class OutboxPublicationIT {
     assertNotNull(dead);
     assertArrayEquals(body, dead.getBody());
     assertNotNull(dead.getProps().getHeaders().get("x-death"));
+  }
+
+  @Test
+  void durableContextSurvivesConfirmedDeliveryBeforeCrashAndReclaimedPublication()
+      throws Exception {
+    try (var provider =
+        SdkTracerProvider.builder().setSampler(Sampler.traceIdRatioBased(1)).build()) {
+      var tracer = new OtelTracer(provider.get("test"), new OtelCurrentTraceContext(), event -> {});
+      var tracedAudit =
+          new JdbcAuditTrail(
+              jdbc,
+              json,
+              new JdbcOutboxEvents(
+                  jdbc,
+                  json,
+                  () -> {
+                    var context = tracer.currentSpan().context();
+                    return "00-" + context.traceId() + "-" + context.spanId() + "-01";
+                  }),
+              new TransactionTemplate(manager),
+              java.time.Clock.systemUTC());
+      String correlation = UUID.randomUUID().toString();
+      var source = tracer.nextSpan().name("source").start();
+      try (var scope = tracer.withSpan(source)) {
+        tracedAudit.record(
+            new AuditRecord(
+                new SecurityEventType("test.outbox"),
+                "synthetic",
+                new OperationContext("publisher-test", correlation),
+                Map.of("version", "1")));
+      } finally {
+        source.end();
+      }
+      UUID id =
+          jdbc.queryForObject(
+              "SELECT event_id FROM iam_audit.outbox_events WHERE payload->>'correlationId'=?",
+              UUID.class,
+              correlation);
+      String original = payload(id);
+      String durable =
+          jdbc.queryForObject(
+              "SELECT trace_parent FROM iam_audit.outbox_events WHERE event_id=?",
+              String.class,
+              id);
+      assertEquals(source.context().spanId(), durable.substring(36, 52));
+      var first = store.claim(30).orElseThrow();
+      transport.close();
+      transport = new RabbitEventTransport(factory(), json, 2000, tracer);
+      var worker = tracer.nextSpan().name("unrelated-worker").start();
+      try (var scope = tracer.withSpan(worker)) {
+        assertEquals(EventTransport.Outcome.ACKED, transport.publish(first));
+        assertEquals(worker.context().spanId(), tracer.currentSpan().context().spanId());
+      } finally {
+        worker.end();
+      }
+      // Simulate process loss after broker confirm, before updating published_at.
+      var firstDelivery = channel.basicGet("audit.persist", true);
+      assertNotNull(firstDelivery);
+      expire(id);
+      transport.close();
+      transport = new RabbitEventTransport(factory(), json, 2000, tracer);
+      var recovered = new JdbcOutboxDelivery(jdbc, manager);
+      assertEquals(1, new OutboxPublisher(recovered, transport, 30).publishBatch(1));
+      var secondDelivery = channel.basicGet("audit.persist", true);
+      assertNotNull(secondDelivery);
+      String firstHeader = firstDelivery.getProps().getHeaders().get("traceparent").toString();
+      String secondHeader = secondDelivery.getProps().getHeaders().get("traceparent").toString();
+      assertNotEquals(firstHeader, secondHeader);
+      assertEquals(source.context().traceId(), firstHeader.substring(3, 35));
+      assertEquals(source.context().traceId(), secondHeader.substring(3, 35));
+      assertNotEquals(source.context().spanId(), firstHeader.substring(36, 52));
+      for (var delivery : java.util.List.of(firstDelivery, secondDelivery)) {
+        assertEquals(
+            java.util.Set.of("schemaVersion", "traceparent"),
+            delivery.getProps().getHeaders().keySet());
+        assertEquals(1, delivery.getProps().getHeaders().get("schemaVersion"));
+        assertEquals(id.toString(), delivery.getProps().getMessageId());
+        assertEquals(correlation, delivery.getProps().getCorrelationId());
+        assertEquals(2, delivery.getProps().getDeliveryMode());
+        assertEquals(original, new String(delivery.getBody(), StandardCharsets.UTF_8));
+      }
+      assertEquals(
+          durable,
+          jdbc.queryForObject(
+              "SELECT trace_parent FROM iam_audit.outbox_events WHERE event_id=?",
+              String.class,
+              id));
+      assertEquals(0, pending());
+      assertFalse(store.published(first));
+      assertNull(tracer.currentSpan());
+    }
   }
 }

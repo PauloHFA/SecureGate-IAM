@@ -9,10 +9,14 @@ import com.rabbitmq.client.ConnectionFactory;
 import com.securegate.events.SecurityEvent;
 import com.securegate.iam.audit.application.port.EventTransport;
 import com.securegate.iam.audit.application.port.OutboxDelivery;
+import com.securegate.iam.audit.application.port.OutboxTraceParent;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
-import java.util.Map;
+import java.util.HashMap;
+import java.util.Locale;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -23,8 +27,15 @@ public final class RabbitEventTransport implements EventTransport, AutoCloseable
   private final ObjectReader events;
   private final int timeoutMillis;
   private Connection connection;
+  private final Tracer tracer;
 
   public RabbitEventTransport(ConnectionFactory factory, ObjectMapper json, int timeoutMillis) {
+    this(factory, json, timeoutMillis, null);
+  }
+
+  public RabbitEventTransport(
+      ConnectionFactory factory, ObjectMapper json, int timeoutMillis, Tracer tracer) {
+    this.tracer = tracer;
     if (timeoutMillis < 100 || timeoutMillis > 5000) {
       throw new IllegalArgumentException("Invalid confirmation timeout.");
     }
@@ -37,6 +48,42 @@ public final class RabbitEventTransport implements EventTransport, AutoCloseable
 
   @Override
   public Outcome publish(OutboxDelivery.Claim claim) {
+    if (tracer == null) return publish(claim, null);
+    // Explicit parent (or root) prevents a worker's ambient span from replacing durable context.
+    var builder = tracer.spanBuilder().name("outbox.publish").kind(Span.Kind.PRODUCER);
+    String parent = OutboxTraceParent.safeOrNull(claim.traceParent());
+    if (parent == null) {
+      builder.setNoParent();
+    } else {
+      builder.setParent(
+          tracer
+              .traceContextBuilder()
+              .traceId(parent.substring(3, 35))
+              .spanId(parent.substring(36, 52))
+              .sampled(parent.endsWith("01"))
+              .build());
+    }
+    Span span = builder.start();
+    Outcome outcome = Outcome.BROKER_UNAVAILABLE;
+    try (var scope = tracer.withSpan(span)) {
+      var context = span.context();
+      String header =
+          OutboxTraceParent.safeOrNull(
+              "00-"
+                  + context.traceId()
+                  + "-"
+                  + context.spanId()
+                  + (Boolean.TRUE.equals(context.sampled()) ? "-01" : "-00"));
+      outcome = publish(claim, header);
+      return outcome;
+    } finally {
+      span.tag("messaging.system", "rabbitmq");
+      span.tag("messaging.outcome", outcome.name().toLowerCase(Locale.ROOT));
+      span.end();
+    }
+  }
+
+  private Outcome publish(OutboxDelivery.Claim claim, String traceParent) {
     SecurityEvent event;
     try {
       event = events.readValue(claim.payload());
@@ -52,6 +99,9 @@ public final class RabbitEventTransport implements EventTransport, AutoCloseable
       var returned = new AtomicBoolean();
       channel.addReturnListener(message -> returned.set(true));
       channel.confirmSelect();
+      var headers = new HashMap<String, Object>();
+      headers.put("schemaVersion", event.schemaVersion());
+      if (traceParent != null) headers.put("traceparent", traceParent);
       var properties =
           new AMQP.BasicProperties.Builder()
               .messageId(event.eventId().toString())
@@ -62,7 +112,7 @@ public final class RabbitEventTransport implements EventTransport, AutoCloseable
               .contentType("application/json")
               .contentEncoding("UTF-8")
               .deliveryMode(2)
-              .headers(Map.of("schemaVersion", event.schemaVersion()))
+              .headers(headers)
               .build();
       channel.basicPublish(
           EXCHANGE,

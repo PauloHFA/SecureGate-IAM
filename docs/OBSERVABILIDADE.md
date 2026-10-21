@@ -15,7 +15,7 @@
 | 10B3b1 | Implementada e validada localmente | HTTP servlet entrante opcional, W3C restrito, spans finitos e IDs nos logs IAM; sem exporter. |
 | 10B3b2 | Implementada e validada localmente | Transporte dos clientes JDK runtime Vault, origem/path restritos, quatro atributos e contexto restaurado. |
 | 10B3c1 | Implementada e validada localmente | V23: parent opcional/imutável no outbox, capturado na transação e recuperado em claim/retry. |
-| 10B3c2 | Proposta, pendente | Injeção restrita do contexto persistido na publicação AMQP. |
+| 10B3c2 | Implementada e validada localmente | Span PRODUCER por tentativa, parent durável/raiz explícita e header traceparent restrito. |
 | 10B3c3 | Proposta, pendente | Restauração/limpeza no consumo IAM/enforcer. |
 
 A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none; a 10B2b1 acrescenta listener JDK opcional em loopback, GET /metrics, sem MVC/Actuator. Default sem listener. A 10B2a acrescenta Compose Prometheus/Grafana validado com IAM real em stack descartável, sem coleta sustentada ou alteração dos serviços persistentes do usuário. A 10B2b2a acrescenta plugin opcional do RabbitMQ; a 10B2b2b acrescenta exporter PostgreSQL e login de monitoração; a 10B2b2c acrescenta ACL/exporter Redis; a 10B2b2d acrescenta listener/token Vault próprios. Execução conjunta sustentada ainda não foi validada.
@@ -134,4 +134,10 @@ Transporte síncrono compartilhado para Transit/MFA, banco dinâmico e PAM. Com 
 
 ## Contexto durável no outbox — 10B3c1
 
-V23 armazena trace_parent opcional (55 caracteres W3C 00, flags 00/01, IDs não nulos) como coluna separada do envelope v1. Captura do span corrente somente na transação de append; sem contexto vira NULL, inclusive eventos históricos. Trigger impede alteração posterior; leases/retries/ACK mantêm valor original. Claim transporta o metadado até a camada de publicação, mas RabbitEventTransport ainda não o utiliza. Sem novos spans, métricas ou headers AMQP, sem alteração de consumidores. IDs não autorizam nem viram labels; sem baggage/tracestate/PII. [ADR-060](adr/060-contexto-duravel-no-outbox.md), [operação](runbooks/tracing-outbox-local.md), [evidências](evidencias/etapa-10b3c1.md).
+V23 armazena trace_parent opcional (55 caracteres W3C 00, flags 00/01, IDs não nulos) como coluna separada do envelope v1. Captura do span corrente somente na transação de append; sem contexto vira NULL, inclusive eventos históricos. Trigger impede alteração posterior; leases/retries/ACK mantêm valor original. Claim transporta o metadado até a camada de publicação; naquela entrega RabbitEventTransport ainda não o utilizava. A 10B3c1 não adicionava spans, métricas ou headers AMQP; a seção seguinte registra a evolução da publicação. Consumidores permanecem sem alteração. IDs não autorizam nem viram labels; sem baggage/tracestate/PII. [ADR-060](adr/060-contexto-duravel-no-outbox.md), [operação](runbooks/tracing-outbox-local.md), [evidências](evidencias/etapa-10b3c1.md).
+
+## Publicação AMQP — 10B3c2
+
+Tracer opcional no RabbitEventTransport. Padrão sem spans/header de tracing; com http-tracing ativo, cada publish gera outbox.publish PRODUCER, filho do parent durável ou raiz explícita (sem herdar worker). Header traceparent do produtor e schemaVersion, sem alterar SecurityEvent v1, propriedades existentes ou confirm/retry/lease. Tentativas são filhos distintos do mesmo parent; ACK não significa consumo concluído. Sampler local independente do bit sampled persistido.
+
+Dois atributos finitos: messaging.system=rabbitmq e messaging.outcome em acked/unroutable/nack/confirm_timeout/broker_unavailable/invalid_event. Sem payload/erro livre/UUID/host/credenciais, baggage/tracestate/B3, métricas novas ou exporter. Escopo restaurado e span encerrado inclusive em falhas. Sem nova migração além da V23 já exigida. Consumo IAM/enforcer permanece na 10B3c3. [ADR-061](adr/061-tracing-publicacao-amqp.md), [operação](runbooks/tracing-outbox-local.md), [evidências](evidencias/etapa-10b3c2.md).

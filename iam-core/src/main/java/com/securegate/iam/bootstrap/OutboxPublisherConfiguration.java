@@ -9,11 +9,13 @@ import com.securegate.iam.audit.infrastructure.MeteredOutboxDelivery;
 import com.securegate.iam.audit.infrastructure.OutboxWorker;
 import com.securegate.iam.audit.infrastructure.RabbitEventTransport;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.tracing.Tracer;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.lang.Nullable;
 import org.springframework.transaction.PlatformTransactionManager;
 
 @Configuration(proxyBeanMethods = false)
@@ -27,7 +29,8 @@ public class OutboxPublisherConfiguration {
   }
 
   @Bean(destroyMethod = "close")
-  RabbitEventTransport eventTransport(ObjectMapper json, OutboxPublisherProperties settings) {
+  RabbitEventTransport eventTransport(
+      ObjectMapper json, OutboxPublisherProperties settings, @Nullable Tracer tracer) {
     var factory = new ConnectionFactory();
     factory.setHost(settings.host());
     factory.setPort(settings.port());
@@ -40,7 +43,7 @@ public class OutboxPublisherConfiguration {
     factory.setChannelRpcTimeout(settings.timeoutMillis());
     factory.setRequestedHeartbeat(10);
     factory.useNio();
-    return new RabbitEventTransport(factory, json, settings.timeoutMillis());
+    return new RabbitEventTransport(factory, json, settings.timeoutMillis(), tracer);
   }
 
   @Bean
