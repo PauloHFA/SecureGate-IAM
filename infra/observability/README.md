@@ -4,4 +4,4 @@ Compose separado da infraestrutura de negócio: Prometheus 3.15.0 e Grafana 13.2
 
 Seguir o [runbook](../../docs/runbooks/coleta-iam-local.md) para preparação/startup/login/parada e o [inventário](../../docs/OBSERVABILIDADE.md) para interpretar séries/limites. Não existe senha padrão admin/admin nem token administrativo no scrape. O [teste opt-in](../../integration-tests/src/test/java/com/securegate/e2e/ObservabilitySmoke.java) exerce estes arquivos contra um IAM real.
 
-A coleta do enforcer e os exporters das dependências ficam para 10B2b; logs/tracing para 10B3. Não representa coleta sustentada ou aceite de capacidade.
+A [coleta opcional do enforcer](../../docs/runbooks/metricas-enforcer-local.md) está na 10B2b1, com overlay/token/dashboard próprios e migração com backups. Exporters das dependências ficam para 10B2b2; logs/tracing para 10B3. Não representa coleta sustentada ou aceite de capacidade.

@@ -6,18 +6,18 @@ Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B2a — Prometheus/Grafana e dashboard IAM |
-| Base desta entrega | 9f5f857 — exportação Prometheus protegida |
-| Trabalho local | Implementação, smoke opt-in e documentação incluídos neste commit; push pendente |
-| Branch | feat/iam-observability-stack |
-| Validação da entrega | Smoke aprovado em 21/10/2026 às 12:12:43 UTC−03: 1 teste, 12 painéis/14 expressões, frame Grafana e controle de credencial; build completo não repetido |
-| Próxima implementação | 10B2b — enforcer/dependências |
-| Pendências seguintes | 10B2b/10B3; 10C–10D — medição/ajustes; publicação/CI |
+| Última entrega implementada | 10B2b1 — métricas/coleta do enforcer |
+| Base desta entrega | 123c4b0 — coleta/dashboard IAM |
+| Trabalho local | Implementação, testes e documentação incluídos neste commit; push pendente |
+| Branch | feat/enforcer-prometheus-metrics |
+| Validação da entrega | 62 testes enforcer + 43 da dependência, arquitetura/cobertura; dois smokes aprovados e verificação canônica final às 12:33:28 UTC−03; reactor completo não repetido |
+| Próxima implementação | 10B2b2 — exporters das dependências |
+| Pendências seguintes | 10B3 — logs/tracing; 10C–10D — medição/ajustes; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1 e a 10B2a também estão implementadas abaixo. As demais divisões 10B2b–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a e a 10B2b1 também estão implementadas abaixo. As demais divisões 10B2b2–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -378,13 +378,28 @@ Referências: [inventário](OBSERVABILIDADE.md), [operação](runbooks/metricas-
 
 Referências: [operação](runbooks/coleta-iam-local.md), [Compose](../infra/observability/README.md), [ADR-051](adr/051-coleta-e-dashboard-local-do-iam.md), [evidências 10B2a](evidencias/etapa-10b2a.md). Trabalho local em feat/iam-observability-stack, sobre 9f5f857, incluída neste commit; push pendente.
 
+### Passo a passo da 10B2b1 — enforcer
+
+1. Criar feat/enforcer-prometheus-metrics sobre 123c4b0 com diretório limpo; separar exposição do enforcer (10B2b1) de exporters/permissões das dependências (10B2b2).
+2. Conferir contrato HttpServer JDK 21/Micrometer, acrescentar registry gerenciado pelo BOM e preservar Spring non-web.
+3. Criar listener opt-in, bind fixo loopback, caminho/método exatos, token próprio por arquivo/digest e erros sem segredos; limitar workers/fila e encerrar servidor/executor explicitamente.
+4. Testar formato/autenticação/métodos/queries/caminhos, arquivo inválido, parada do listener, modo padrão sem listener e registro JVM real sem servlet.
+5. Acrescentar Target Enforcer ao inicializador preservando default IAM e flags de launcher sem ativar consumidor/Vault implicitamente.
+6. Criar job/template/overlay opcionais e dashboard separado; preservar fluxo IAM-only. Acrescentar migração com backups para configuração existente sem trocar senha/volumes.
+7. Executar módulo/dependência com testes, arquitetura, cobertura e integrações de consumo/Vault; registrar falhas corrigidas sem presumir causas.
+8. Criar smoke com JARs/serviços reais: produzir usuário/bloqueio por API e exigir user.locked publicado/processado, identidade LOCKED no Redis e ACK exportado; validar dashboard/expressões/frame Grafana.
+9. Provar isolamento de token, up=0/401 só no enforcer e recuperação do original; repetir smoke IAM-only como regressão. Validar gerador/migração em cópias isoladas, sem stack persistente.
+10. Registrar resultados/limites, remover apenas recursos de teste e atualizar documentos. V22/grants/ACL preservados; exporters, tracing e capacidade seguem pendentes.
+
+Referências: [operação](runbooks/metricas-enforcer-local.md), [ADR-052](adr/052-metricas-opcionais-do-enforcer.md), [evidências 10B2b1](evidencias/etapa-10b2b1.md), [inventário](OBSERVABILIDADE.md). Trabalho local em feat/enforcer-prometheus-metrics, sobre 123c4b0, incluída neste commit; push pendente.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
 As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10B2b — Enforcer/dependências | Definir exposição autenticada do processo enforcer não web e exporters/permissões de dependências → coletar e correlacionar sinais. | Séries reais de fila/banco/Redis/Vault sem ampliar privilégios indevidamente. |
+| 10B2b2 — Exporters das dependências | Definir exporters/permissões de fila/banco/Redis/Vault → coletar e correlacionar com IAM/enforcer. | Séries reais das dependências sem ampliar privilégios indevidamente. |
 | 10B3 — Logs/tracing | Estruturar logs sanitizados e propagar contexto HTTP/RabbitMQ → validar ausência de payload/segredos e cardinalidade. | Correlação verificável de requisição/evento/dependências. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |

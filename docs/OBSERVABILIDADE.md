@@ -1,4 +1,4 @@
-# Observabilidade — inventário e contratos (10B1/10B2a)
+# Observabilidade — inventário e contratos
 
 ## Divisão da 10B
 
@@ -6,10 +6,11 @@
 | --- | --- | --- |
 | 10B1 | Implementada localmente | Inventário, exportação Prometheus protegida no IAM, histogramas HTTP opcionais e testes. |
 | 10B2a | Implementada localmente | Compose Prometheus/Grafana, datasource e dashboard IAM; teste real de scrape/consultas/credencial. |
-| 10B2b | Proposta, pendente | Estratégia de exposição do enforcer e exporters/coleta das dependências. |
+| 10B2b1 | Implementada localmente | Listener JDK opcional do enforcer, token próprio, job/overlay e dashboard separado. |
+| 10B2b2 | Proposta, pendente | Exporters/permissões e coleta de banco, Redis, RabbitMQ e Vault. |
 | 10B3 | Proposta, pendente | Logs estruturados sanitizados e tracing propagado por HTTP/RabbitMQ, com validação de cardinalidade/segredos. |
 
-A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none e suas métricas internas ainda não têm endpoint HTTP. A 10B2a acrescenta Compose Prometheus/Grafana validado com IAM real em stack descartável, sem coleta sustentada ou alteração dos serviços persistentes do usuário. Banco, Redis, RabbitMQ e Vault não recebem novos exporters/ACL nesta entrega.
+A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none; a 10B2b1 acrescenta listener JDK opcional em loopback, GET /metrics, sem MVC/Actuator. Default sem listener. A 10B2a acrescenta Compose Prometheus/Grafana validado com IAM real em stack descartável, sem coleta sustentada ou alteração dos serviços persistentes do usuário. Banco, Redis, RabbitMQ e Vault não recebem novos exporters/ACL nesta entrega.
 
 ## IAM: superfície e controle de acesso
 
@@ -45,7 +46,7 @@ Nomes Micrometer são normalizados em Prometheus; contadores têm sufixo _total,
 | iam.resources.enforcement | Contador operation/result | Enforcement Redis ativo; allowed/denied/unavailable e present/absent conforme operação. |
 | iam.database.vault.* | Disponibilidade, leases, rotações, renovações e falhas | Modo banco dinâmico ativo; não equivale a uma visão completa do Vault. |
 | iam.pam.cleanup.* e iam.pam.expiration.* | Gauges de snapshots/freshness e contadores de falhas | PAM opcional; snapshot pode ficar indisponível; não consultar banco durante scrape para fabricar valor fresco. |
-| iam.enforcer.revocation.* / iam.enforcer.block-policy.* | Contadores internos messages/result e connection.errors | **No processo enforcer**, sem scrape HTTP nesta entrega. |
+| iam.enforcer.revocation.* / iam.enforcer.block-policy.* | Contadores internos messages/result e connection.errors | **No processo enforcer**, exportadas pelo listener opcional /metrics da 10B2b1; padrão sem listener. |
 
 Não adicionar token, e-mail, subject/user ID, eventId, correlationId, sid/jti, cursor, URL crua/query ou texto de erro como tags. Templates de rota reduzem cardinalidade de IDs; o teste cobre uma rota parametrizada e query sensível sintética, não todos os meters/extensões possíveis. Não habilitar debug HTTP ou publicar scrape/log bruto sem revisão.
 
@@ -69,6 +70,6 @@ Conferir nomes efetivamente exportados e available antes de automatizar alertas.
 
 ## Operação, validação e fontes
 
-[Coleta/dashboard 10B2a](runbooks/coleta-iam-local.md), [evidências 10B2a](evidencias/etapa-10b2a.md), [runbook 10B1](runbooks/metricas-prometheus-local.md), [ADR-050](adr/050-exportacao-prometheus-protegida.md), [evidências](evidencias/etapa-10b1.md) e [passo a passo](GUIA-DE-IMPLEMENTACAO.md).
+[Enforcer 10B2b1](runbooks/metricas-enforcer-local.md), [evidências 10B2b1](evidencias/etapa-10b2b1.md), [Coleta/dashboard 10B2a](runbooks/coleta-iam-local.md), [evidências 10B2a](evidencias/etapa-10b2a.md), [runbook 10B1](runbooks/metricas-prometheus-local.md), [ADR-050](adr/050-exportacao-prometheus-protegida.md), [evidências](evidencias/etapa-10b1.md) e [passo a passo](GUIA-DE-IMPLEMENTACAO.md).
 
 Contrato de exportação/histogramas conferido na [documentação Spring Boot 3.5](https://docs.spring.io/spring-boot/3.5/reference/actuator/metrics.html), com [referência Prometheus/Micrometer 1.15](https://docs.micrometer.io/micrometer/reference/1.15/implementations/prometheus). Configuração/autorização descritas acima são decisões deste projeto, verificadas pelos testes locais.

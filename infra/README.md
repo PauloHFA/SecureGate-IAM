@@ -156,3 +156,7 @@ Exportação Prometheus é opt-in, com token de leitura próprio: executar Initi
 ## Coleta e dashboard IAM — 10B2a
 
 O [Compose de observabilidade](observability/README.md) é separado da stack de negócio. Initialize-Observability.ps1 prepara config/portas/senha Grafana privados; Start-Observability.ps1 inicia Prometheus/Grafana em loopback com dashboard IAM provisionado. Seguir o [runbook](../docs/runbooks/coleta-iam-local.md); não usa token administrativo IAM e não inicia exporters/enforcer. O teste opt-in remove somente sua stack descartável; nada é iniciado/alterado automaticamente no ambiente persistente.
+
+## Métricas/coleta do enforcer — 10B2b1
+
+Initialize-MetricsToken.ps1 -Target Enforcer prepara token próprio e Start-PolicyEnforcer.ps1 -EnableMetrics ativa GET /metrics em loopback (padrão 19091), preservando modo Spring non-web. Para coletar, usar Initialize-Observability.ps1 -IncludeEnforcer na primeira preparação ou Enable-EnforcerCollection.ps1 com coletores parados para migrar configuração existente com backups. Ver [operação](../docs/runbooks/metricas-enforcer-local.md). Sem flag não há listener; exporters das dependências ficam para 10B2b2. Nenhum serviço persistente é modificado pelo build.

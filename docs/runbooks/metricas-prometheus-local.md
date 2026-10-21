@@ -53,4 +53,4 @@ A rota é autenticada, mas o modo local usa HTTP loopback. Coleta remota, TLS/re
 
 PrometheusIT ativa explicitamente observabilidade no contexto de teste, usa token/DB descartáveis e exige JVM, timer/buckets, tag application e template de rota sem query/credenciais. Verifica ausência/incorreção/duplicidade, token administrativo, POST e isolamento de admin/metrics/env. IamCoreIT confere padrão desativado e contrato de saúde/erros. Testes unitários cobrem arquivo inválido/ausente/grande e erro sanitizado. Resultados concretos ficam nas [evidências](../evidencias/etapa-10b1.md).
 
-A coleta/dashboard IAM está na [10B2a](coleta-iam-local.md). Próxima implementação: 10B2b, enforcer/dependências; logs/tracing ficam em 10B3. Nenhum resultado desta entrega é aceite de capacidade/SLA.
+A coleta/dashboard IAM está na [10B2a](coleta-iam-local.md). O [enforcer](metricas-enforcer-local.md) está na 10B2b1. Próxima implementação: 10B2b2, exporters das dependências; logs/tracing ficam em 10B3. Nenhum resultado desta entrega é aceite de capacidade/SLA.

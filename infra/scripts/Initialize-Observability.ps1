@@ -2,16 +2,26 @@
 param(
   [ValidateRange(1024, 65535)][int]$IamPort = 8080,
   [ValidateRange(1024, 65535)][int]$PrometheusPort = 19090,
-  [ValidateRange(1024, 65535)][int]$GrafanaPort = 13000
+  [ValidateRange(1024, 65535)][int]$GrafanaPort = 13000,
+  [switch]$IncludeEnforcer,
+  [ValidateRange(1024, 65535)][int]$EnforcerPort = 19091
 )
 $ErrorActionPreference = 'Stop'
 if (@($IamPort, $PrometheusPort, $GrafanaPort | Select-Object -Unique).Count -ne 3) { throw 'Use tres portas distintas.' }
+if ($IncludeEnforcer -and $EnforcerPort -in @($IamPort, $PrometheusPort, $GrafanaPort)) { throw 'Porta do enforcer deve ser distinta das demais.' }
 $projectPath = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $metricsPath = Join-Path $projectPath 'infra/.local/iam-metrics-token'
 if (-not (Test-Path -LiteralPath $metricsPath -PathType Leaf)) { throw 'Execute Initialize-MetricsToken.ps1 antes de preparar a coleta.' }
 $metricsToken = [IO.File]::ReadAllText($metricsPath).Trim()
 if ($metricsToken.Length -lt 32 -or $metricsToken.Length -gt 256 -or $metricsToken -match '\s') { throw 'Arquivo de token de metricas invalido.' }
 $metricsToken = $null
+if ($IncludeEnforcer) {
+  $enforcerTokenPath = Join-Path $projectPath 'infra/.local/enforcer-metrics-token'
+  if (-not (Test-Path -LiteralPath $enforcerTokenPath -PathType Leaf)) { throw 'Execute Initialize-MetricsToken.ps1 -Target Enforcer antes de incluir o enforcer.' }
+  $readToken = [IO.File]::ReadAllText($enforcerTokenPath).Trim()
+  if ($readToken.Length -lt 32 -or $readToken.Length -gt 256 -or $readToken -match '\s') { throw 'Arquivo de token de metricas do enforcer invalido.' }
+  $readToken = $null
+}
 $destination = Join-Path $projectPath 'infra/.local/observability'
 [IO.Directory]::CreateDirectory($destination) | Out-Null
 foreach ($name in @('prometheus.yml', 'compose.env', 'grafana-admin-password')) {
@@ -29,7 +39,12 @@ $password = ([BitConverter]::ToString($entropy)).Replace('-', '').ToLowerInvaria
 try {
   Write-NewPrivateFile 'grafana-admin-password' $password
   $template = [IO.File]::ReadAllText((Join-Path $projectPath 'infra/observability/prometheus.template.yml'))
-  Write-NewPrivateFile 'prometheus.yml' $template.Replace('__IAM_PORT__', [string]$IamPort)
-  Write-NewPrivateFile 'compose.env' "PROMETHEUS_PORT=$PrometheusPort`nGRAFANA_PORT=$GrafanaPort`n"
+  $prometheusConfig = $template.Replace('__IAM_PORT__', [string]$IamPort)
+  if ($IncludeEnforcer) {
+    $enforcerTemplate = [IO.File]::ReadAllText((Join-Path $projectPath 'infra/observability/enforcer-scrape.template.yml'))
+    $prometheusConfig = $prometheusConfig.TrimEnd() + "`n" + $enforcerTemplate.Replace('__ENFORCER_PORT__', [string]$EnforcerPort)
+  }
+  Write-NewPrivateFile 'prometheus.yml' $prometheusConfig
+  Write-NewPrivateFile 'compose.env' "PROMETHEUS_PORT=$PrometheusPort`nGRAFANA_PORT=$GrafanaPort`nOBS_ENFORCER=$($IncludeEnforcer.IsPresent.ToString().ToLowerInvariant())`n"
 } finally { $password = $null; $entropy = $null }
 Write-Output 'Configuracao privada de observabilidade criada. Grafana usa admin e senha no arquivo grafana-admin-password; nenhum segredo foi impresso.'

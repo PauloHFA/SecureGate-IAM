@@ -1,0 +1,308 @@
+{
+  "uid": "securegate-enforcer",
+  "title": "SecureGate Enforcer — Operação local",
+  "description": "10B2b1: requer listener e job opcionais do enforcer. Não representa coleta das dependências nem capacidade.",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "tags": [
+    "securegate",
+    "local",
+    "10b2b1"
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Coleta do enforcer",
+      "type": "stat",
+      "description": "up=1 comprova scrape; não comprova progresso do consumidor.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Indisponível",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "Disponível",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"policy-enforcer\"}",
+          "legendFormat": "up",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Revogação — mensagens por resultado",
+      "type": "timeseries",
+      "description": "Séries de contadores surgem após eventos; ausência não significa zero.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (result) (rate(iam_enforcer_revocation_messages_total{application=\"policy-enforcer\"}[5m]))",
+          "legendFormat": "{{result}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Bloqueio/política — mensagens por resultado",
+      "type": "timeseries",
+      "description": "Séries de contadores surgem após eventos; ausência não significa zero.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (result) (rate(iam_enforcer_block_policy_messages_total{application=\"policy-enforcer\"}[5m]))",
+          "legendFormat": "{{result}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Falhas de conexão com broker",
+      "type": "timeseries",
+      "description": "Séries de contadores surgem após eventos; ausência não significa zero.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(iam_enforcer_block_policy_connection_errors_total{application=\"policy-enforcer\"}[5m])",
+          "legendFormat": "block-policy",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "rate(iam_enforcer_revocation_connection_errors_total{application=\"policy-enforcer\"}[5m])",
+          "legendFormat": "revocation",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Heap JVM usado",
+      "type": "timeseries",
+      "description": "Séries de contadores surgem após eventos; ausência não significa zero.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(jvm_memory_used_bytes{application=\"policy-enforcer\",area=\"heap\"})",
+          "legendFormat": "heap",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "CPU do processo JVM",
+      "type": "timeseries",
+      "description": "Séries de contadores surgem após eventos; ausência não significa zero.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_cpu_usage{application=\"policy-enforcer\"}",
+          "legendFormat": "enforcer",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  }
+}

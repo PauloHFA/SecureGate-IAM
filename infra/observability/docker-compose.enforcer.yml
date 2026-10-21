@@ -1,0 +1,4 @@
+services:
+  prometheus:
+    volumes:
+      - ../.local/enforcer-metrics-token:/run/secrets/enforcer-metrics-token:ro

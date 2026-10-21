@@ -12,6 +12,7 @@
   <artifactId>policy-enforcer</artifactId>
   <name>SecureGate Policy Enforcer</name>
   <dependencies>
+    <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-registry-prometheus</artifactId></dependency>
     <dependency>
       <groupId>com.rabbitmq</groupId><artifactId>amqp-client</artifactId>
     </dependency>

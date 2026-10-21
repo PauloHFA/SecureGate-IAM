@@ -1,10 +1,11 @@
 [CmdletBinding()]
-param()
+param([ValidateSet('Iam', 'Enforcer')][string]$Target = 'Iam')
 $ErrorActionPreference = 'Stop'
 $projectPath = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $privateDirectory = Join-Path $projectPath 'infra/.local'
 [IO.Directory]::CreateDirectory($privateDirectory) | Out-Null
-$destination = Join-Path $privateDirectory 'iam-metrics-token'
+$fileName = if ($Target -eq 'Enforcer') { 'enforcer-metrics-token' } else { 'iam-metrics-token' }
+$destination = Join-Path $privateDirectory $fileName
 $entropy = New-Object byte[] 32
 $random = [Security.Cryptography.RandomNumberGenerator]::Create()
 try { $random.GetBytes($entropy) } finally { $random.Dispose() }
@@ -20,4 +21,4 @@ try {
   $bytes = $null
   $entropy = $null
 }
-Write-Output 'Token de leitura de metricas criado em infra/.local/iam-metrics-token. Proteja o arquivo; reinicie o IAM apos rotacao.'
+Write-Output "Token de leitura criado em infra/.local/$fileName. Proteja o arquivo; reinicie o processo correspondente apos rotacao."

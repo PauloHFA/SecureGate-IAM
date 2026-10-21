@@ -7,8 +7,14 @@ $envFile = Join-Path $projectPath 'infra/.local/observability/compose.env'
 foreach ($name in @('iam-metrics-token', 'observability/prometheus.yml', 'observability/compose.env', 'observability/grafana-admin-password')) {
   if (-not (Test-Path -LiteralPath (Join-Path $projectPath ('infra/.local/' + $name)) -PathType Leaf)) { throw 'Preparacao ausente. Execute Initialize-MetricsToken.ps1 e Initialize-Observability.ps1.' }
 }
-& docker compose --env-file $envFile -f $compose -p $ProjectName config --quiet
+$composeArguments = @('--env-file', $envFile, '-f', $compose)
+if (@(Get-Content -LiteralPath $envFile | Where-Object { $_ -eq 'OBS_ENFORCER=true' }).Count -eq 1) {
+  if (-not (Test-Path -LiteralPath (Join-Path $projectPath 'infra/.local/enforcer-metrics-token') -PathType Leaf)) { throw 'Token de metricas do enforcer ausente.' }
+  $composeArguments += @('-f', (Join-Path $projectPath 'infra/observability/docker-compose.enforcer.yml'))
+}
+$composeArguments += @('-p', $ProjectName)
+& docker compose @composeArguments config --quiet
 if ($LASTEXITCODE -ne 0) { throw 'Configuracao Compose de observabilidade invalida.' }
-& docker compose --env-file $envFile -f $compose -p $ProjectName up -d --wait --wait-timeout 90
+& docker compose @composeArguments up -d --wait --wait-timeout 90
 if ($LASTEXITCODE -ne 0) { throw 'Falha ao iniciar observabilidade. Conferir containers/portas; nenhuma stack de negocio foi alterada.' }
-Write-Output 'Prometheus e Grafana prontos. Container saudavel nao atesta coleta do IAM: conferir up{job="iam-core"}.'
+Write-Output 'Prometheus e Grafana prontos. Container saudavel nao atesta coleta do IAM: conferir up de cada job configurado.'
