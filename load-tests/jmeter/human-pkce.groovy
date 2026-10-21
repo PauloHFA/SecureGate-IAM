@@ -47,7 +47,7 @@ try {
   if (journey) {
     def previous = vars.getObject('pkce_browser')
     if (previous != null) { previous.close() }
-    ['pkce_browser', 'pkce_code', 'pkce_verifier', 'pkce_basic'].each { vars.remove(it) }
+    ['pkce_browser', 'pkce_code', 'pkce_verifier', 'pkce_basic', 'resource_token', 'resource_exp'].each { vars.remove(it) }
     browser = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2))
         .followRedirects(HttpClient.Redirect.NEVER)
         .cookieHandler(new CookieManager(null, CookiePolicy.ACCEPT_ORIGINAL_SERVER)).build()
@@ -121,6 +121,10 @@ try {
     vars.put('pkce_code', values.code)
     vars.put('pkce_verifier', verifier)
     vars.put('pkce_basic', basic)
+    if (props.getProperty('retain_resource_token', 'false') == 'true') {
+      vars.put('resource_token', body.access_token)
+      vars.put('resource_exp', claims.exp.toString())
+    }
     keep = true
     SampleResult.setSuccessful(true)
     SampleResult.setResponseMessage('pkce_journey_completed')
@@ -143,6 +147,6 @@ try {
   SampleResult.setResponseHeaders('redacted')
   if (!keep) {
     if (browser != null) { browser.close() }
-    ['pkce_browser', 'pkce_code', 'pkce_verifier', 'pkce_basic'].each { vars.remove(it) }
+    ['pkce_browser', 'pkce_code', 'pkce_verifier', 'pkce_basic', 'resource_token', 'resource_exp'].each { vars.remove(it) }
   }
 }

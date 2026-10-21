@@ -10,10 +10,10 @@ Começar pelo [guia de implementação passo a passo](GUIA-DE-IMPLEMENTACAO.md):
 | [Guias operacionais](runbooks/) | Preparação, execução, flags, testes e recuperação. |
 | [Evidências](evidencias/) | Comandos executados, resultados observados, ambiente e pendências históricas. |
 
-Estado desta revisão: **10A2b1 — falhas de login implementadas localmente**, em feat/load-login-failures-smoke, sobre 8580b4e, incluída neste commit; push pendente. Próximas implementações: 10A2b2, recursos/revogação, e 10A2b3, auditoria. Publicação/CI e verificações de entrega permanecem separadas.
+Estado desta revisão: **10A2b3 — auditoria implementada localmente**, em feat/load-audit-smoke, sobre 860d125; 10A2b2/10A2b3 incluídas neste commit; push pendente. Próxima implementação: 10B, observabilidade. Planos funcionais da 10A disponíveis; capacidade/aceite global da etapa 10, publicação/CI e verificações de entrega permanecem pendentes.
 
-Consultar [operação de negativas](../load-tests/jmeter/LOGIN-FAILURES.md), [runbook](runbooks/carga-falhas-login-local.md), [ADR-047](adr/047-carga-de-falhas-de-login.md) e [evidências 10A2b1](evidencias/etapa-10a2b1.md). O smoke opt-in é separado do build padrão; resultados não comprovam capacidade ou tempo constante. O [aceite local da etapa 9](runbooks/aceite-etapa9.md) preserva seus riscos e limites.
+Consultar [operação de auditoria](../load-tests/jmeter/AUDIT.md), [runbook](runbooks/carga-auditoria-local.md), [ADR-049](adr/049-carga-de-auditoria-central.md) e [evidências 10A2b3](evidencias/etapa-10a2b3.md). O smoke opt-in verifica fatos reais e cursor com resultados redigidos; não comprova taxa máxima de ingestão ou SLA. O [aceite local da etapa 9](runbooks/aceite-etapa9.md) preserva seus riscos e limites.
 
 Ao implementar uma nova subdivisão, atualizar guia, plano, README, decisões aplicáveis, operação e evidências. Proposta, implementação, validação local, commit, publicação, CI e merge devem permanecer identificáveis separadamente.
 
-O histórico das entregas anteriores e seus resultados permanece nas evidências individuais. O guia referencia também a 10A2b1 e registra suas divisões passo a passo.
+O histórico das entregas anteriores e seus resultados permanece nas evidências individuais. O guia referencia também a 10A2b3 e registra suas divisões passo a passo.

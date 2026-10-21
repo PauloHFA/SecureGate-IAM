@@ -4,7 +4,8 @@ param(
   [Parameter(Mandatory)][string]$AdminTokenFile,
   [Parameter(Mandatory)][string]$OutputFile,
   [ValidateRange(1, 100)][int]$Count = 2,
-  [ValidatePattern('^[a-z][a-z0-9_-]{2,40}$')][string]$Prefix = 'load-human'
+  [ValidatePattern('^[a-z][a-z0-9_-]{2,40}$')][string]$Prefix = 'load-human',
+  [switch]$IncludeAccountPolicy
 )
 $ErrorActionPreference = 'Stop'
 if ($BaseUri.Host -notin @('127.0.0.1', 'localhost') -or $BaseUri.Scheme -notin @('http', 'https') -or
@@ -52,6 +53,15 @@ try {
     }
     if ([string]::IsNullOrWhiteSpace($created.clientSecret)) { throw 'Client creation returned no credential.' }
     $rows += [pscustomobject]@{ email = $email; password = $password; user_id = $user.id; client_id = $clientId; client_secret = $created.clientSecret; scope = 'api:read'; redirect_uri = $callback }
+  }
+  if ($IncludeAccountPolicy) {
+    try {
+      $policyBody = @{ name = "load-account-$Prefix"; priority = 100; enabled = $true; document = @{ schemaVersion = 1; resource = 'account:self'; action = 'read'; effect = 'ALLOW_LIMITED'; rolesAnyOf = @(); allowedScopes = @('api:read'); maxAccessTokenTtlSeconds = 120 } } | ConvertTo-Json -Depth 5 -Compress
+      $null = Invoke-RestMethod -Method Post -Uri ([uri]::new($BaseUri, '/api/admin/policies')) `
+        -Headers @{ Authorization = "Bearer $token" } -ContentType 'application/json' -Body $policyBody -TimeoutSec 10
+    } catch {
+      throw 'Account policy creation failed. Earlier records may exist; use a fresh test environment or namespace.'
+    }
   }
   [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($destination)) | Out-Null
   $csv = ($rows | ConvertTo-Csv -NoTypeInformation) -join "`n"

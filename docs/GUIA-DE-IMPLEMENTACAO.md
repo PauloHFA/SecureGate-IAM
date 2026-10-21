@@ -6,18 +6,18 @@ Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10A2b1 — senha incorreta e usuário inexistente no JMeter |
-| Base desta entrega | 8580b4e — 10A2a |
-| Trabalho local | Implementação, teste opt-in e documentação; incluída neste commit; push pendente |
-| Branch | feat/load-login-failures-smoke |
-| Validação da entrega | Smoke de login opt-in aprovado separadamente; clean verify em 21/10/2026 às 00:17:56 UTC−03, 778 testes, cobertura e arquitetura aprovadas |
-| Próxima implementação | 10A2b2 — acesso e revogação de recursos |
-| Pendências seguintes | 10A2b3 — auditoria; publicação/CI e verificações de entrega |
+| Última entrega implementada | 10A2b3 — produção, ingestão, consulta e cursor de auditoria |
+| Base desta entrega | 860d125 — 10A2b1; 10A2b2/10A2b3 incluídas neste commit |
+| Trabalho local | Implementação, teste opt-in e documentação incluídos neste commit; push pendente |
+| Branch | feat/load-audit-smoke |
+| Validação da entrega | Smoke de auditoria aprovado em 21/10/2026 às 00:45:27 UTC−03 (1 teste, oito amostras normais, controle detectado); regressão de recurso/revogação também aprovada; clean verify não repetido |
+| Próxima implementação | 10B — observabilidade |
+| Pendências seguintes | 10B–10D e aceite de desempenho; 10A2b2/10A2b3 incluídas neste commit; push pendente; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a e a 10A2b1 também estão implementadas abaixo. As demais divisões 10A2b2–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a e a 10A2b1–3 também estão implementadas abaixo. As demais divisões 10B–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -321,14 +321,40 @@ Dividir a 10A2b em falhas de login (10A2b1), acesso/revogação (10A2b2) e audit
 
 Referências: [operação](../load-tests/jmeter/LOGIN-FAILURES.md), [runbook](runbooks/carga-falhas-login-local.md), [ADR-047](adr/047-carga-de-falhas-de-login.md), [evidências 10A2b1](evidencias/etapa-10a2b1.md). Sem mudança de aplicação/schema; V22 permanece atual. Trabalho local em feat/load-login-failures-smoke, sobre 8580b4e, incluída neste commit; push pendente.
 
+### Passo a passo da 10A2b2 — recurso e revogação
+
+1. Criar branch feat/load-resource-revocation-smoke sobre 860d125, mantendo a entrega de login separada.
+2. Estender New-HumanMass com IncludeAccountPolicy: política account:self/read ALLOW_LIMITED, api:read e TTL máximo 120 s, apenas em stack dedicada; preservar comportamento sem switch.
+3. Reutilizar jornada PKCE, retendo token/expiração em memória somente quando o novo plano solicita; limpar estado no final/falha.
+4. Criar plano de cinco rótulos com acesso sem cookies, sujeito conferido e token inválido recusado (401).
+5. Revogar com autenticação Basic do próprio cliente e exigir recusa do token original antes da expiração; polling limitado, sem aceitar 403/429/503.
+6. Separar aceite de revogação (200) da recusa posterior e da projeção assíncrona; o ledger local também impede acesso.
+7. Criar runner com contagens/saídas redigidas e controle SkipRevocation; sem revogação real, o recurso deve continuar 200 e falhar a expectativa de recusa.
+8. Executar teste opt-in com JARs/serviços reais, dois usuários/threads, fatos publicados/projetados e verificação de artefatos; repetir JMeterHumanSmoke como regressão compartilhada.
+9. Registrar comandos/resultados e limites, sem declarar capacidade/SLA; manter 10A2b3 e 10B–10D pendentes. Não alterar aplicação/schema/ACL/stack persistente; V22 permanece atual.
+
+Referências: [operação](../load-tests/jmeter/RESOURCE-REVOCATION.md), [runbook](runbooks/carga-recurso-revogacao-local.md), [ADR-048](adr/048-carga-de-recurso-e-revogacao.md), [evidências 10A2b2](evidencias/etapa-10a2b2.md). Trabalho local em feat/load-resource-revocation-smoke, sobre 860d125, incluídas neste commit; push pendente.
+
+### Passo a passo da 10A2b3 — auditoria central
+
+1. Criar feat/load-audit-smoke sobre HEAD 860d125 preservando os 16 arquivos da 10A2b2, ainda sem commit. Não produzir commit/push automaticamente.
+2. Acrescentar helper audit-only à fixture descartável: provisionar logins de auditoria com script existente, arquivo privado e pool restrito; reiniciar IAM com consumidor/consulta, sem PAM.
+3. Criar massa durante o plano: dois usuários por API/iteração, e-mails UUID e senhas CSPRNG; correlacionar os dois fatos reais identity.user.created, sem inserir envelopes diretamente no banco/fila.
+4. Consultar API central com janela UTC fixa, tipo/correlação exatos e limit=1. Aguardar primeiro item com cursor por prazo limitado e exigir continuação com segundo evento distinto/recursos exatos.
+5. Acrescentar consulta sem credencial e exigir HTTP 401. Recusas inesperadas/indisponibilidade não aprovam o caminho positivo.
+6. Criar runner com credencial por arquivo, quatro rótulos/contagens exatas, saídas redigidas e controle WrongCorrelation. 200 vazio deve falhar; cursor ausente não é inventado.
+7. Executar smoke com duas threads e serviços reais; comparar oito envelopes centrais/publicados com Outbox fora do tempo medido, incluindo fatos do controle. Conferir artefatos sem segredos/identificadores humanos.
+8. Executar regressão de recurso/revogação, validar scripts/XML/documentação, registrar comandos/resultados e limites de medição. Nenhuma alteração de aplicação/schema/ACL/stack persistente; V22 permanece atual.
+9. Marcar cobertura funcional dos cenários 10A e seguir para 10B; não declarar capacidade/SLA, ingestão isolada ou aceite global da etapa 10.
+
+Referências: [operação](../load-tests/jmeter/AUDIT.md), [runbook](runbooks/carga-auditoria-local.md), [ADR-049](adr/049-carga-de-auditoria-central.md), [evidências 10A2b3](evidencias/etapa-10a2b3.md). Trabalho atual em feat/load-audit-smoke preserva 10A2b2/10A2b3 incluídas neste commit; push pendente.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
 As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10A2b2 — Recursos e revogação | Acesso protegido → revogação → recusa posterior → validar propagação/limites e artefatos. | Jornadas de recurso/revogação repetíveis e dados privados protegidos. |
-| 10A2b3 — Auditoria | Preparar fatos sintéticos → ingestão/consulta → validar correlação, filtros e limites. | Plano reproduzível de auditoria, sem dados reais ou metas presumidas. |
 | 10B — Observabilidade | Definir métricas, logs sanitizados e tracing HTTP/RabbitMQ → correlacionar dependências e filas. | Diagnóstico de latência/erro sem payload sensível. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |

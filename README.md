@@ -119,7 +119,11 @@ A **10A2a** acrescenta massa humana sintética e jornada PKCE com cookies, CSRF,
 
 A **10A2b1** acrescenta plano de falhas de login com senha incorreta e usuário inexistente, mensagem genérica/CSRF/cookies verificados e sessão anônima confirmada. O smoke opt-in prova dois fatos na Outbox e detecta autenticação inesperada ao injetar senha correta. Consultar [operação](load-tests/jmeter/LOGIN-FAILURES.md), [ADR-047](docs/adr/047-carga-de-falhas-de-login.md) e [evidências](docs/evidencias/etapa-10a2b1.md). Não comprova tempo constante ou capacidade.
 
-Próxima implementação: **10A2b2 — acesso e revogação**, depois **10A2b3 — auditoria**. A 10A2b1 está em `feat/load-login-failures-smoke`, sobre `8580b4e`, incluída neste commit; push pendente. Publicação/CI e verificações gerais de entrega permanecem separadas.
+A **10A2b2** acrescenta acesso Bearer ao recurso de conta, recusa de token inválido, revogação e recusa posterior antes da expiração. Reutiliza PKCE/massa humana com opções explícitas; teste isolado confere publicação/projeção e detecta revogação omitida. Consultar [operação](load-tests/jmeter/RESOURCE-REVOCATION.md), [ADR-048](docs/adr/048-carga-de-recurso-e-revogacao.md) e [evidências](docs/evidencias/etapa-10a2b2.md). O ledger local também recusa tokens: este smoke não mede SLA distribuído.
+
+A **10A2b3** acrescenta produção de fatos pela API, consulta central por correlação/tipo, duas páginas com cursor real e recusa sem credencial. O smoke compara envelopes com a Outbox e detecta correlação inexistente. Consultar [operação](load-tests/jmeter/AUDIT.md), [ADR-049](docs/adr/049-carga-de-auditoria-central.md) e [evidências](docs/evidencias/etapa-10a2b3.md). Os planos 10A cobrem os cenários funcionais; medições de capacidade/SLA permanecem pendentes.
+
+Próxima implementação: **10B — observabilidade**. Trabalho local em `feat/load-audit-smoke`, sobre `860d125`, com 10A2b2 e 10A2b3 incluídas neste commit; push pendente. Publicação/CI e verificações gerais de entrega permanecem separadas.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

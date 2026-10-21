@@ -81,3 +81,7 @@ A 10A2a não mede MFA, falhas de senha, refresh/OIDC, acesso protegido, revogaç
 ## Continuação da 10A2b
 
 A [10A2b1 — falhas de login](LOGIN-FAILURES.md) está implementada em plano separado; 10A2b2 continua com recursos/revogação e 10A2b3 com auditoria. O plano PKCE desta página mantém seu escopo e limites históricos.
+
+## Extensão de recurso/revogação — 10A2b2
+
+O mesmo gerador aceita -IncludeAccountPolicy para acrescentar política ALLOW_LIMITED account:self/read (api:read, TTL máximo 120 s). Essa política não é isolada por usuário; usar stack dedicada. Sem o switch, o comportamento deste plano permanece. A jornada compartilhada só retém access_token/expiração em memória quando retain_resource_token=true, usado pelo novo runner; o plano PKCE/replay anterior não solicita essa opção. Ver [RESOURCE-REVOCATION.md](RESOURCE-REVOCATION.md).

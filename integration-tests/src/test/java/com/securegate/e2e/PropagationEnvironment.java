@@ -273,6 +273,35 @@ final class PropagationEnvironment implements AutoCloseable {
                 == 200);
   }
 
+  /** Audit-only disposable setup; does not enable PAM or touch a developer's stack. */
+  void enableAuditJourney() throws Exception {
+    stopIam();
+    String ingest = randomHex(), maintenance = randomHex();
+    try (var connection =
+        java.sql.DriverManager.getConnection(
+            database.getJdbcUrl(), database.getUsername(), password)) {
+      try (var configure =
+          connection.prepareStatement(
+              "SELECT set_config('securegate.securegate_audit_ingest_password',?,false),set_config('securegate.securegate_audit_maintenance_password',?,false)")) {
+        configure.setString(1, ingest);
+        configure.setString(2, maintenance);
+        configure.execute();
+      }
+      try (var statement = connection.createStatement()) {
+        statement.execute(Files.readString(Path.of("../infra/postgres/audit-privileges.sql")));
+      }
+    }
+    Files.writeString(credentials.resolve("audit-ingest"), ingest);
+    startIam(
+        Map.of(
+            "IAM_AUDIT_INGESTION_ENABLED", "true",
+            "IAM_AUDIT_CONSUMER_ENABLED", "true",
+            "IAM_AUDIT_QUERY_ENABLED", "true",
+            "IAM_AUDIT_DATABASE_URL", database.getJdbcUrl().split("\\?", 2)[0],
+            "IAM_AUDIT_INGEST_USERNAME", "securegate_audit_ingest_login",
+            "IAM_AUDIT_INGEST_PASSWORD_FILE", credentials.resolve("audit-ingest").toString()));
+  }
+
   void enablePamJourney() throws Exception {
     if (pamConfigured) {
       return;

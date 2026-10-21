@@ -1,6 +1,6 @@
 # JMeter — 10A1: Client Credentials e massa sintética
 
-Plano executável de smoke: dois clientes sintéticos, duas threads e duas iterações produzem oito amostras. A 10A está dividida: **10A1** implementa esta base; **10A2a** acrescenta massa humana e PKCE/replay; **10A2b1** cobre falhas de login; validação/revogação e auditoria continuam em **10A2b2/10A2b3**. O aceite de carga da etapa 10 depende também de observabilidade/medições posteriores.
+Plano executável de smoke: dois clientes sintéticos, duas threads e duas iterações produzem oito amostras. A 10A está dividida: **10A1** implementa esta base; **10A2a** acrescenta massa humana e PKCE/replay; **10A2b1** cobre falhas de login; **10A2b2** cobre recurso/revogação; **10A2b3** cobre ingestão/consulta de auditoria. O aceite de carga da etapa 10 depende também de observabilidade/medições posteriores.
 
 ## Pré-requisitos
 
@@ -79,3 +79,11 @@ Consultar [HUMAN-PKCE.md](HUMAN-PKCE.md) para gerador de usuários/clientes/pol�
 ## Falhas de login — 10A2b1
 
 Consultar [LOGIN-FAILURES.md](LOGIN-FAILURES.md) para massa de usuários, senha incorreta/usuário inexistente com CSRF/cookies reais e detecção de autenticação inesperada. O teste opt-in é JMeterLoginFailureSmoke; o padrão usa uma thread/uma iteração para distinguir o contrato de recusa dos limiares de bloqueio.
+
+## Recurso protegido e revogação — 10A2b2
+
+Consultar [RESOURCE-REVOCATION.md](RESOURCE-REVOCATION.md) para massa humana com política de conta opt-in, acesso Bearer sem cookies, token inválido, revogação e recusa posterior. Teste JMeterResourceRevocationSmoke confere publicação/projeção e detecta omissão de revogação. Polling HTTP não isola latência distribuída porque o recurso também consulta ledger local.
+
+## Auditoria central — 10A2b3
+
+Consultar [AUDIT.md](AUDIT.md) para fatos produzidos por API, consulta por correlação/tipo, continuação por cursor e recusa sem credencial. Teste JMeterAuditSmoke compara envelopes com Outbox e detecta correlação inexistente. Planos funcionais da 10A disponíveis; capacidade e aceite global dependem de 10B–10D.
