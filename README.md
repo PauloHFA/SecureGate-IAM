@@ -137,7 +137,9 @@ A **10B2b2c** acrescenta ACL própria Redis sem acesso a chaves/valores, exporte
 
 A **10B2b2d** acrescenta listener Vault dev autenticado, política mínima, token de 1h por arquivo/rotação, coleta e dashboard de seis painéis. Aplicar o overlay recria Vault dev e perde estado em memória; esta entrega só o aplicou em testes descartáveis. Consultar [operação/matriz de correlação](docs/runbooks/metricas-vault-local.md), [ADR-056](docs/adr/056-coleta-autenticada-vault-dev.md) e [evidências](docs/evidencias/etapa-10b2b2d.md).
 
-Próxima implementação: **10B3 — logs/tracing**. Trabalho local em `feat/vault-prometheus-metrics`, sobre `c55446d`, incluída neste commit; push pendente. Publicação/CI, execução conjunta sustentada e aceite de desempenho permanecem pendentes.
+A **10B3a** implementa perfil opcional structured-logs no IAM/enforcer: JSON com campos controlados, catálogo finito e hash de correlação, excluindo mensagens, argumentos, exceções e MDC livre. Consultar [operação](docs/runbooks/logs-estruturados-local.md), [ADR-057](docs/adr/057-logs-operacionais-json-restritos.md) e [evidências](docs/evidencias/etapa-10b3a.md).
+
+Próxima implementação: **10B3b — tracing HTTP**; depois **10B3c — contexto outbox/RabbitMQ**. Trabalho local em `feat/structured-operational-logs`, sobre `771487a`, incluída neste commit; push pendente. Publicação/CI, execução conjunta sustentada e aceite de desempenho permanecem pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

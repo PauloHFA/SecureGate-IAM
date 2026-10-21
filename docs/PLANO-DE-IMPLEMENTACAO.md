@@ -385,4 +385,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para **10B3 — logs estruturados/tracing HTTP e RabbitMQ**. A 10B2b2d é o trabalho local em `feat/vault-prometheus-metrics`, sobre `c55446d`, incluída neste commit; push pendente. A 10B2b2c está versionada em `c55446d`; publicação/CI a confirmar. Execução conjunta sustentada das fontes, ensaios 10C, ajustes 10D e verificações gerais de entrega continuam pendentes.
+Seguir para **10B3b — tracing HTTP**, depois **10B3c — contexto durável outbox/RabbitMQ**. A 10B3a implementa perfil opcional JSON restrito nos dois executáveis: catálogo finito e hash de correlação, omitindo mensagens livres/exceções/MDC. Trabalho local em `feat/structured-operational-logs`, sobre `771487a`, incluída neste commit; push pendente. [ADR-057](adr/057-logs-operacionais-json-restritos.md), [operação](runbooks/logs-estruturados-local.md), [evidências](evidencias/etapa-10b3a.md). A 10B2b2d está versionada em `771487a`; publicação/CI a confirmar. Execução conjunta sustentada, ensaios 10C, ajustes 10D e verificações gerais de entrega continuam pendentes.

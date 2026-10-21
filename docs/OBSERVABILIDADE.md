@@ -11,7 +11,9 @@
 | 10B2b2b | Implementada localmente | Login dedicado, exporter PostgreSQL opcional, senha por arquivo e estatísticas do cluster. |
 | 10B2b2c | Implementada localmente | ACL própria sem acesso a chaves, exporter Redis opcional e estatísticas agregadas. |
 | 10B2b2d | Implementada localmente | Listener Vault dev autenticado, token mínimo de 1h/rotação e coleta nativa. |
-| 10B3 | Proposta, pendente | Logs estruturados sanitizados e tracing propagado por HTTP/RabbitMQ, com validação de cardinalidade/segredos. |
+| 10B3a | Implementada localmente | Perfil JSON restrito nos dois executáveis, catálogo finito e hash de correlação; sem payload/MDC livre. |
+| 10B3b | Proposta, pendente | Tracing HTTP e validação de contexto/segredos. |
+| 10B3c | Proposta, pendente | Contexto durável outbox/RabbitMQ e restauração no consumo. |
 
 A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none; a 10B2b1 acrescenta listener JDK opcional em loopback, GET /metrics, sem MVC/Actuator. Default sem listener. A 10B2a acrescenta Compose Prometheus/Grafana validado com IAM real em stack descartável, sem coleta sustentada ou alteração dos serviços persistentes do usuário. A 10B2b2a acrescenta plugin opcional do RabbitMQ; a 10B2b2b acrescenta exporter PostgreSQL e login de monitoração; a 10B2b2c acrescenta ACL/exporter Redis; a 10B2b2d acrescenta listener/token Vault próprios. Execução conjunta sustentada ainda não foi validada.
 
@@ -110,3 +112,9 @@ Política read-only sys/metrics, token service orphan de 1h/explicit_max_ttl, n�
 Dashboard UID securegate-vault: up, vault_core_unsealed e contagens dos timers vault_core_handle_request, vault_barrier_get, vault_token_create e vault_token_lookup. Tokens Vault não são JWTs OAuth; contagens incluem administração/coleta e não medem throughput ou SLA de assinatura. A [matriz de correlação](runbooks/metricas-vault-local.md) relaciona sinais IAM/enforcer às quatro dependências sem acrescentar labels de usuário/evento/chaves/payload.
 
 [Operação](runbooks/metricas-vault-local.md), [ADR-056](adr/056-coleta-autenticada-vault-dev.md), [evidências](evidencias/etapa-10b2b2d.md). Smokes individuais são distintos de execução conjunta sustentada; logs/tracing 10B3 e medição 10C ainda pendentes.
+
+## Logs operacionais — 10B3a
+
+Perfil opcional structured-logs configura console/arquivo com StructuredLogFormatter nativo do Boot. Cinco campos: timestamp, level, service, event e correlationHash. Códigos finitos (9 IAM/2 enforcer, incluindo log.record), mensagens/argumentos/exceções/pares SLF4J/MDC livre omitidos. O hash é SHA-256 do correlationId limitado; não é label de métrica, identidade ou trace distribuído. Enforcer sem contexto recebe vazio. Mensagens desconhecidas usam código genérico, reduzindo diagnóstico.
+
+A proteção vale apenas para os encoders deste perfil, não para stdout/err direto, inicialização anterior, falhas internas do logging ou configurações externas. Sem collector de logs, backend de tracing ou spans; 10B3b/10B3c pendentes. [Operação](runbooks/logs-estruturados-local.md), [ADR-057](adr/057-logs-operacionais-json-restritos.md), [evidências](evidencias/etapa-10b3a.md).

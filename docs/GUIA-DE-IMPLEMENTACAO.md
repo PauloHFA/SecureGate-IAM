@@ -6,18 +6,18 @@ Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B2b2d — coleta autenticada Vault dev |
-| Base desta entrega | c55446d — coleta Redis |
-| Trabalho local | Implementação, testes e documentação incluídos neste commit; push pendente |
-| Branch | feat/vault-prometheus-metrics |
-| Validação da entrega | Smokes Vault/IAM/enforcer: 3 testes, zero falhas; BUILD SUCCESS às 14:29:43 UTC−03; suíte completa não repetida |
-| Próxima implementação | 10B3 — logs/tracing |
-| Pendências seguintes | 10B3 — logs/tracing; 10C–10D — medição/ajustes; publicação/CI |
+| Última entrega implementada | 10B3a — logs operacionais JSON restritos |
+| Base desta entrega | 771487a — coleta autenticada Vault |
+| Trabalho local | Implementação local; incluída neste commit; push pendente |
+| Branch | feat/structured-operational-logs |
+| Validação da entrega | Build completo: 793 testes, zero falhas, cobertura atendida; revisão final: 11 testes direcionados (ver evidências) |
+| Próxima implementação | 10B3b — tracing HTTP |
+| Pendências seguintes | 10B3b–c — tracing HTTP/outbox/RabbitMQ; 10C–10D; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c e a 10B2b2d também estão implementadas abaixo. As demais divisões 10B3–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d e a 10B3a também estão implementadas abaixo. As demais divisões 10B3b–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -467,13 +467,31 @@ A substituição de arquivo usa NullString explícito no PowerShell 5.1; lookup 
 
 Referências: [operação](runbooks/metricas-vault-local.md), [ADR-056](adr/056-coleta-autenticada-vault-dev.md), [evidências 10B2b2d](evidencias/etapa-10b2b2d.md), [inventário](OBSERVABILIDADE.md). Trabalho local em feat/vault-prometheus-metrics sobre c55446d, incluída neste commit; push pendente. Não aplicou reset à stack persistente; Java/migrations e políticas da aplicação preservados.
 
+## Etapa 10B3a — Logs operacionais JSON restritos
+
+Separar serialização de logs (10B3a), tracing HTTP (10B3b) e contexto durável outbox/RabbitMQ (10B3c) permite verificar segurança do formato antes de alterar o transporte. 10B3b/10B3c são propostas, não funcionalidades existentes.
+
+1. Inventariar logs atuais e filtro X-Correlation-ID; preservar respostas, restauração MDC e padrão anterior sem perfil.
+2. Conferir StructuredLogFormatter/JsonWriter na versão Boot 3.5.16 e documentação oficial.
+3. Definir schema fechado de cinco campos e catálogo de códigos por template conhecido. Omitir texto livre, argumentos, throwable, stack trace, logger/thread e pares SLF4J.
+4. Exportar somente SHA-256 de correlationId limitado e validado; vazio se ausente/inválido. Documentar pseudonimização e alta cardinalidade, sem labels Prometheus.
+5. Implementar adaptadores nos bootstraps IAM/enforcer sem adicionar Spring/Logback à biblioteca de eventos.
+6. Criar perfil opcional structured-logs para console/arquivo, banner desligado, sem habilitar serviços/endpoints.
+7. Testar parsing e exclusão de marcadores sintéticos em mensagens, argumentos, exceções, MDC e pares, incluindo CR/LF e limites de identificador.
+8. Inicializar contexto Boot mínimo em cada módulo e testar os encoders reais de console/arquivo; encerrar appenders para liberar arquivo temporário no Windows e restaurar logging para os demais testes.
+9. Executar regressões de correlação/arquitetura e build completo com gates existentes; registrar resultados reais nas evidências.
+10. Documentar ativação, reversão, perda de detalhe e limites. A proteção não abrange stdout/err direto, configurações externas ou logging anterior à inicialização.
+
+[Operação](runbooks/logs-estruturados-local.md), [ADR-057](adr/057-logs-operacionais-json-restritos.md), [evidências](evidencias/etapa-10b3a.md). Branch feat/structured-operational-logs sobre 771487a, incluída neste commit; push pendente. Sem alteração da stack persistente, schema ou protocolo de eventos.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
 As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10B3 — Logs/tracing | Estruturar logs sanitizados e propagar contexto HTTP/RabbitMQ → validar ausência de payload/segredos e cardinalidade. | Correlação verificável de requisição/evento/dependências. |
+| 10B3b — Tracing HTTP | Definir spans/amostragem e propagação → testar limites/segredos/contexto. | Correlação HTTP verificável. |
+| 10B3c — Tracing assíncrono | Persistir contexto outbox → propagar AMQP → restaurar/limpar no consumo e testar retries. | Correlação durável fim a fim, sem payload/segredos em spans. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
 | 11A — Imagens/stack | Criar imagens Java 21 sem root → perfil Compose full → probes e smoke em ambiente limpo. | Stack completa executável conforme guia. |
