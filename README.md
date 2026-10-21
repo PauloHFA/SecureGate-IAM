@@ -117,7 +117,9 @@ A **10A1** inicia a etapa de carga com massa sintética de clientes, plano JMete
 
 A **10A2a** acrescenta massa humana sintética e jornada PKCE com cookies, CSRF, state, consentimento, identidade/TTL e recusa de replay. O smoke opt-in prova também que verifier incorreto resulta em HTTP 400 e falha do runner. Consultar [operação humana](load-tests/jmeter/HUMAN-PKCE.md), [ADR-046](docs/adr/046-carga-humana-pkce.md) e [evidências](docs/evidencias/etapa-10a2a.md). A duração é agregada por jornada, sem comprovar capacidade ou metas.
 
-Próxima implementação: **10A2b — falhas de login, recursos/revogação e auditoria**. A 10A2a está em `feat/load-human-pkce-smoke`, sobre `1e7a201`, incluída neste commit; push pendente. A 10A1 foi publicada na sessão anterior; PR/CI e verificações de entrega permanecem pendentes de confirmação.
+A **10A2b1** acrescenta plano de falhas de login com senha incorreta e usuário inexistente, mensagem genérica/CSRF/cookies verificados e sessão anônima confirmada. O smoke opt-in prova dois fatos na Outbox e detecta autenticação inesperada ao injetar senha correta. Consultar [operação](load-tests/jmeter/LOGIN-FAILURES.md), [ADR-047](docs/adr/047-carga-de-falhas-de-login.md) e [evidências](docs/evidencias/etapa-10a2b1.md). Não comprova tempo constante ou capacidade.
+
+Próxima implementação: **10A2b2 — acesso e revogação**, depois **10A2b3 — auditoria**. A 10A2b1 está em `feat/load-login-failures-smoke`, sobre `8580b4e`, incluída neste commit; push pendente. Publicação/CI e verificações gerais de entrega permanecem separadas.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

@@ -286,8 +286,8 @@ A **9D** consolida a revisão de controles e o **aceite técnico local**, usando
 
 ## Etapa 10 — Carga e observabilidade
 
-- [ ] Criar planos JMeter e massa reproduzível de usuários/clientes (10A1/10A2a implementam massa máquina/humana e primeiros planos; cenários restantes pendentes na 10A2b).
-- [ ] Cobrir Client Credentials, login PKCE, validação/revogação, falhas de login e auditoria (Client Credentials na 10A1; PKCE/replay na 10A2a; demais cenários pendentes).
+- [ ] Criar planos JMeter e massa reproduzível de usuários/clientes (10A1/10A2a implementam massa máquina/humana e primeiros planos; cenários restantes pendentes em 10A2b2/10A2b3).
+- [ ] Cobrir Client Credentials, login PKCE, validação/revogação, falhas de login e auditoria (Client Credentials na 10A1; PKCE/replay na 10A2a; falhas de login na 10A2b1; recursos/revogação e auditoria pendentes).
 - [ ] Instrumentar métricas, logs estruturados e tracing propagado por HTTP/RabbitMQ.
 - [ ] Subir Prometheus/Grafana e correlacionar latência, filas, banco, Redis e Vault.
 - [ ] Executar ramp-up, patamar e ramp-down, registrando recursos do ambiente.
@@ -299,6 +299,8 @@ A **9D** consolida a revisão de controles e o **aceite técnico local**, usando
 Subdivisão: **10A1** — gerador de clientes sintéticos pela API, plano Client Credentials com sucesso/invalid_client separados, runner com verificação de asserções, resultados sanitizados e smoke opt-in descartável. Baseline JMeter 5.6.3; não há benchmark de capacidade ou alteração de aplicação/schema. Implementação local em `feat/load-client-credentials-smoke`, sobre `255fdff`, incluída neste commit; publicação/CI a verificar separadamente. Ver [ADR-045](adr/045-base-de-carga-jmeter.md), [operação](../load-tests/jmeter/README.md), [evidências](evidencias/etapa-10a1.md). **10A2a** — massa humana, PKCE e replay; **10A2b** — demais cenários; **10B** — observabilidade; **10C** — medição; **10D** — ajustes. A 10A1 não conclui os itens/aceite globais da etapa 10.
 
 A **10A2a** acrescenta usuários/senhas sintéticos, clientes de navegador e política limitada por API, plano JSR223 PKCE com cookies/CSRF/state, conferência de identidade/TTL e rejeição de código reutilizado. O teste opt-in também exige HTTP 400 para verifier incorreto e artefatos sem credenciais da fixture. Cada amostra é uma jornada agregada; não é medição de /oauth2/token ou assinatura JWT. Implementação local em `feat/load-human-pkce-smoke`, sobre `1e7a201`, incluída neste commit; push pendente. Ver [ADR-046](adr/046-carga-humana-pkce.md), [operação](../load-tests/jmeter/HUMAN-PKCE.md), [evidências](evidencias/etapa-10a2a.md). A 10A2b continua responsável pelos demais cenários; a 10A/etapa 10 ainda não estão concluídas.
+
+A **10A2b1** acrescenta massa de usuários por API, plano de senha incorreta/usuário inexistente com cookies/CSRF reais, mensagem genérica comparada e sessão anônima confirmada. O teste opt-in exige dois fatos reais de falha na Outbox, ausência do candidato no banco e detecção de sessão autenticada na injeção de senha correta. Padrão pequeno distingue recusa de credenciais de 403/429/503, que falham o contrato. Não mede tempo constante/capacidade nem ingestão central sob carga. Implementação local em `feat/load-login-failures-smoke`, sobre `8580b4e`, incluída neste commit; push pendente. Ver [ADR-047](adr/047-carga-de-falhas-de-login.md), [operação](../load-tests/jmeter/LOGIN-FAILURES.md), [evidências](evidencias/etapa-10a2b1.md). **10A2b2** tratará recursos/revogação e **10A2b3** auditoria; a etapa 10 continua incompleta.
 
 ## Etapa 11 — Entrega e hardening
 
@@ -369,4 +371,4 @@ Para encerrar a v1:
 
 ## Próxima entrega
 
-Seguir para **10A2b — falhas de login, validação/revogação de recursos e auditoria**, subdividindo conforme necessário. A 10A2a está implementada localmente em `feat/load-human-pkce-smoke`, sobre `1e7a201`, incluída neste commit; push pendente. A 10A1 foi publicada em `1e7a201` na sessão anterior; PR/CI não foram verificados. Metas de desempenho e verificações gerais de entrega continuam pendentes.
+Seguir para **10A2b2 — acesso e revogação de recursos**, depois **10A2b3 — auditoria**, subdividindo conforme necessário. A 10A2b1 está implementada localmente em `feat/load-login-failures-smoke`, sobre `8580b4e`, incluída neste commit; push pendente. A 10A2a está versionada em `8580b4e`; publicação/CI a confirmar. Metas de desempenho e verificações gerais de entrega continuam pendentes.

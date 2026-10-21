@@ -77,3 +77,7 @@ O runner aceita 1–20 threads, 1–100 iterações, ramp-up 1–60 s, exige mas
 Se a criação falhar, a mensagem identifica user/browser-client/policy sem resposta privada. Se o plano falhar, conferir summary.csv, status e configuração/políticas do ambiente. O teste não remove bloqueios Redis, não fabrica MFA e não contorna limites do IAM. Histórico de risco, sessões e consentimentos no modo manual podem afetar novas execuções; usar instância limpa quando for necessário comparar resultados.
 
 A 10A2a não mede MFA, falhas de senha, refresh/OIDC, acesso protegido, revogação ou ingestão/consulta de auditoria sob carga. Esses cenários continuam na 10A2b. O smoke não comprova p95, 300 req/s, estabilidade de memória ou SLA. Ver [ADR-046](../../docs/adr/046-carga-humana-pkce.md), [evidências](../../docs/evidencias/etapa-10a2a.md) e [guia](../../docs/GUIA-DE-IMPLEMENTACAO.md).
+
+## Continuação da 10A2b
+
+A [10A2b1 — falhas de login](LOGIN-FAILURES.md) está implementada em plano separado; 10A2b2 continua com recursos/revogação e 10A2b3 com auditoria. O plano PKCE desta página mantém seu escopo e limites históricos.

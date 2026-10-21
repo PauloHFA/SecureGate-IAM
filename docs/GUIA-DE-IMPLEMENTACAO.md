@@ -1,23 +1,23 @@
 # Implementação passo a passo — SecureGate IAM
 
-Atualizado em 20/10/2026. Este guia consolida a sequência de construção, as razões das divisões e os caminhos para executar e validar cada entrega. Complementa o [plano com os critérios de aceite](PLANO-DE-IMPLEMENTACAO.md); os detalhes de operação ficam nos guias indicados em cada linha.
+Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as razões das divisões e os caminhos para executar e validar cada entrega. Complementa o [plano com os critérios de aceite](PLANO-DE-IMPLEMENTACAO.md); os detalhes de operação ficam nos guias indicados em cada linha.
 
 ## Ponto atual
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10A2a — massa humana, PKCE e replay de código |
-| Base desta entrega | 1e7a201 — 10A1 |
+| Última entrega implementada | 10A2b1 — senha incorreta e usuário inexistente no JMeter |
+| Base desta entrega | 8580b4e — 10A2a |
 | Trabalho local | Implementação, teste opt-in e documentação; incluída neste commit; push pendente |
-| Branch | feat/load-human-pkce-smoke |
-| Validação da entrega | Smoke humano opt-in aprovado; clean verify em 20/10/2026 às 23:30:33 UTC−03, 778 testes; ocorrência de teardown Hikari registrada nas evidências |
-| Próxima implementação | 10A2b — falhas de login, recursos/revogação e auditoria |
-| Pendências de aceite global/remoto | Publicação/CI e verificações de entrega; imagens na etapa 11 |
+| Branch | feat/load-login-failures-smoke |
+| Validação da entrega | Smoke de login opt-in aprovado separadamente; clean verify em 21/10/2026 às 00:17:56 UTC−03, 778 testes, cobertura e arquitetura aprovadas |
+| Próxima implementação | 10A2b2 — acesso e revogação de recursos |
+| Pendências seguintes | 10A2b3 — auditoria; publicação/CI e verificações de entrega |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1 e a 10A2a também estão implementadas abaixo. As demais divisões 10A2b–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a e a 10A2b1 também estão implementadas abaixo. As demais divisões 10A2b2–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -302,7 +302,24 @@ Referências: [operação JMeter](../load-tests/jmeter/README.md), [runbook](run
 9. Procurar credenciais/e-mails sintéticos/Basic/JWT nos artefatos e remover arquivos privados ao encerrar. O gerador não modifica risco/MFA; a configuração sintética pertence à fixture/receita manual dedicada.
 10. Validar a suíte padrão separadamente e registrar que elapsed é agregado, sem latência de rede instrumentada, assinatura JWT validada pelo plano ou metas de capacidade comprovadas.
 
-Referências: [operação humana](../load-tests/jmeter/HUMAN-PKCE.md), [runbook](runbooks/carga-humana-pkce-local.md), [ADR-046](adr/046-carga-humana-pkce.md), [evidências 10A2a](evidencias/etapa-10a2a.md). Sem mudança de aplicação/schema; V22 permanece atual. Trabalho local em feat/load-human-pkce-smoke, sobre 1e7a201, incluída neste commit; push pendente.
+Referências: [operação humana](../load-tests/jmeter/HUMAN-PKCE.md), [runbook](runbooks/carga-humana-pkce-local.md), [ADR-046](adr/046-carga-humana-pkce.md), [evidências 10A2a](evidencias/etapa-10a2a.md). Sem mudança de aplicação/schema; V22 permanece atual. Versionada em 8580b4e, na branch feat/load-human-pkce-smoke; publicação/CI a confirmar.
+
+### Passo a passo da 10A2b1 — falhas de login
+
+Dividir a 10A2b em falhas de login (10A2b1), acesso/revogação (10A2b2) e auditoria (10A2b3), sem declarar a 10A concluída.
+
+1. Criar New-LoginFailureMass.ps1: usuário por API, senha CSPRNG e candidato ausente aleatório example.test, sem cliente OAuth/política extra.
+2. Receber token por arquivo e escrever CSV privado em diretórios ignorados, recusando sobrescrita e documentando criação parcial.
+3. Criar login-failures.jmx/Groovy com dois rótulos, HttpClient/cookies novos e CSRF real do formulário.
+4. Exigir redirect /login?error, alerta genérico sem dados da massa e acesso anônimo a /mfa redirecionado para login.
+5. Comparar a mensagem dos dois casos por thread e descartar referência anterior após falha; não aceitar CSRF inválido, rate limit ou indisponibilidade como negativa aprovada.
+6. Acrescentar Run-LoginFailures.ps1 com contagens/asserções, dashboard e padrão pequeno de uma thread/uma iteração.
+7. Injetar senha correta apenas no controle de detecção; provar sessão autenticada e recusa do runner, sem reutilizar cookies no caso seguinte.
+8. Executar JMeterLoginFailureSmoke opt-in com JARs/serviços reais descartáveis; confirmar candidato ausente fora do plano e dois novos fatos auth.login.failed na Outbox.
+9. Conferir artefatos sem credenciais/e-mails/IDs da fixture e documentar limites de timing, bloqueios, preparação manual e limpeza.
+10. Validar a suíte padrão separadamente, registrar resultados reais e atualizar plano/guia/índices antes de commit/publicação.
+
+Referências: [operação](../load-tests/jmeter/LOGIN-FAILURES.md), [runbook](runbooks/carga-falhas-login-local.md), [ADR-047](adr/047-carga-de-falhas-de-login.md), [evidências 10A2b1](evidencias/etapa-10a2b1.md). Sem mudança de aplicação/schema; V22 permanece atual. Trabalho local em feat/load-login-failures-smoke, sobre 8580b4e, incluída neste commit; push pendente.
 
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
@@ -310,7 +327,8 @@ As metas e o escopo principal continuam no plano. As divisões abaixo são uma p
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10A2b — Jornadas restantes | Falhas de login → validação/revogação em recursos → auditoria → validar limites, isolamento e artefatos. | Planos repetíveis, negativas separadas e dados privados protegidos. |
+| 10A2b2 — Recursos e revogação | Acesso protegido → revogação → recusa posterior → validar propagação/limites e artefatos. | Jornadas de recurso/revogação repetíveis e dados privados protegidos. |
+| 10A2b3 — Auditoria | Preparar fatos sintéticos → ingestão/consulta → validar correlação, filtros e limites. | Plano reproduzível de auditoria, sem dados reais ou metas presumidas. |
 | 10B — Observabilidade | Definir métricas, logs sanitizados e tracing HTTP/RabbitMQ → correlacionar dependências e filas. | Diagnóstico de latência/erro sem payload sensível. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |

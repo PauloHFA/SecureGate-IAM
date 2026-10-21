@@ -1,6 +1,6 @@
 # JMeter — 10A1: Client Credentials e massa sintética
 
-Plano executável de smoke: dois clientes sintéticos, duas threads e duas iterações produzem oito amostras. A 10A está dividida: **10A1** implementa esta base; **10A2a** acrescenta massa humana e PKCE/replay; **10A2b** ainda precisa cobrir falhas de login, validação/revogação e auditoria. O aceite de carga da etapa 10 depende também de observabilidade/medições posteriores.
+Plano executável de smoke: dois clientes sintéticos, duas threads e duas iterações produzem oito amostras. A 10A está dividida: **10A1** implementa esta base; **10A2a** acrescenta massa humana e PKCE/replay; **10A2b1** cobre falhas de login; validação/revogação e auditoria continuam em **10A2b2/10A2b3**. O aceite de carga da etapa 10 depende também de observabilidade/medições posteriores.
 
 ## Pré-requisitos
 
@@ -75,3 +75,7 @@ Referências técnicas: [execução CLI e relatório](https://jmeter.apache.org/
 ## Plano humano e PKCE — 10A2a
 
 Consultar [HUMAN-PKCE.md](HUMAN-PKCE.md) para gerador de usuários/clientes/políticas, jornada com cookies/CSRF/state/S256, rejeição de replay e injeção de verifier incorreto. O teste opt-in é JMeterHumanSmoke; cada amostra é uma jornada agregada, não uma chamada isolada ao endpoint de token.
+
+## Falhas de login — 10A2b1
+
+Consultar [LOGIN-FAILURES.md](LOGIN-FAILURES.md) para massa de usuários, senha incorreta/usuário inexistente com CSRF/cookies reais e detecção de autenticação inesperada. O teste opt-in é JMeterLoginFailureSmoke; o padrão usa uma thread/uma iteração para distinguir o contrato de recusa dos limiares de bloqueio.
