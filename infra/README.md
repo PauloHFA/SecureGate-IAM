@@ -85,7 +85,11 @@ As filas locais são classic em um único nó; isso não demonstra alta disponib
 
 Os tokens de aplicação têm TTL de 1 hora e máximo de 4 horas. Os SecretIDs têm TTL de 24 horas e são reutilizáveis no ambiente local. RoleID e SecretID ficam em `infra/.local/<serviço>-role-id` e `<serviço>-secret-id`, ignorados pelo Git. O script aplica `umask 077`; no Windows, a proteção efetiva também depende das permissões NTFS da pasta.
 
-As credenciais persistidas no KV são a base local para integração futura, não uma integração já implementada nos serviços Java. As contas de banco/broker ainda são contas de bootstrap local; separação completa de migração, aplicação e operação será feita nas etapas de persistência e hardening.
+O `iam-core` pode ler as credenciais KV no startup com `Start-IamCore.ps1 -EnableVaultKv` (9A1); consulte o [guia de operação](../docs/runbooks/vault-kv-local.md). O enforcer também pode ler KV com `Start-PolicyEnforcer.ps1 -EnableConsumer -EnableVaultKv` (9A3); consulte [operação do enforcer](../docs/runbooks/enforcer-vault-kv-local.md). Nesse modo, credenciais locais não são repassadas; leitura inválida aborta o startup e rotação exige reinício. No modo estático, banco/broker usam as contas de bootstrap local; o modo PostgreSQL dinâmico com renovação e separação migração/runtime está descrito na 9A2 abaixo. Os pools de auditoria da etapa 8 preservam suas contas dedicadas por arquivo.
+
+A 9A2a prepara o grupo NOLOGIN de execução do IAM com `Provision-RuntimeDatabase.ps1`, após aplicar V17. Não cria senha/login nem muda a conexão padrão. Consulte o [guia de permissões runtime](../docs/runbooks/permissoes-runtime-local.md); a emissão temporária pelo Vault será integrada na 9A2b.
+
+A 9A2b adiciona AppRole/KV `iam-runtime`, sem credencial proprietária, e o modo `Start-IamCore.ps1 -EnableVaultDatabase`. Preparar o banco em processo separado com `Migrate-Database.ps1` e configurar o emissor/Database Engine com `Provision-VaultDatabase.ps1`; consulte o [guia](../docs/runbooks/vault-database-local.md). A 9A2c acrescenta renovação, troca e recuperação do pool; reaplicar `vault-init` e o provisionador para atualizar ACL e revogação SQL, com runtimes parados. Consultar o [guia operacional](../docs/runbooks/vault-database-renovacao-local.md). A configuração Database não é criada automaticamente por `vault-init`.
 
 Produção exige Vault persistente, TLS, unseal, recuperação e entrega protegida das credenciais iniciais. O modo dev pode registrar o token administrativo no log de inicialização; não compartilhe esses logs. A tarefa `vault-init` não imprime segredos.
 
@@ -124,3 +128,53 @@ O primeiro para containers existentes; o segundo remove containers/rede e manté
 O switch `-EnableAuditPartitions` de `Start-IamCore.ps1` habilita somente a manutenção opcional da [área de ingestão particionada 8A1](../docs/runbooks/auditoria-particionada-local.md). A V13 preserva auditoria produtora/Outbox. A [8A2](../docs/runbooks/identidades-auditoria-local.md) exige provisionar logins dedicados com `Provision-AuditDatabase.ps1` após V14. `-EnableAuditIngestion` disponibiliza o store restrito, sem iniciar consumidor.
 
 O consumidor da **8B** é opcional: `Start-IamCore.ps1 -EnableAuditConsumer -EnableAuditPartitions` usa as credenciais dedicadas provisionadas na 8A2. Acrescente `-EnableOutboxPublisher` para publicar novos eventos localmente. Consulte o [guia de consumo em lote](../docs/runbooks/consumidor-auditoria-local.md); não há ativação automática ou alteração da stack persistente pelo build.
+
+A consulta da **8C** usa `Start-IamCore.ps1 -EnableBootstrap -EnableAuditQuery`, sem iniciar consumidor/publicador. V15 adiciona índices de ator/correlação e a API exige janela limitada e cursor; consulte o [guia de consulta](../docs/runbooks/consulta-auditoria-local.md).
+
+Após V16, reaplique `Provision-AuditDatabase.ps1` para conceder o verificador de replay à ingestão. A **8D1** usa `Archive-AuditMonth.ps1 -Month yyyy-MM -HotMonths 6` em modo de plano; `-Apply` arquiva explicitamente um mês elegível no mesmo banco, sem apagar recibos/dados. Consulte o [guia de arquivo](../docs/runbooks/arquivamento-auditoria-local.md).
+
+A **8D2** usa `Measure-Audit.ps1` para benchmark optativo com PostgreSQL descartável, limitado a quatro CPUs/4 GiB, e JVM de 1 GiB. O padrão é dois milhões de eventos mais amostras; a execução não lê `.env` nem acessa a stack persistente. Consulte o [guia de medição](../docs/runbooks/medicao-auditoria-local.md) e preserve relatórios antes de `clean`.
+
+A 9B1 oferece `Start-IamCore.ps1 -EnablePam`, que ativa Authorization/Transit e registra pedidos com MFA e TTL. Aplicar V18 e reaplicar o perfil runtime antes do modo dinâmico; ver o [guia PAM](../docs/runbooks/pedidos-privilegiados-local.md). Esta fase não emite credenciais humanas no Vault.
+
+A 9B2 usa `Provision-PamDatabase.ps1` após V19 e `Start-IamCore.ps1 -EnablePamCredentials`. O bootstrap entrega AppRole iam-pam separado; o provisionador configura mount/emissor exclusivos e visão de diagnóstico. Consulte o [guia de credenciais PAM](../docs/runbooks/credenciais-pam-local.md), incluindo o limite de sessões já abertas durante falhas do Vault.
+
+A 9C1 exige V20 e reaplicação das concessões com processos PAM parados. `-EnablePam` observa expiração de pedidos; a emissão observa também o prazo das credenciais e preserva a correlação original nos fatos. Consulte o [guia de auditoria PAM](../docs/runbooks/auditoria-pam-local.md); expiração lógica não confirma revogação pelo Vault.
+## Recuperação da limpeza PAM — 9C2a
+
+A V21 acrescenta agenda persistida e metadados de retry da limpeza; o migrador reaplica as concessões runtime para esses campos. Parar workers antigos antes da atualização: eles ignoram a agenda nova. A flag `-EnablePamCredentials` continua suficiente. Consultar o [runbook de recuperação](../docs/runbooks/recuperacao-pam-local.md) para métricas, reinício do IAM, resultado incerto e limites de perda do Vault dev. Esta entrega não altera a stack persistente automaticamente.
+
+Na 9C2b, a V22 acrescenta agenda e metadados de retry do observador de pedidos. O perfil runtime reaplicado permite atualizar somente esses campos adicionais. Parar workers antigos e manter banco/Vault ao reiniciar o IAM. `-EnablePam` já ativa observador/métricas mesmo sem emissão; não há flag adicional. O teste de reinício usa o JAR real e infraestrutura descartável, conforme [evidências 9C2b](../docs/evidencias/etapa-09c2b.md).
+## Jornada PAM integrada — 9C3
+
+O [guia da 9C3](../docs/runbooks/jornada-pam-integrada-local.md) combina emissão PAM, publicador, consumidor/ingestão e consulta central com identidades separadas. O aceite usa JARs reais e infraestrutura descartável, sem alterar a stack persistente. Não há migração nova além da V22. O bootstrap OAuth passa a respeitar a inicialização de banco disponível, permitindo runtime sem Flyway após migração externa; configuração/schema inválidos continuam sendo erro.
+
+## Métricas IAM — 10B1
+
+Exportação Prometheus é opt-in, com token de leitura próprio: executar Initialize-MetricsToken.ps1 e iniciar Start-IamCore.ps1 -EnablePrometheus; -EnableHttpHistograms acrescenta buckets HTTP. Nenhuma ativação automática, alteração de .env ou inicialização de collector/Grafana. Ver [runbook](../docs/runbooks/metricas-prometheus-local.md) e [inventário](../docs/OBSERVABILIDADE.md); enforcer continua sem servidor HTTP. O arquivo infra/.local/iam-metrics-token é privado/ignorado e exige proteção por permissões locais.
+
+## Coleta e dashboard IAM — 10B2a
+
+O [Compose de observabilidade](observability/README.md) é separado da stack de negócio. Initialize-Observability.ps1 prepara config/portas/senha Grafana privados; Start-Observability.ps1 inicia Prometheus/Grafana em loopback com dashboard IAM provisionado. Seguir o [runbook](../docs/runbooks/coleta-iam-local.md); não usa token administrativo IAM e não inicia exporters/enforcer. O teste opt-in remove somente sua stack descartável; nada é iniciado/alterado automaticamente no ambiente persistente.
+
+## Métricas/coleta do enforcer — 10B2b1
+
+Initialize-MetricsToken.ps1 -Target Enforcer prepara token próprio e Start-PolicyEnforcer.ps1 -EnableMetrics ativa GET /metrics em loopback (padrão 19091), preservando modo Spring non-web. Para coletar, usar Initialize-Observability.ps1 -IncludeEnforcer na primeira preparação ou Enable-EnforcerCollection.ps1 com coletores parados para migrar configuração existente com backups. Ver [operação](../docs/runbooks/metricas-enforcer-local.md). Sem flag não há listener; exporters das dependências ficam para 10B2b2. Nenhum serviço persistente é modificado pelo build.
+
+## Coleta opcional RabbitMQ — 10B2b2a
+
+O [overlay](docker-compose.rabbitmq-metrics.yml) habilita plugin Prometheus nativo com publicação em loopback (padrão 15692) e configuração agregada, sem alterar o Compose padrão. Aplicação/retirada recriam somente o broker e interrompem conexões; o volume é preservado. Seguir [runbook](../docs/runbooks/metricas-rabbitmq-local.md) para janela, migração de coleta com backup e interpretação do dashboard. Não requer senha AMQP/administrativa no Prometheus. Acesso sem autenticação restrito ao host/rede Docker; coleta remota exige desenho próprio.
+
+## Coleta opcional PostgreSQL — 10B2b2b
+
+[Provisionamento](scripts/Provision-PostgresMetrics.ps1) administrativo explícito cria login dedicado pg_monitor e senha em arquivo privado, sem alterar grants IAM/auditoria/PAM. O [overlay](docker-compose.postgres-metrics.yml) acrescenta somente postgres-exporter, com digest fixado e publicação loopback padrão 19187. Não recria o banco nem modifica o Compose base. Seguir [runbook](../docs/runbooks/metricas-postgres-local.md) para permissões, inclusão do job com backup, interpretação de up versus pg_up e rotação/retirada. Esta entrega foi validada em projetos descartáveis; não provisionou o banco persistente do usuário.
+
+## Coleta opcional Redis — 10B2b2c
+
+[Preparador](scripts/Initialize-RedisMetrics.ps1) verifica ACL ativa do Redis base antes de gerar par privado de senha/ACL, preservando autenticação default e recusando configurações customizadas. O [overlay](docker-compose.redis-metrics.yml) carrega ACL persistente com AOF/volume preservados e acrescenta exporter por digest, senha por arquivo e porta loopback padrão 19121. Aplicar exige reinício Redis; preparador não muda ACL ativa. Seguir [runbook](../docs/runbooks/metricas-redis-local.md) para janela, comandos, permissões, migração de coleta com backup e retirada. Validado em projetos descartáveis; a stack persistente do usuário não foi reconfigurada.
+
+## Coleta autenticada Vault dev — 10B2b2d
+
+O [overlay](docker-compose.vault-metrics.yml) move o listener dev anônimo para loopback interno e mantém a API publicada com métricas autenticadas. **Aplicar/remover recria Vault dev e perde seu estado em memória**, exigindo reset planejado e reprovisionamento; não foi aplicado à stack persistente nesta entrega. O [provisionador](scripts/Provision-VaultMetrics.ps1) recusa listener anônimo, emite/reusa token mínimo de 1h e permite rotação explícita sem reiniciar Vault. Seguir [runbook](../docs/runbooks/metricas-vault-local.md) para impacto, bootstrap, backups/flags da coleta, rotação e correlação das quatro dependências.
+
+Na **10B3c1**, a **V23** acrescenta parent de tracing nullable/imutável ao outbox. Migrar com o JAR atual e identidade de migração antes do novo runtime, mesmo sem tracing; o código referencia a coluna. SELECT/INSERT de tabela do runtime já a abrangem; UPDATE segue restrito às colunas de entrega, sem novo grant. A stack persistente não foi migrada nesta entrega. [Rollout e reversão](../docs/runbooks/tracing-outbox-local.md), [evidências](../docs/evidencias/etapa-10b3c1.md).

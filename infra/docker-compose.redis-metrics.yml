@@ -1,0 +1,42 @@
+# Optional overlay: prepare private files against the running base Redis first.
+services:
+  redis:
+    command: [redis-server, --appendonly, "yes", --aclfile, /etc/redis/users.acl]
+    volumes:
+      - type: bind
+        source: ./.local/redis-metrics-users.acl
+        target: /etc/redis/users.acl
+        read_only: true
+        bind:
+          create_host_path: false
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.95.0-alpine@sha256:19bb5c732f5812d5b60b2e0af3c6d82c5b3e418cd020068d65f588a56df4a118
+    environment:
+      REDIS_ADDR: redis://redis:6379
+      REDIS_USER: securegate_metrics
+      REDIS_PASSWORD_FILE: /run/secrets/redis-metrics-password.json
+    command:
+      - --config-command=-
+      - --connection-timeout=2s
+      - --set-client-name=false
+      - --exclude-latency-histogram-metrics
+      - --disable-exporting-key-values
+      - --disable-scrape-endpoint
+    ports:
+      - "127.0.0.1:${REDIS_METRICS_PORT:-19121}:9121"
+    volumes:
+      - type: bind
+        source: ./.local/redis-metrics-password.json
+        target: /run/secrets/redis-metrics-password.json
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      redis:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    pids_limit: 64
+    restart: unless-stopped

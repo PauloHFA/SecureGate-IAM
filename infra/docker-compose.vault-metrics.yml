@@ -1,0 +1,6 @@
+# Optional. Recreating Vault dev loses keys/leases/AppRoles: apply only in a planned reset.
+services:
+  vault:
+    command: [server, -dev, -dev-listen-address=127.0.0.1:18200]
+    volumes:
+      - ./vault/metrics-listener.hcl:/vault/config/metrics-listener.hcl:ro

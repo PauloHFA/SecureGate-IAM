@@ -12,6 +12,8 @@
   <artifactId>iam-core</artifactId>
   <name>SecureGate IAM Core</name>
   <dependencies>
+    <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-tracing-bridge-otel</artifactId></dependency>
+    <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-registry-prometheus</artifactId></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-redis</artifactId></dependency>
     <dependency>
       <groupId>com.rabbitmq</groupId>
@@ -94,6 +96,11 @@
   <build>
     <resources>
       <resource><directory>src/main/resources</directory></resource>
+      <resource>
+        <directory>${project.basedir}/../infra/postgres</directory>
+        <targetPath>postgres</targetPath>
+        <includes><include>runtime-privileges.sql</include></includes>
+      </resource>
       <resource>
         <directory>${project.basedir}/../infra/rabbitmq</directory>
         <targetPath>rabbitmq</targetPath>

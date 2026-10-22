@@ -765,7 +765,7 @@ class PolicyAdministrationIT {
         org.flywaydb.core.Flyway.configure()
             .dataSource(url, DATABASE.getUsername(), DATABASE.getPassword())
             .load();
-    assertEquals(9, upgraded.migrate().migrationsExecuted);
+    assertEquals(18, upgraded.migrate().migrationsExecuted);
     upgraded.validate();
     try (var connection =
             java.sql.DriverManager.getConnection(

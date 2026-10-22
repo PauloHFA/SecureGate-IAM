@@ -1,6 +1,11 @@
 spring:
   autoconfigure:
     exclude:
+      - org.springframework.boot.actuate.autoconfigure.logging.OpenTelemetryLoggingAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.opentelemetry.OpenTelemetryAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.tracing.OpenTelemetryTracingAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.tracing.MicrometerTracingAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.tracing.NoopTracerAutoConfiguration
       - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
       - org.springframework.boot.autoconfigure.data.redis.RedisReactiveAutoConfiguration
       - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
@@ -11,7 +16,7 @@ spring:
   datasource:
     url: ${IAM_DATABASE_URL:jdbc:postgresql://127.0.0.1:15432/securegate}
     username: ${IAM_DATABASE_USERNAME:securegate}
-    password: ${IAM_DATABASE_PASSWORD}
+    password: ${IAM_DATABASE_PASSWORD:}
     hikari:
       maximum-pool-size: 10
       connection-timeout: 5000
@@ -24,7 +29,19 @@ spring:
       enabled: true
 
 iam:
+  pam:
+    enabled: ${IAM_PAM_ENABLED:false}
+    credentials:
+      enabled: ${IAM_PAM_CREDENTIALS_ENABLED:false}
+      address: ${IAM_PAM_VAULT_ADDRESS:${IAM_VAULT_ADDRESS:http://127.0.0.1:8200}}
+      role-id-file: ${IAM_PAM_VAULT_ROLE_ID_FILE:infra/.local/iam-pam-role-id}
+      secret-id-file: ${IAM_PAM_VAULT_SECRET_ID_FILE:infra/.local/iam-pam-secret-id}
+  database:
+    vault:
+      enabled: ${IAM_DATABASE_VAULT_ENABLED:false}
   audit:
+    query:
+      enabled: ${IAM_AUDIT_QUERY_ENABLED:false}
     consumer:
       enabled: ${IAM_AUDIT_CONSUMER_ENABLED:false}
       host: ${IAM_RABBITMQ_HOST:127.0.0.1}
@@ -99,13 +116,27 @@ server:
       enabled: false
 
 management:
+  tracing:
+    enabled: false
   endpoints:
     web:
       exposure:
-        include: health,metrics
+        include: health,metrics,prometheus
       discovery:
         enabled: false
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: ${IAM_HTTP_HISTOGRAMS_ENABLED:false}
+      minimum-expected-value:
+        http.server.requests: 1ms
+      maximum-expected-value:
+        http.server.requests: 10s
   endpoint:
+    prometheus:
+      enabled: ${IAM_PROMETHEUS_ENABLED:false}
     health:
       show-details: never
       show-components: never

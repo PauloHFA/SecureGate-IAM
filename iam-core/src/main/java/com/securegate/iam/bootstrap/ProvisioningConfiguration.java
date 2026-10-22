@@ -19,10 +19,13 @@ import com.securegate.iam.identity.infrastructure.JdbcCredentialRepository;
 import com.securegate.iam.identity.infrastructure.JdbcUserRepository;
 import com.securegate.iam.shared.application.port.UnitOfWork;
 import com.securegate.iam.shared.infrastructure.JdbcUnitOfWork;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import java.time.Clock;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.lang.Nullable;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -54,8 +57,25 @@ public class ProvisioningConfiguration {
   }
 
   @Bean
-  JdbcOutboxEvents outboxEvents(JdbcTemplate jdbc, ObjectMapper json) {
-    return new JdbcOutboxEvents(jdbc, json);
+  JdbcOutboxEvents outboxEvents(
+      JdbcTemplate jdbc,
+      ObjectMapper json,
+      @Nullable Tracer tracer,
+      @Nullable Propagator propagator) {
+    return new JdbcOutboxEvents(
+        jdbc,
+        json,
+        () -> {
+          if (tracer == null || propagator == null || tracer.currentSpan() == null) return null;
+          var parent = new java.util.HashMap<String, String>();
+          propagator.inject(
+              tracer.currentSpan().context(),
+              parent,
+              (target, key, value) -> {
+                if ("traceparent".equals(key)) target.put(key, value);
+              });
+          return parent.get("traceparent");
+        });
   }
 
   @Bean

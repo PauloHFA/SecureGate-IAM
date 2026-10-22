@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.securegate.events.SecurityEvent;
+import com.securegate.iam.audit.application.ArchivedAuditMonthException;
 import com.securegate.iam.audit.application.port.AuditEventStore;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,37 +49,51 @@ public final class JdbcAuditEventStore implements AuditEventStore {
         throw new IllegalArgumentException("Invalid audit envelope.");
       }
     }
-    return transactions.execute(
-        status -> {
-          int[] counts =
-              jdbc.batchUpdate(
-                  """
+    try {
+      return transactions.execute(
+          status -> {
+            int[] counts =
+                jdbc.batchUpdate(
+                    """
           INSERT INTO iam_audit.event_log(id,occurred_at,event_type,schema_version,producer,correlation_id,actor,resource,payload)
           SELECT (body->>'eventId')::uuid,(body->>'occurredAt')::timestamptz,body->>'eventType',
             (body->>'schemaVersion')::smallint,body->>'producer',body->>'correlationId',body->>'actor',body->'context'->>'resource',body
           FROM (SELECT ?::jsonb AS body) envelope
+          WHERE NOT iam_audit.is_archived_event_replay(body)
           """,
-                  new BatchPreparedStatementSetter() {
-                    @Override
-                    public void setValues(java.sql.PreparedStatement statement, int index)
-                        throws java.sql.SQLException {
-                      statement.setString(1, bodies.get(index));
-                    }
+                    new BatchPreparedStatementSetter() {
+                      @Override
+                      public void setValues(java.sql.PreparedStatement statement, int index)
+                          throws java.sql.SQLException {
+                        statement.setString(1, bodies.get(index));
+                      }
 
-                    @Override
-                    public int getBatchSize() {
-                      return bodies.size();
-                    }
-                  });
-          var results = new ArrayList<Result>(counts.length);
-          for (int count : counts) {
-            // Unknown update counts cannot be treated as a committed, classified batch.
-            if (count != 0 && count != 1) {
-              throw new IllegalStateException("Unexpected audit batch result.");
+                      @Override
+                      public int getBatchSize() {
+                        return bodies.size();
+                      }
+                    });
+            var results = new ArrayList<Result>(counts.length);
+            for (int count : counts) {
+              // Unknown update counts cannot be treated as a committed, classified batch.
+              if (count != 0 && count != 1) {
+                throw new IllegalStateException("Unexpected audit batch result.");
+              }
+              results.add(count == 1 ? Result.APPENDED : Result.DUPLICATE);
             }
-            results.add(count == 1 ? Result.APPENDED : Result.DUPLICATE);
+            return List.copyOf(results);
+          });
+    } catch (org.springframework.dao.DataAccessException failure) {
+      for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+        if (cause instanceof java.sql.SQLException sql) {
+          for (var next = sql; next != null; next = next.getNextException()) {
+            if ("SG001".equals(next.getSQLState())) {
+              throw new ArchivedAuditMonthException();
+            }
           }
-          return List.copyOf(results);
-        });
+        }
+      }
+      throw failure;
+    }
   }
 }

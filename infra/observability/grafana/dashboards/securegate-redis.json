@@ -1,0 +1,375 @@
+{
+  "uid": "securegate-redis",
+  "title": "SecureGate Redis — Operação local",
+  "description": "10B2b2c: estatísticas Redis por ACL dedicada sem acesso a chaves. up é scrape HTTP; redis_up é conexão ao Redis. Não representa capacidade.",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "tags": [
+    "securegate",
+    "local",
+    "10b2b2c"
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Coleta do exporter",
+      "type": "stat",
+      "description": "HTTP disponível; verificar também redis_up.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Indisponível",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "Disponível",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "up{job=\"redis\"}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Conexão Redis",
+      "type": "stat",
+      "description": "Autenticação e INFO do Redis; não comprova comandos de aplicação.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Indisponível",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "Disponível",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "redis_up{job=\"redis\"}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Memória Redis",
+      "type": "stat",
+      "description": "Memória informada por INFO; não equivale a RSS/container.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "redis_memory_used_bytes{job=\"redis\"}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Clientes conectados",
+      "type": "stat",
+      "description": "Inclui aplicações, administração e monitoração.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "redis_connected_clients{job=\"redis\"}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Chaves agregadas",
+      "type": "stat",
+      "description": "Contagem por INFO keyspace; não lê nomes/valores de chaves.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(redis_db_keys{job=\"redis\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Comandos acumulados",
+      "type": "stat",
+      "description": "Inclui comandos da coleta; não mede throughput IAM.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "redis_commands_processed_total{job=\"redis\"}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  }
+}

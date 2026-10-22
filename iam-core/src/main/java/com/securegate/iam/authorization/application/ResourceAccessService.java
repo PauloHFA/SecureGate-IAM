@@ -70,7 +70,7 @@ public final class ResourceAccessService {
       throw new Rejected("invalid_token");
     }
     if (!enforcement.requestAllowed(subject.userId(), subject.version(), remoteAddress)) {
-      throw new Rejected("rate_limited");
+      throw new Rejected("rate_limited", subject.userId());
     }
     var decision =
         policies.decide(
@@ -85,25 +85,27 @@ public final class ResourceAccessService {
         || !scopes.contains(operation.scope)
         || decision.ttlSeconds() < 30
         || decision.ttlSeconds() > 300) {
-      throw new Rejected("insufficient_scope");
+      throw new Rejected("insufficient_scope", subject.userId());
     }
     if (!enforcement.policiesCurrent(decision.policies())) {
-      throw new Rejected("insufficient_scope");
+      throw new Rejected("insufficient_scope", subject.userId());
     }
     Instant deadline = subject.issuedAt().plusSeconds(decision.ttlSeconds());
     if (subject.expiresAt().isBefore(deadline)) {
       deadline = subject.expiresAt();
     }
     if (!deadline.isAfter(now)) {
-      throw new Rejected("insufficient_scope");
+      throw new Rejected("insufficient_scope", subject.userId());
     }
-    if (decision.mfaRequired()) {
+    if (decision.mfaRequired()
+        || operation == Operation.PRIVILEGED_REQUEST
+        || operation == Operation.PRIVILEGED_ISSUE) {
       var proof =
           proofs
               .current(subject.userId(), subject.version(), subject.sid())
-              .orElseThrow(() -> new Rejected("mfa_required"));
+              .orElseThrow(() -> new Rejected("mfa_required", subject.userId()));
       if (!proof.expiresAt().isAfter(now)) {
-        throw new Rejected("mfa_required");
+        throw new Rejected("mfa_required", subject.userId());
       }
       if (proof.expiresAt().isBefore(deadline)) {
         deadline = proof.expiresAt();
@@ -116,7 +118,9 @@ public final class ResourceAccessService {
    * Mappings are server-owned. Clients cannot choose policy targets, actions or required scopes.
    */
   public enum Operation {
-    ACCOUNT_READ("account:self", "read", "api:read");
+    ACCOUNT_READ("account:self", "read", "api:read"),
+    PRIVILEGED_REQUEST("database:diagnostics", "request", "pam:request"),
+    PRIVILEGED_ISSUE("database:diagnostics", "issue", "pam:issue");
 
     private final String resource;
     private final String action;
@@ -134,14 +138,24 @@ public final class ResourceAccessService {
 
   public static final class Rejected extends RuntimeException {
     private final String code;
+    private final UUID userId;
 
     public Rejected(String code) {
+      this(code, null);
+    }
+
+    public Rejected(String code, UUID userId) {
       super("Resource access rejected.");
       this.code = code;
+      this.userId = userId;
     }
 
     public String code() {
       return code;
+    }
+
+    public UUID userId() {
+      return userId;
     }
   }
 }

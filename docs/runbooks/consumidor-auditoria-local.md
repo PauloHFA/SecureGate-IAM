@@ -50,3 +50,9 @@ ORDER BY occurred_at DESC, id DESC LIMIT 20;
 ```
 
 `Ctrl+C` encerra o processo e devolve mensagens ainda não confirmadas. O intervalo limita repetição por instância; não há fila de retry com TTL neste caminho nem limite de tentativas. As garantias de DLX são as da topologia local clássica, sem validação de alta disponibilidade. [ADR-030](../adr/030-consumidor-auditoria-em-lote.md) registra os demais limites.
+
+A 8D1 acrescenta o resultado **LATE** para um evento novo em mês arquivado: isolamento e DLQ, preservando os vizinhos do lote. Replay idêntico arquivado continua DUPLICATE/ACK; conflito continua CONFLICT/DLQ. Após V16, reaplique o provisionamento de permissões antes de reiniciar a ingestão. Consulte o [guia de arquivamento](arquivamento-auditoria-local.md).
+
+## Tracing opcional da ingestão
+
+Desde a 10B3c3b, o perfil IAM http-tracing pode instrumentar persistência/disposição de lotes com raízes e links aos producers, mantendo transação e ACK após commit. Não habilita o consumer por conta própria nem altera permissões/schema. Sem tracer, comportamento anterior. Contextos inválidos não alteram validação de negócio. [Ativação, limites e reversão](tracing-consumidores-local.md), [ADR-063](../adr/063-tracing-auditoria-em-lote.md).

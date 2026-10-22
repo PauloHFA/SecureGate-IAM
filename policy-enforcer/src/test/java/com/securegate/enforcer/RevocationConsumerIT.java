@@ -386,6 +386,9 @@ class RevocationConsumerIT {
   @Test
   void disabledByDefaultAndOptInSpringContextStartsAndClosesWorker() throws Exception {
     assertTrue(context.getBeansOfType(RabbitRevocationWorker.class).isEmpty());
+    assertTrue(context.getBeansOfType(io.micrometer.tracing.Tracer.class).isEmpty());
+    assertTrue(
+        context.getBeansOfType(io.opentelemetry.sdk.trace.SdkTracerProvider.class).isEmpty());
     var event = event();
     publish(event);
     String user = UUID.randomUUID().toString();
@@ -415,9 +418,16 @@ class RevocationConsumerIT {
                       "enforcer.consumer.password",
                       PASSWORD,
                       "enforcer.consumer.poll-millis",
-                      100)));
-      enabled.register(com.securegate.enforcer.bootstrap.ConsumerConfiguration.class);
+                      100,
+                      "management.tracing.enabled",
+                      true,
+                      "management.tracing.sampling.probability",
+                      1)));
+      enabled.register(
+          com.securegate.enforcer.bootstrap.ConsumerConfiguration.class,
+          com.securegate.enforcer.bootstrap.ConsumerTracingConfiguration.class);
       enabled.refresh();
+      assertEquals(1, enabled.getBeansOfType(io.micrometer.tracing.Tracer.class).size());
       long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
       while (!Boolean.TRUE.equals(redis.hasKey(key(event))) && System.nanoTime() < deadline) {
         Thread.sleep(25);
@@ -705,5 +715,145 @@ class RevocationConsumerIT {
     }
     assertEquals(2, blockCount(".dlq"));
     assertFalse(redis.hasKey(blockKey("attempts:ip", "203.0.113.40")));
+  }
+
+  private void publishTraced(
+      SecurityEvent event, com.rabbitmq.client.AMQP.BasicProperties properties) throws Exception {
+    try (var connection = factory().newConnection();
+        var channel = connection.createChannel()) {
+      channel.confirmSelect();
+      channel.basicPublish(
+          "security.events", event.eventType(), properties, json.writeValueAsBytes(event));
+      assertTrue(channel.waitForConfirms(2000));
+    }
+  }
+
+  @Test
+  void tracedRevocationRequeuesAndRecoversWithDistinctChildrenOfBrokerParent() throws Exception {
+    try (var tracing =
+        new ConsumerTraceTest.Tracing(
+            io.opentelemetry.sdk.trace.samplers.Sampler.traceIdRatioBased(1))) {
+      var event = event();
+      publishTraced(
+          event,
+          TestEvents.properties(event)
+              .builder()
+              .headers(
+                  java.util.Map.of(
+                      "schemaVersion",
+                      1,
+                      "traceparent",
+                      ConsumerTraceTest.parent(),
+                      "baggage",
+                      "secret=synthetic"))
+              .build());
+      var fail = new java.util.concurrent.atomic.AtomicBoolean(true);
+      var handler =
+          new RevocationMessageHandler(
+              json,
+              new RevocationHandler(
+                  (revocation, fingerprint) -> {
+                    assertEquals("1".repeat(32), tracing.tracer.currentSpan().context().traceId());
+                    assertEquals("1".repeat(32), org.slf4j.MDC.get("traceId"));
+                    if (fail.getAndSet(false)) throw new IllegalStateException("synthetic outage");
+                    return store.apply(revocation, fingerprint);
+                  }));
+      try (var worker =
+          new RabbitRevocationWorker(
+              factory(),
+              json,
+              handler::handle,
+              meters,
+              20,
+              100,
+              RabbitRevocationWorker.QUEUE,
+              tracing.consumer)) {
+        worker.runOnce();
+        assertNull(tracing.tracer.currentSpan());
+        assertNull(org.slf4j.MDC.get("traceId"));
+        assertEquals(1, count(""));
+        assertNull(redis.opsForValue().get(key(event)));
+        worker.runOnce();
+        assertEquals(0, count(""));
+        assertNotNull(redis.opsForValue().get(key(event)));
+      }
+      var spans = tracing.consumed();
+      assertEquals(2, spans.size());
+      assertNotEquals(spans.get(0).getSpanId(), spans.get(1).getSpanId());
+      for (var span : spans) {
+        assertEquals("2".repeat(16), span.getParentSpanId());
+        assertEquals("1".repeat(32), span.getTraceId());
+        assertEquals(4, span.getAttributes().size());
+        assertTrue(span.getEvents().isEmpty());
+      }
+      var outcome = io.opentelemetry.api.common.AttributeKey.stringKey("messaging.outcome");
+      assertEquals("retry", spans.get(0).getAttributes().get(outcome));
+      assertEquals("ack", spans.get(1).getAttributes().get(outcome));
+      assertEquals(
+          "true",
+          spans
+              .get(1)
+              .getAttributes()
+              .get(io.opentelemetry.api.common.AttributeKey.stringKey("messaging.redelivered")));
+      assertNull(tracing.tracer.currentSpan());
+      assertNull(org.slf4j.MDC.get("spanId"));
+    }
+  }
+
+  @Test
+  void tracedBlockPolicyRejectsPoisonAndNextLegacyMessageGetsIndependentRoot() throws Exception {
+    try (var tracing =
+        new ConsumerTraceTest.Tracing(
+            io.opentelemetry.sdk.trace.samplers.Sampler.traceIdRatioBased(1))) {
+      var event =
+          blockEvent(
+              "identity.user.created",
+              UUID.randomUUID().toString(),
+              java.util.Map.of("status", "ACTIVE", "version", "0"));
+      publishTraced(
+          event,
+          TestEvents.properties(event)
+              .builder()
+              .messageId("mismatch")
+              .headers(
+                  java.util.Map.of("schemaVersion", 1, "traceparent", ConsumerTraceTest.parent()))
+              .build());
+      publish(event);
+      var invoked = new java.util.concurrent.atomic.AtomicBoolean();
+      var handler =
+          new com.securegate.enforcer.infrastructure.BlockPolicyMessageHandler(
+              json,
+              new com.securegate.enforcer.application.BlockPolicyHandler(
+                  (effect, fingerprint) -> {
+                    assertNotEquals(
+                        "1".repeat(32), tracing.tracer.currentSpan().context().traceId());
+                    invoked.set(true);
+                    return blockStore.apply(effect, fingerprint);
+                  }));
+      try (var worker =
+          new RabbitRevocationWorker(
+              factory(),
+              json,
+              handler::handle,
+              meters,
+              20,
+              100,
+              RabbitRevocationWorker.BLOCK_POLICY_QUEUE,
+              tracing.consumer)) {
+        worker.runOnce();
+      }
+      assertTrue(invoked.get());
+      assertEquals(0, blockCount(""));
+      assertEquals(1, blockCount(".dlq"));
+      var spans = tracing.consumed();
+      assertEquals(2, spans.size());
+      assertEquals("2".repeat(16), spans.get(0).getParentSpanId());
+      assertEquals("0".repeat(16), spans.get(1).getParentSpanId());
+      var outcome = io.opentelemetry.api.common.AttributeKey.stringKey("messaging.outcome");
+      assertEquals("reject", spans.get(0).getAttributes().get(outcome));
+      assertEquals("ack", spans.get(1).getAttributes().get(outcome));
+      assertNull(tracing.tracer.currentSpan());
+      assertNull(org.slf4j.MDC.get("traceId"));
+    }
   }
 }

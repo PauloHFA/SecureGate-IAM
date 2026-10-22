@@ -44,11 +44,20 @@ if ! vault kv get secret/securegate/policy-enforcer >/dev/null 2>&1; then
     rabbitmq_username="$RABBITMQ_USER" rabbitmq_password="$RABBITMQ_PASSWORD" >/dev/null
 fi
 
+if ! vault kv get secret/securegate/iam-runtime >/dev/null 2>&1; then
+  vault kv put secret/securegate/iam-runtime \
+    redis_password="$REDIS_PASSWORD" rabbitmq_username="$RABBITMQ_USER" \
+    rabbitmq_password="$RABBITMQ_PASSWORD" >/dev/null
+fi
+
 vault policy write securegate-key-operator /bootstrap/key-operator.hcl >/dev/null
-for role in iam-core policy-enforcer; do
+for role in iam-core policy-enforcer iam-runtime iam-pam; do
   vault policy write "securegate-$role" "/bootstrap/$role.hcl" >/dev/null
+  token_ttl=1h
+  token_max_ttl=4h
+  if [ "$role" = iam-pam ]; then token_ttl=5m; token_max_ttl=5m; fi
   vault write "auth/approle/role/$role" \
-    token_policies="securegate-$role" token_ttl=1h token_max_ttl=4h \
+    token_policies="securegate-$role" token_ttl="$token_ttl" token_max_ttl="$token_max_ttl" \
     secret_id_ttl=24h secret_id_num_uses=0 >/dev/null
   role_id=$(vault read -field=role_id "auth/approle/role/$role/role-id")
   valid=false

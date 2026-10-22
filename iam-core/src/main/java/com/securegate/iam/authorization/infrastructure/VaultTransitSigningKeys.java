@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.securegate.iam.authorization.application.SigningUnavailableException;
 import com.securegate.iam.authorization.application.port.SigningKeys;
 import com.securegate.iam.authorization.application.port.TransitEncryption;
+import com.securegate.iam.shared.infrastructure.VaultHttpTransport;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -27,6 +28,7 @@ public final class VaultTransitSigningKeys
   private final VaultTransitSettings settings;
   private final ObjectMapper json;
   private final HttpClient http;
+  private final VaultHttpTransport transport;
   private final Semaphore requests;
   private final MeterRegistry metrics;
   private volatile Session session;
@@ -34,6 +36,15 @@ public final class VaultTransitSigningKeys
 
   public VaultTransitSigningKeys(
       VaultTransitSettings settings, ObjectMapper json, MeterRegistry metrics) {
+    this(settings, json, metrics, VaultHttpTransport.untraced());
+  }
+
+  public VaultTransitSigningKeys(
+      VaultTransitSettings settings,
+      ObjectMapper json,
+      MeterRegistry metrics,
+      VaultHttpTransport transport) {
+    this.transport = transport;
     this.settings = settings;
     this.json = json;
     this.http = HttpClient.newBuilder().connectTimeout(settings.timeout()).build();
@@ -263,7 +274,8 @@ public final class VaultTransitSigningKeys
             .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body)));
       }
       HttpResponse<String> response =
-          http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+          transport.send(
+              http, builder.build(), HttpResponse.BodyHandlers.ofString(), settings.address());
       if (response.statusCode() < 200 || response.statusCode() >= 300) {
         if (response.statusCode() == 403 && token != null) {
           session = null;

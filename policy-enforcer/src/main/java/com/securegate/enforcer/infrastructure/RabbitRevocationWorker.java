@@ -28,6 +28,7 @@ public final class RabbitRevocationWorker implements AutoCloseable {
   private final MeterRegistry meters;
   private final int batchSize;
   private final int pollMillis;
+  private final ConsumerTrace tracing;
   private Connection connection;
   private Channel channel;
   private final ScheduledExecutorService executor =
@@ -58,6 +59,21 @@ public final class RabbitRevocationWorker implements AutoCloseable {
       int batchSize,
       int pollMillis,
       String queueName) {
+    this(factory, json, handler, meters, batchSize, pollMillis, queueName, new ConsumerTrace(null));
+  }
+
+  public RabbitRevocationWorker(
+      ConnectionFactory factory,
+      ObjectMapper json,
+      java.util.function.BiFunction<
+              com.rabbitmq.client.AMQP.BasicProperties, byte[], RevocationMessageHandler.Result>
+          handler,
+      MeterRegistry meters,
+      int batchSize,
+      int pollMillis,
+      String queueName,
+      ConsumerTrace tracing) {
+    this.tracing = tracing;
     if (!QUEUE.equals(queueName) && !BLOCK_POLICY_QUEUE.equals(queueName)) {
       throw new IllegalArgumentException("Unsupported queue.");
     }
@@ -87,14 +103,22 @@ public final class RabbitRevocationWorker implements AutoCloseable {
         if (message == null) {
           break;
         }
-        var result = handler.apply(message.getProps(), message.getBody());
-        long tag = message.getEnvelope().getDeliveryTag();
-        switch (result) {
-          case ACK -> channel.basicAck(tag, false);
-          case REJECT -> channel.basicReject(tag, false);
-          case RETRY -> channel.basicNack(tag, false, true);
-        }
-        meters.counter(metricPrefix + ".messages", "result", result.name()).increment();
+        var result =
+            tracing.consume(
+                message.getProps(),
+                message.getEnvelope().isRedeliver(),
+                BLOCK_POLICY_QUEUE.equals(queueName),
+                () -> {
+                  var handled = handler.apply(message.getProps(), message.getBody());
+                  long tag = message.getEnvelope().getDeliveryTag();
+                  switch (handled) {
+                    case ACK -> channel.basicAck(tag, false);
+                    case REJECT -> channel.basicReject(tag, false);
+                    case RETRY -> channel.basicNack(tag, false, true);
+                  }
+                  meters.counter(metricPrefix + ".messages", "result", handled.name()).increment();
+                  return handled;
+                });
         if (result == RevocationMessageHandler.Result.RETRY) {
           break;
         }

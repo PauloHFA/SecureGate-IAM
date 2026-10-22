@@ -1,0 +1,8 @@
+  - job_name: policy-enforcer
+    metrics_path: /metrics
+    scheme: http
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/enforcer-metrics-token
+    static_configs:
+      - targets: ['host.docker.internal:__ENFORCER_PORT__']

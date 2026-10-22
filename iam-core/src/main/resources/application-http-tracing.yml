@@ -1,0 +1,10 @@
+# Optional synchronous inbound HTTP tracing; no network exporter is installed.
+management:
+  tracing:
+    enabled: true
+    sampling:
+      probability: ${IAM_HTTP_TRACE_PROBABILITY:0.1}
+    baggage:
+      enabled: false
+    propagation:
+      type: w3c

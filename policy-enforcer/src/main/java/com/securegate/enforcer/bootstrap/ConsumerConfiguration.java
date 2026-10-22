@@ -5,21 +5,29 @@ import com.rabbitmq.client.ConnectionFactory;
 import com.securegate.enforcer.application.BlockPolicyHandler;
 import com.securegate.enforcer.application.RevocationHandler;
 import com.securegate.enforcer.infrastructure.BlockPolicyMessageHandler;
+import com.securegate.enforcer.infrastructure.ConsumerTrace;
 import com.securegate.enforcer.infrastructure.RabbitRevocationWorker;
 import com.securegate.enforcer.infrastructure.RedisBlockPolicyStore;
 import com.securegate.enforcer.infrastructure.RedisRevocationStore;
 import com.securegate.enforcer.infrastructure.RevocationMessageHandler;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.tracing.Tracer;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.lang.Nullable;
 
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(name = "enforcer.consumer.enabled", havingValue = "true")
 @EnableConfigurationProperties({ConsumerProperties.class, BlockPolicyProperties.class})
 public class ConsumerConfiguration {
+  @Bean
+  ConsumerTrace consumerTrace(@Nullable Tracer tracer) {
+    return new ConsumerTrace(tracer);
+  }
+
   @Bean
   RedisBlockPolicyStore blockPolicyStore(
       StringRedisTemplate redis, BlockPolicyProperties settings) {
@@ -47,7 +55,8 @@ public class ConsumerConfiguration {
       ConsumerProperties settings,
       ObjectMapper json,
       BlockPolicyMessageHandler handler,
-      MeterRegistry meters) {
+      MeterRegistry meters,
+      ConsumerTrace tracing) {
     return new RabbitRevocationWorker(
         factory(settings),
         json,
@@ -55,7 +64,8 @@ public class ConsumerConfiguration {
         meters,
         settings.batchSize(),
         settings.pollMillis(),
-        RabbitRevocationWorker.BLOCK_POLICY_QUEUE);
+        RabbitRevocationWorker.BLOCK_POLICY_QUEUE,
+        tracing);
   }
 
   @Bean
@@ -78,9 +88,17 @@ public class ConsumerConfiguration {
       ConsumerProperties settings,
       ObjectMapper json,
       RevocationMessageHandler handler,
-      MeterRegistry meters) {
+      MeterRegistry meters,
+      ConsumerTrace tracing) {
     return new RabbitRevocationWorker(
-        factory(settings), json, handler, meters, settings.batchSize(), settings.pollMillis());
+        factory(settings),
+        json,
+        handler::handle,
+        meters,
+        settings.batchSize(),
+        settings.pollMillis(),
+        RabbitRevocationWorker.QUEUE,
+        tracing);
   }
 
   private ConnectionFactory factory(ConsumerProperties settings) {

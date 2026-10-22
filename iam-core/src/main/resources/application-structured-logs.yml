@@ -1,0 +1,9 @@
+# Optional restricted operational logs. Does not enable tracing or request logging.
+spring:
+  main:
+    banner-mode: "off"
+logging:
+  structured:
+    format:
+      console: com.securegate.iam.bootstrap.SafeOperationalLogFormatter
+      file: com.securegate.iam.bootstrap.SafeOperationalLogFormatter

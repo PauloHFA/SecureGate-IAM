@@ -2,6 +2,8 @@
 
 Plataforma de identidade e acesso baseada em Zero Trust, com provisionamento, OAuth/OIDC, políticas contextuais, eventos de segurança e auditoria.
 
+Documentação: [índice](docs/README.md), [implementação passo a passo e subdivisões](docs/GUIA-DE-IMPLEMENTACAO.md) e [plano com critérios de aceite](docs/PLANO-DE-IMPLEMENTACAO.md).
+
 ## Estado atual
 
 Fundação, infraestrutura e API administrativa de Identity/Access implementadas. O core gerencia usuários, credenciais Argon2id, grupos, papéis, permissões e auditoria transacional. Administração fica desabilitada por padrão e exige ativação explícita com token bootstrap temporário. A etapa 3 teve 106 testes no aceite original e está incluída na base publicada até a 5A. Consulte as [evidências históricas](docs/evidencias/etapa-03.md).
@@ -46,6 +48,26 @@ A 8A2 acrescenta logins/pools dedicados para ingestão e manutenção, provision
 
 A 8B conecta o consumidor opcional de `audit.persist` ao pool dedicado: JDBC batch atômico, ACK após commit, isolamento de conflitos para DLQ e recuperação por requeue/reconexão. Use `-EnableAuditConsumer`. Consulte o [guia](docs/runbooks/consumidor-auditoria-local.md), a [ADR-030](docs/adr/030-consumidor-auditoria-em-lote.md) e as [evidências 8B](docs/evidencias/etapa-08b.md).
 
+A 8C acrescenta consulta administrativa opcional por cursor estável e filtros exatos, usando transações somente leitura no pool de auditoria. Use `-EnableAuditQuery` com bootstrap administrativo. A V15 adiciona índices para ator/correlação. Consulte o [guia](docs/runbooks/consulta-auditoria-local.md), a [ADR-031](docs/adr/031-consulta-auditoria-por-cursor.md) e as [evidências 8C](docs/evidencias/etapa-08c.md).
+
+A 8D1 acrescenta arquivamento administrativo de meses antigos no mesmo PostgreSQL, com catálogo imutável, preservação de recibos e tratamento de replays/eventos tardios. Não remove dados nem reduz disco. O script opera em modo de plano por padrão; consulte o [guia](docs/runbooks/arquivamento-auditoria-local.md), a [ADR-032](docs/adr/032-arquivamento-mensal-auditoria.md) e as [evidências 8D1](docs/evidencias/etapa-08d1.md).
+
+A 8D2 adiciona um benchmark optativo de ingestão JDBC e consultas com milhões de eventos sintéticos, planos SQL e contagem de SELECTs por página. Execute `Measure-Audit.ps1`; consulte o [guia](docs/runbooks/medicao-auditoria-local.md), a [ADR-033](docs/adr/033-medicao-auditoria-em-escala.md) e as [evidências 8D2](docs/evidencias/etapa-08d2.md).
+
+A 9A1 adiciona leitura opcional de segredos KV v2 antes da criação das conexões do IAM, com AppRole, snapshot validado e revogação do token de leitura. Use `Start-IamCore.ps1 -EnableVaultKv`. Consulte o [guia](docs/runbooks/vault-kv-local.md), a [ADR-034](docs/adr/034-bootstrap-kv-vault.md) e as [evidências 9A1](docs/evidencias/etapa-09a1.md).
+
+A 9A2a prepara o grupo PostgreSQL `securegate_iam_runtime`, sem login e com concessões explícitas, e valida o IAM com uma identidade de execução sem propriedade das tabelas. A V17 permite ao trigger registrar histórico da Outbox sem INSERT direto pelo runtime. O startup padrão ainda usa a conta proprietária. Consulte o [guia](docs/runbooks/permissoes-runtime-local.md), a [ADR-035](docs/adr/035-permissoes-postgresql-runtime.md) e as [evidências](docs/evidencias/etapa-09a2a.md).
+
+A 9A2b integra credenciais PostgreSQL temporárias do Vault com `-EnableVaultDatabase`, AppRole/KV de execução sem senha proprietária e migração em processo separado (`Migrate-Database.ps1`). A 9A2c acrescenta renovação e troca de gerações. Consulte o [guia](docs/runbooks/vault-database-local.md), a [ADR-036](docs/adr/036-credenciais-dinamicas-postgresql.md) e as [evidências](docs/evidencias/etapa-09a2b.md).
+
+A 9A2c renova token e lease do pool, valida novas credenciais antes da troca e drena a geração anterior com prazo limitado. Em indisponibilidade, fecha sessões ao vencer o prazo confirmado e pode reconstruir o pool após recuperação do Vault, sem reiniciar. Consulte o [guia de renovação](docs/runbooks/vault-database-renovacao-local.md), a [ADR-037](docs/adr/037-renovacao-e-troca-de-pools.md) e as [evidências](docs/evidencias/etapa-09a2c.md).
+
+A 9B1 adiciona pedidos de acesso privilegiado com escopo dedicado, MFA obrigatório, justificativa, expiração e revogação pelo proprietário, com auditoria/Outbox atômicas. A 9B2 abaixo acrescenta a emissão de credenciais Vault. Consulte o [guia](docs/runbooks/pedidos-privilegiados-local.md), a [ADR-038](docs/adr/038-pedidos-de-acesso-privilegiado.md) e as [evidências](docs/evidencias/etapa-09b1.md).
+
+A 9B2 emite uma única credencial de diagnóstico por pedido, com escopo/MFA e reautorização, Vault/AppRole e emissor separados, prazo SQL limitado e revogação recuperável. Senhas não são persistidas; sessões abertas podem ultrapassar o TTL durante indisponibilidade do Vault. Consulte o [guia](docs/runbooks/credenciais-pam-local.md), a [ADR-039](docs/adr/039-emissao-pam-no-vault.md) e as [evidências](docs/evidencias/etapa-09b2.md).
+
+A 9C1 acrescenta auditoria de expiração lógica de pedidos/credenciais, correlação de origem e recusas autenticadas com códigos fixos. Expiração observada não é confirmação de revogação pelo Vault. Consulte o [guia](docs/runbooks/auditoria-pam-local.md), a [ADR-040](docs/adr/040-auditoria-operacional-pam.md) e as [evidências](docs/evidencias/etapa-09c1.md).
+
 ## Decisões aprovadas
 
 - Java 21, Spring Boot e Spring Authorization Server.
@@ -81,7 +103,55 @@ O roteiro deriva do documento **SecureGate IAM – Documentação e Plano de Imp
 
 ## Próximo passo
 
-Próxima entrega: **8C**, consulta de auditoria por cursor estável e filtros. A 8A1 está no commit local `de02855`; a 8A2 está em `155c2c1`. A 8B está implementada localmente em `feat/audit-batch-consumer`, sem commit. Publicação e CI remota dessas entregas seguem pendentes, assim como revisão/merge. A base publicada vai até a 7C2 (`15dfbf8`); 7D1 (`70e7f4a`) e 7D2 (`9be334b`) continuam locais. A base até a 5D3 (`7713a94`) passou na [CI](https://github.com/PauloHFA/SecureGate-IAM/actions/runs/39269486069).
+A **9C2a** acrescenta V21, retry persistido de limpeza com intervalos de 2–60 s, avanço de outros itens durante falhas e métricas agregadas das pendências/resultados incertos. Consulte o [guia de recuperação PAM](docs/runbooks/recuperacao-pam-local.md), a [ADR-041](docs/adr/041-recuperacao-da-limpeza-pam.md) e as [evidências 9C2a](docs/evidencias/etapa-09c2a.md). O [passo a passo](docs/GUIA-DE-IMPLEMENTACAO.md) documenta a divisão da 9C2.
+
+A **9C2b** acrescenta V22, retry persistido e isolamento por item no observador de pedidos, métricas de pendências e teste com reinício real da JVM do IAM após falha de auditoria. Consulte a [ADR-042](docs/adr/042-recuperacao-do-observador-pam.md), o [runbook](docs/runbooks/recuperacao-pam-local.md) e as [evidências 9C2b](docs/evidencias/etapa-09c2b.md). Prazo e correlação permanecem inalterados; o teste de reinício cobre o observador com fixture SQL e emissão desabilitada.
+
+A **9C3** valida com JARs reais a jornada OAuth/MFA → pedido → credencial Vault → uso PostgreSQL → revogação/expiração → Outbox/RabbitMQ → ingestão dedicada → consulta central. Inclui pausa do Vault/reinício do IAM, indisponibilidade do broker e isolamento das identidades, além da correção do bootstrap OAuth para execução com migração externa/Flyway desabilitado. Consulte o [guia integrado](docs/runbooks/jornada-pam-integrada-local.md), a [ADR-043](docs/adr/043-aceite-integrado-pam.md) e as [evidências 9C3](docs/evidencias/etapa-09c3.md). V22 continua sendo a migração atual.
+
+A **9A3** permite iniciar o enforcer com `Start-PolicyEnforcer.ps1 -EnableConsumer -EnableVaultKv`. Obtém credenciais Redis/RabbitMQ por AppRole e KV v2, valida o snapshot completo e revoga o token antes de iniciar os clientes; falhas impedem o startup sem fallback local. Consulte [operação](docs/runbooks/enforcer-vault-kv-local.md), [ADR-044](docs/adr/044-bootstrap-kv-enforcer.md) e [evidências 9A3](docs/evidencias/etapa-09a3.md). Não há refresh em execução nem nova migração.
+
+A **9D** consolida o [aceite técnico local da etapa 9](docs/runbooks/aceite-etapa9.md), com matriz de controles, testes e riscos residuais; consulte as [evidências 9D](docs/evidencias/etapa-09d.md). Usa os 778 testes do build da 9A3, sem nova execução funcional. A 9A3 está versionada em `6d08c2a`.
+
+A **10A1** inicia a etapa de carga com massa sintética de clientes, plano JMeter Client Credentials, sucesso/invalid_client separados e runner que falha quando as asserções não passam. O smoke opt-in usa IAM real e serviços descartáveis; resultados não incluem corpos/tokens/cabeçalhos. Consultar [operação](load-tests/jmeter/README.md), [ADR-045](docs/adr/045-base-de-carga-jmeter.md) e [evidências](docs/evidencias/etapa-10a1.md). Não comprova capacidade ou metas de latência.
+
+A **10A2a** acrescenta massa humana sintética e jornada PKCE com cookies, CSRF, state, consentimento, identidade/TTL e recusa de replay. O smoke opt-in prova também que verifier incorreto resulta em HTTP 400 e falha do runner. Consultar [operação humana](load-tests/jmeter/HUMAN-PKCE.md), [ADR-046](docs/adr/046-carga-humana-pkce.md) e [evidências](docs/evidencias/etapa-10a2a.md). A duração é agregada por jornada, sem comprovar capacidade ou metas.
+
+A **10A2b1** acrescenta plano de falhas de login com senha incorreta e usuário inexistente, mensagem genérica/CSRF/cookies verificados e sessão anônima confirmada. O smoke opt-in prova dois fatos na Outbox e detecta autenticação inesperada ao injetar senha correta. Consultar [operação](load-tests/jmeter/LOGIN-FAILURES.md), [ADR-047](docs/adr/047-carga-de-falhas-de-login.md) e [evidências](docs/evidencias/etapa-10a2b1.md). Não comprova tempo constante ou capacidade.
+
+A **10A2b2** acrescenta acesso Bearer ao recurso de conta, recusa de token inválido, revogação e recusa posterior antes da expiração. Reutiliza PKCE/massa humana com opções explícitas; teste isolado confere publicação/projeção e detecta revogação omitida. Consultar [operação](load-tests/jmeter/RESOURCE-REVOCATION.md), [ADR-048](docs/adr/048-carga-de-recurso-e-revogacao.md) e [evidências](docs/evidencias/etapa-10a2b2.md). O ledger local também recusa tokens: este smoke não mede SLA distribuído.
+
+A **10A2b3** acrescenta produção de fatos pela API, consulta central por correlação/tipo, duas páginas com cursor real e recusa sem credencial. O smoke compara envelopes com a Outbox e detecta correlação inexistente. Consultar [operação](load-tests/jmeter/AUDIT.md), [ADR-049](docs/adr/049-carga-de-auditoria-central.md) e [evidências](docs/evidencias/etapa-10a2b3.md). Os planos 10A cobrem os cenários funcionais; medições de capacidade/SLA permanecem pendentes.
+
+A **10B1** acrescenta exportação Prometheus opt-in no IAM, token próprio de leitura por arquivo e histogramas HTTP opcionais. Preserva saúde e administração, sem expor métricas publicamente. Consultar [inventário](docs/OBSERVABILIDADE.md), [operação](docs/runbooks/metricas-prometheus-local.md), [ADR-050](docs/adr/050-exportacao-prometheus-protegida.md) e [evidências](docs/evidencias/etapa-10b1.md).
+
+A **10B2a** acrescenta Compose local de Prometheus/Grafana, token de scrape por arquivo, senha própria do Grafana e dashboard IAM de 12 painéis. O smoke usa IAM real, valida expressões/datasource, acesso anônimo negado e falha/recuperação de credencial. Consultar [operação](docs/runbooks/coleta-iam-local.md), [Compose](infra/observability/README.md), [ADR-051](docs/adr/051-coleta-e-dashboard-local-do-iam.md) e [evidências](docs/evidencias/etapa-10b2a.md).
+
+A **10B2b1** acrescenta listener opcional de métricas do enforcer, token separado, job Prometheus e dashboard de seis painéis. Preserva Spring non-web e modo padrão sem listener. O smoke comprova evento real/projeção/ACK, coleta autenticada e falha de credencial isolada do IAM. Consultar [operação](docs/runbooks/metricas-enforcer-local.md), [ADR-052](docs/adr/052-metricas-opcionais-do-enforcer.md) e [evidências](docs/evidencias/etapa-10b2b1.md).
+
+A **10B2b2a** acrescenta coleta opcional RabbitMQ com plugin nativo, porta loopback, métricas agregadas, script de migração com backup e dashboard de seis painéis. O smoke usa mensagens AMQP reais e verifica ready/unacked/ACK e pausa/recuperação do scrape. Consultar [operação](docs/runbooks/metricas-rabbitmq-local.md), [ADR-053](docs/adr/053-coleta-opcional-rabbitmq.md) e [evidências](docs/evidencias/etapa-10b2b2a.md).
+
+A **10B2b2b** acrescenta login de monitoração PostgreSQL, exporter opcional com senha por arquivo e imagem fixada por digest, coleta de estatísticas e dashboard de seis painéis. Smoke verifica ACLs reais e falha de credencial SQL com scrape HTTP disponível, seguida de recuperação. Consultar [operação](docs/runbooks/metricas-postgres-local.md), [ADR-054](docs/adr/054-coleta-opcional-postgresql.md) e [evidências](docs/evidencias/etapa-10b2b2b.md).
+
+A **10B2b2c** acrescenta ACL própria Redis sem acesso a chaves/valores, exporter opcional com senha por arquivo e imagem fixada por digest, coleta agregada e dashboard de seis painéis. Smoke verifica recusas de dados/admin, reinício com ACL/AOF preservados e falha/recuperação de senha. Consultar [operação](docs/runbooks/metricas-redis-local.md), [ADR-055](docs/adr/055-coleta-opcional-redis.md) e [evidências](docs/evidencias/etapa-10b2b2c.md).
+
+A **10B2b2d** acrescenta listener Vault dev autenticado, política mínima, token de 1h por arquivo/rotação, coleta e dashboard de seis painéis. Aplicar o overlay recria Vault dev e perde estado em memória; esta entrega só o aplicou em testes descartáveis. Consultar [operação/matriz de correlação](docs/runbooks/metricas-vault-local.md), [ADR-056](docs/adr/056-coleta-autenticada-vault-dev.md) e [evidências](docs/evidencias/etapa-10b2b2d.md).
+
+A **10B3a** implementa perfil opcional structured-logs no IAM/enforcer: JSON com campos controlados, catálogo finito e hash de correlação, excluindo mensagens, argumentos, exceções e MDC livre. Consultar [operação](docs/runbooks/logs-estruturados-local.md), [ADR-057](docs/adr/057-logs-operacionais-json-restritos.md) e [evidências](docs/evidencias/etapa-10b3a.md).
+
+A **10B3b1** acrescenta tracing HTTP entrante opcional (perfil http-tracing), W3C restrito, amostragem local, spans sem URL/payload/erros livres e IDs no JSON IAM. Sem envio externo. Consultar [operação](docs/runbooks/tracing-http-local.md), [ADR-058](docs/adr/058-tracing-http-entrante-restrito.md) e [evidências](docs/evidencias/etapa-10b3b1.md).
+
+A **10B3b2** instrumenta os envios JDK runtime para Vault (Transit/MFA, banco dinâmico e PAM), com contexto restrito à origem/rotas configuradas e spans sem segredos. KV pré-Spring permanece fora do tracing. Consultar [operação](docs/runbooks/tracing-http-local.md), [ADR-059](docs/adr/059-tracing-clientes-http-vault.md) e [evidências](docs/evidencias/etapa-10b3b2.md).
+
+A **10B3c1** acrescenta V23: contexto W3C opcional e imutável persistido na mesma transação do outbox, fora do payload v1, preservado em claims/retries. **Migrar antes do novo binário**, inclusive com tracing desligado. Consultar [operação](docs/runbooks/tracing-outbox-local.md), [ADR-060](docs/adr/060-contexto-duravel-no-outbox.md) e [evidências](docs/evidencias/etapa-10b3c1.md).
+
+A **10B3c2** adiciona span PRODUCER por tentativa de publicação, com parent durável ou raiz explícita, e somente traceparent adicional nos headers AMQP. Mantém payload v1 e regras de confirm/retry/lease. Consultar [operação](docs/runbooks/tracing-outbox-local.md), [ADR-061](docs/adr/061-tracing-publicacao-amqp.md) e [evidências](docs/evidencias/etapa-10b3c2.md).
+
+A **10B3c3a** acrescenta tracing opcional nas duas filas do enforcer: contexto AMQP restrito, span CONSUMER por entrega e limpeza de escopo/MDC, preservando ACK/retry/DLQ e efeitos Redis. O perfil consumer-tracing é independente da ativação dos workers. Consultar [operação](docs/runbooks/tracing-consumidores-local.md), [ADR-062](docs/adr/062-tracing-consumo-enforcer.md) e [evidências](docs/evidencias/etapa-10b3c3a.md).
+
+A **10B3c3b** instrumenta a auditoria IAM em lote com raiz CONSUMER e links aos produtores distintos, preservando transação única, commit antes do ACK e isolamento/retry. Reutiliza http-tracing; sem novo schema/exporter. Consultar [operação](docs/runbooks/tracing-consumidores-local.md), [ADR-063](docs/adr/063-tracing-auditoria-em-lote.md) e [evidências](docs/evidencias/etapa-10b3c3b.md).
+
+Próxima proposta: **10B4 — fechamento da observabilidade**, incluindo backend/exportação de tracing e coleta conjunta, antes de **10C — medição**. A instrumentação de consumo 10B3c3 está implementada; aceite global 10B ainda aberto. Trabalho local em `feat/outbox-trace-context`, sobre `103553e`, incluída neste commit; push pendente; build completo aprovado com 845 testes e gates de cobertura/arquitetura, com ressalva de shutdown nas evidências. Publicação/CI e aceite de desempenho permanecem pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

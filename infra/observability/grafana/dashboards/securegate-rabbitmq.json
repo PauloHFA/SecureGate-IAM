@@ -1,0 +1,348 @@
+{
+  "uid": "securegate-rabbitmq",
+  "title": "SecureGate RabbitMQ — Operação local",
+  "description": "10B2b2a: métricas agregadas do broker; requer overlay e job opcionais. Não demonstra entrega fim a fim ou capacidade.",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "tags": [
+    "securegate",
+    "local",
+    "10b2b2a"
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Coleta RabbitMQ",
+      "type": "stat",
+      "description": "Scrape disponível; não comprova entrega.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Indisponível",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "Disponível",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "up{job=\"rabbitmq\"}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Mensagens prontas",
+      "type": "stat",
+      "description": "Agregado do nó, inclui filas de retry e DLQ.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(rabbitmq_queue_messages_ready{job=\"rabbitmq\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Mensagens sem ACK",
+      "type": "stat",
+      "description": "Entregues e ainda não confirmadas; não mede tempo de propagação.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(rabbitmq_queue_messages_unacked{job=\"rabbitmq\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Conexões",
+      "type": "stat",
+      "description": "Conexões do nó.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(rabbitmq_connections{job=\"rabbitmq\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Canais",
+      "type": "stat",
+      "description": "Canais do nó.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(rabbitmq_channels{job=\"rabbitmq\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Consumidores",
+      "type": "stat",
+      "description": "Consumidores de filas; não é contagem de mensagens processadas.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(rabbitmq_queue_consumers{job=\"rabbitmq\"})",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  }
+}

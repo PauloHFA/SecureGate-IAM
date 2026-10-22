@@ -1,0 +1,5 @@
+management:
+  tracing:
+    enabled: true
+    sampling:
+      probability: ${ENFORCER_TRACING_SAMPLING_PROBABILITY:0.1}

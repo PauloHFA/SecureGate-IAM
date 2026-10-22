@@ -1,0 +1,41 @@
+# Optional overlay for infra/docker-compose.yml; provision the dedicated login first.
+services:
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.19.1@sha256:e96064f876226d94bb6ce48a4c4b3dd76edba91168ec1ab024e5c4b959310b0f
+    environment:
+      DATA_SOURCE_URI: "postgres:5432/${POSTGRES_DB:?Execute Initialize-Local.ps1}?sslmode=disable&connect_timeout=2"
+      DATA_SOURCE_USER: securegate_metrics
+      DATA_SOURCE_PASS_FILE: /run/secrets/postgres-metrics-password
+    command:
+      - --collection-timeout=2s
+      - --disable-default-metrics
+      - --disable-settings-metrics
+      - --collector.database
+      - --collector.stat_database
+      - --collector.stat_bgwriter
+      - --no-collector.locks
+      - --no-collector.replication
+      - --no-collector.replication_slot
+      - --no-collector.roles
+      - --no-collector.stat_progress_vacuum
+      - --no-collector.stat_user_tables
+      - --no-collector.statio_user_tables
+      - --no-collector.stat_statements
+    ports:
+      - "127.0.0.1:${POSTGRES_METRICS_PORT:-19187}:9187"
+    volumes:
+      - type: bind
+        source: ./.local/postgres-metrics-password
+        target: /run/secrets/postgres-metrics-password
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    pids_limit: 64
+    restart: unless-stopped

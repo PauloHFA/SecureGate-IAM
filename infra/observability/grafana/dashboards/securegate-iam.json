@@ -1,0 +1,589 @@
+{
+  "uid": "securegate-iam",
+  "title": "SecureGate IAM — Operação local",
+  "description": "10B2a: IAM somente. Painéis opcionais podem ficar sem dados. Não atesta capacidade, tracing ou coleta do enforcer/dependências.",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "tags": [
+    "securegate",
+    "local",
+    "10b2a"
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Coleta do IAM",
+      "type": "stat",
+      "description": "1 = scrape bem-sucedido; 0 = falha. Health dos containers não comprova up do IAM.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Indisponível",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "Disponível",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"iam-core\"}",
+          "legendFormat": "up",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "HTTP — requisições por segundo",
+      "type": "timeseries",
+      "description": "Exclui Actuator; exige tráfego e histórico. Não é meta de capacidade.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (uri, method) (rate(http_server_requests_seconds_count{application=\"iam-core\",uri!~\"/actuator/.*\"}[5m]))",
+          "legendFormat": "{{method}} {{uri}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "HTTP — p95 por rota",
+      "type": "timeseries",
+      "description": "Requer histogramas HTTP habilitados e amostras suficientes. Ausência de dados não representa latência zero.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, uri, method) (rate(http_server_requests_seconds_bucket{application=\"iam-core\",uri!~\"/actuator/.*\"}[5m])))",
+          "legendFormat": "{{method}} {{uri}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "HTTP — respostas 5xx por segundo",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_server_requests_seconds_count{application=\"iam-core\",uri!~\"/actuator/.*\",status=~\"5..\"}[5m]))",
+          "legendFormat": "5xx",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Heap JVM usado",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(jvm_memory_used_bytes{application=\"iam-core\",area=\"heap\"})",
+          "legendFormat": "heap",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "CPU do processo JVM",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_cpu_usage{application=\"iam-core\"}",
+          "legendFormat": "JVM",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Conexões ativas por pool",
+      "type": "timeseries",
+      "description": "Disponível quando o binder/pool suporta; não é contagem de conexões de todos os serviços.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "hikaricp_connections_active{application=\"iam-core\"}",
+          "legendFormat": "{{pool}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Outbox — pendentes e quarentena",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "iam_outbox_pending{application=\"iam-core\"}",
+          "legendFormat": "pendentes",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "iam_outbox_quarantined{application=\"iam-core\"}",
+          "legendFormat": "quarentena",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Outbox — idade e freshness",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "iam_outbox_oldest_seconds{application=\"iam-core\"}",
+          "legendFormat": "pendência mais antiga",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "time() - iam_outbox_snapshot_timestamp{application=\"iam-core\"}",
+          "legendFormat": "idade do snapshot",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Outbox — snapshot disponível",
+      "type": "stat",
+      "description": "Verificar este sinal antes de interpretar gauges; 0/NaN não equivale a backlog zero.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Indisponível",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "Disponível",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "iam_outbox_snapshot_available{application=\"iam-core\"}",
+          "legendFormat": "available",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Auditoria — mensagens por resultado",
+      "type": "timeseries",
+      "description": "Opcional: habilitar consumidor de auditoria e produzir fatos reais.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (result) (rate(iam_audit_consumer_messages_total{application=\"iam-core\"}[5m]))",
+          "legendFormat": "{{result}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Redis enforcement — falhas por segundo",
+      "type": "timeseries",
+      "description": "Opcional: enforcement habilitado e exercitado. Sem série não significa ausência de problemas.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "securegate-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (operation) (rate(iam_resources_enforcement_total{application=\"iam-core\",result=\"unavailable\"}[5m]))",
+          "legendFormat": "{{operation}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "securegate-prometheus"
+          }
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  }
+}

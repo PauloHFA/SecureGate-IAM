@@ -5,6 +5,7 @@ import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import com.securegate.events.SecurityEvent;
+import com.securegate.iam.audit.application.ArchivedAuditMonthException;
 import com.securegate.iam.audit.application.port.AuditEventStore;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.io.IOException;
@@ -23,7 +24,7 @@ import org.springframework.dao.DuplicateKeyException;
 public final class RabbitAuditWorker implements AutoCloseable {
   public static final String QUEUE = "audit.persist";
 
-  private record Pending(long tag, SecurityEvent event) {}
+  private record Pending(long tag, SecurityEvent event, AuditConsumerTrace.Delivery trace) {}
 
   private final ConnectionFactory factory;
   private final RabbitTopology topology;
@@ -32,6 +33,7 @@ public final class RabbitAuditWorker implements AutoCloseable {
   private final MeterRegistry meters;
   private final int batchSize;
   private final int pollMillis;
+  private final AuditConsumerTrace tracing;
   private final ScheduledExecutorService executor =
       Executors.newSingleThreadScheduledExecutor(
           task -> {
@@ -50,6 +52,18 @@ public final class RabbitAuditWorker implements AutoCloseable {
       MeterRegistry meters,
       int batchSize,
       int pollMillis) {
+    this(factory, json, store, meters, batchSize, pollMillis, new AuditConsumerTrace(null));
+  }
+
+  public RabbitAuditWorker(
+      ConnectionFactory factory,
+      ObjectMapper json,
+      AuditEventStore store,
+      MeterRegistry meters,
+      int batchSize,
+      int pollMillis,
+      AuditConsumerTrace tracing) {
+    this.tracing = tracing;
     if (batchSize < 1 || batchSize > 100 || pollMillis < 100 || pollMillis > 60000) {
       throw new IllegalArgumentException("Invalid audit consumer bounds.");
     }
@@ -79,18 +93,25 @@ public final class RabbitAuditWorker implements AutoCloseable {
           break;
         }
         long tag = message.getEnvelope().getDeliveryTag();
+        var trace = tracing.delivery(message.getProps(), message.getEnvelope().isRedeliver());
         SecurityEvent event;
         try {
           event = decoder.decode(message.getProps(), message.getBody());
         } catch (IllegalArgumentException invalid) {
-          channel.basicReject(tag, false);
-          count("INVALID");
+          tracing.individual(
+              trace,
+              true,
+              () -> {
+                channel.basicReject(tag, false);
+                count("INVALID");
+                return AuditConsumerTrace.Outcome.INVALID;
+              });
           continue;
         }
-        pending.add(new Pending(tag, event));
+        pending.add(new Pending(tag, event, trace));
       }
       if (!pending.isEmpty()) {
-        persist(pending);
+        tracing.batch(pending.stream().map(Pending::trace).toList(), () -> persist(pending));
       }
     } catch (IOException | TimeoutException | RuntimeException unavailable) {
       // Closing requeues all unacknowledged deliveries, including an uncertain commit/ACK.
@@ -101,17 +122,16 @@ public final class RabbitAuditWorker implements AutoCloseable {
     }
   }
 
-  private void persist(List<Pending> pending) throws IOException {
+  private AuditConsumerTrace.Outcome persist(List<Pending> pending) throws IOException {
     List<AuditEventStore.Result> results;
     try {
       results = store.appendBatch(pending.stream().map(Pending::event).toList());
-    } catch (DuplicateKeyException conflict) {
+    } catch (DuplicateKeyException | ArchivedAuditMonthException conflict) {
       // The batch rolled back. Isolate the poison identity so adjacent valid events can progress.
-      isolate(pending);
-      return;
+      return isolate(pending);
     } catch (RuntimeException unavailable) {
       retry(pending);
-      return;
+      return AuditConsumerTrace.Outcome.RETRY;
     }
     if (results == null
         || results.size() != pending.size()
@@ -123,28 +143,43 @@ public final class RabbitAuditWorker implements AutoCloseable {
       count(results.get(i).name());
     }
     meters.counter("iam.audit.consumer.batches").increment();
+    return AuditConsumerTrace.Outcome.STORED;
   }
 
-  private void isolate(List<Pending> pending) throws IOException {
+  private AuditConsumerTrace.Outcome isolate(List<Pending> pending) throws IOException {
     for (int i = 0; i < pending.size(); i++) {
       var message = pending.get(i);
-      AuditEventStore.Result result;
-      try {
-        result = store.append(message.event());
-        if (result == null) {
-          throw new IllegalStateException("Invalid audit store result.");
-        }
-      } catch (DuplicateKeyException conflict) {
-        channel.basicReject(message.tag(), false);
-        count("CONFLICT");
-        continue;
-      } catch (RuntimeException unavailable) {
-        retry(pending.subList(i, pending.size()));
-        return;
-      }
-      channel.basicAck(message.tag(), false);
-      count(result.name());
+      var remaining = pending.subList(i, pending.size());
+      var outcome =
+          tracing.individual(message.trace(), false, () -> isolateOne(message, remaining));
+      if (outcome == AuditConsumerTrace.Outcome.RETRY) return outcome;
     }
+    return AuditConsumerTrace.Outcome.ISOLATED;
+  }
+
+  private AuditConsumerTrace.Outcome isolateOne(Pending message, List<Pending> remaining)
+      throws IOException {
+    AuditEventStore.Result result;
+    try {
+      result = store.append(message.event());
+      if (result == null) throw new IllegalStateException("Invalid audit store result.");
+    } catch (DuplicateKeyException conflict) {
+      channel.basicReject(message.tag(), false);
+      count("CONFLICT");
+      return AuditConsumerTrace.Outcome.CONFLICT;
+    } catch (ArchivedAuditMonthException late) {
+      channel.basicReject(message.tag(), false);
+      count("LATE");
+      return AuditConsumerTrace.Outcome.LATE;
+    } catch (RuntimeException unavailable) {
+      retry(remaining);
+      return AuditConsumerTrace.Outcome.RETRY;
+    }
+    channel.basicAck(message.tag(), false);
+    count(result.name());
+    return result == AuditEventStore.Result.APPENDED
+        ? AuditConsumerTrace.Outcome.APPENDED
+        : AuditConsumerTrace.Outcome.DUPLICATE;
   }
 
   private void retry(List<Pending> pending) throws IOException {

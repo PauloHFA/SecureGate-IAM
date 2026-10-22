@@ -1,4 +1,11 @@
 spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.actuate.autoconfigure.logging.OpenTelemetryLoggingAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.opentelemetry.OpenTelemetryAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.tracing.OpenTelemetryTracingAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.tracing.MicrometerTracingAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.tracing.NoopTracerAutoConfiguration
   application:
     name: policy-enforcer
   main:
@@ -12,7 +19,17 @@ spring:
       connect-timeout: 2s
       repositories:
         enabled: false
+management:
+  tracing:
+    enabled: false
+  metrics:
+    tags:
+      application: ${spring.application.name}
 enforcer:
+  metrics:
+    enabled: ${ENFORCER_METRICS_ENABLED:false}
+    port: ${ENFORCER_METRICS_PORT:19091}
+    token-file: ${ENFORCER_METRICS_TOKEN_FILE:}
   consumer:
     enabled: ${ENFORCER_CONSUMER_ENABLED:false}
     host: ${ENFORCER_RABBITMQ_HOST:127.0.0.1}

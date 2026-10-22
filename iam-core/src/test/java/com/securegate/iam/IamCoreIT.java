@@ -72,14 +72,31 @@ class IamCoreIT {
   private final HttpClient client = HttpClient.newHttpClient();
 
   @Test
+  void privilegedRequestsAreDisabledByDefault() throws Exception {
+    assertTrue(
+        context
+            .getBeansOfType(
+                com.securegate.iam.authorization.application.PrivilegedRequestService.class)
+            .isEmpty());
+    var response =
+        client.send(
+            HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/pam/requests"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{} "))
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    assertEquals(403, response.statusCode());
+  }
+
+  @Test
   void startsWithPostgresAndAppliesTheVersionedMigrationOnlyOnce() {
     assertEquals(1, jdbc.queryForObject("SELECT 1", Integer.class));
-    assertEquals("14", flyway.info().current().getVersion().getVersion());
+    assertEquals("23", flyway.info().current().getVersion().getVersion());
     var schemas =
         jdbc.queryForList(
             "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'iam_%'",
             String.class);
-    assertEquals(6, schemas.size());
+    assertEquals(7, schemas.size());
     assertTrue(
         schemas.containsAll(
             List.of(
@@ -155,6 +172,12 @@ class IamCoreIT {
 
   @Test
   void deniesBusinessAndUnexposedManagementRoutesWithProblemDetails() throws Exception {
+    assertTrue(
+        context
+            .getBeansOfType(
+                org.springframework.boot.actuate.metrics.export.prometheus.PrometheusScrapeEndpoint
+                    .class)
+            .isEmpty());
     for (String path :
         List.of(
             "/api/users",
@@ -163,6 +186,7 @@ class IamCoreIT {
             "/oauth2/jwks",
             "/actuator/env",
             "/actuator/metrics",
+            "/actuator/prometheus",
             "/actuator/metrics/iam.outbox.pending",
             "/actuator",
             "/actuator/health/db")) {

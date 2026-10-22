@@ -1,51 +1,81 @@
 [CmdletBinding()]
-param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement, [switch]$EnableAuditPartitions, [switch]$EnableAuditIngestion, [switch]$EnableAuditConsumer)
+param([ValidateRange(1024, 65535)][int]$Port = 8080, [switch]$EnableBootstrap, [switch]$EnablePrometheus, [switch]$EnableHttpHistograms, [switch]$EnableTransit, [switch]$EnableAuthorization, [switch]$EnableOutboxPublisher, [switch]$EnableOutboxRetention, [switch]$EnableResourceEnforcement, [switch]$EnableAuditPartitions, [switch]$EnableAuditIngestion, [switch]$EnableAuditConsumer, [switch]$EnableAuditQuery, [switch]$EnableVaultKv, [switch]$EnableVaultDatabase, [switch]$EnablePam, [switch]$EnablePamCredentials)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LocalEnvironment.ps1')
 $projectPath = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $settings = Read-LocalEnvironment (Join-Path $projectPath '.env')
-if ($EnableAuditConsumer) { $EnableAuditIngestion = $true }
-if ($EnableResourceEnforcement) { $EnableAuthorization = $true }
+if ($EnablePamCredentials) { $EnablePam = $true }
+if ($EnableVaultDatabase) { $EnableVaultKv = $true }
+if ($EnableAuditConsumer -or $EnableAuditQuery) { $EnableAuditIngestion = $true }
+if ($EnableResourceEnforcement -or $EnablePam) { $EnableAuthorization = $true }
 if ($EnableAuthorization) { $EnableTransit = $true }
 if ($EnableBootstrap -and (-not $settings.ContainsKey('IAM_BOOTSTRAP_TOKEN') -or $settings.IAM_BOOTSTRAP_TOKEN.Length -lt 32)) {
   throw 'Token bootstrap ausente ou invalido. Execute Initialize-Local.ps1 antes de ativar a administracao.'
 }
+$metricsTokenPath = Join-Path $projectPath 'infra/.local/iam-metrics-token'
+if ($EnablePrometheus -and -not (Test-Path -LiteralPath $metricsTokenPath)) {
+  throw 'Arquivo de token de metricas ausente. Execute Initialize-MetricsToken.ps1.'
+}
 $jarPath = Join-Path $projectPath 'iam-core/target/iam-core-0.1.0-SNAPSHOT.jar'
-$roleIdPath = Join-Path $projectPath 'infra/.local/iam-core-role-id'
-$secretIdPath = Join-Path $projectPath 'infra/.local/iam-core-secret-id'
+$vaultRole = if ($EnableVaultDatabase) { 'iam-runtime' } else { 'iam-core' }
+$roleIdPath = Join-Path $projectPath ('infra/.local/' + $vaultRole + '-role-id')
+$secretIdPath = Join-Path $projectPath ('infra/.local/' + $vaultRole + '-secret-id')
+if ($EnablePamCredentials -and (-not (Test-Path -LiteralPath (Join-Path $projectPath 'infra/.local/iam-pam-role-id')) -or
+    -not (Test-Path -LiteralPath (Join-Path $projectPath 'infra/.local/iam-pam-secret-id')))) {
+  throw 'Arquivos AppRole PAM ausentes. Reaplique vault-init antes de ativar a emissao.'
+}
 $auditIngestPath = Join-Path $projectPath 'infra/.local/audit-ingest-password'
 $auditMaintenancePath = Join-Path $projectPath 'infra/.local/audit-maintenance-password'
 if (($EnableAuditPartitions -and -not (Test-Path -LiteralPath $auditMaintenancePath)) -or
     ($EnableAuditIngestion -and -not (Test-Path -LiteralPath $auditIngestPath))) {
   throw 'Credenciais dedicadas de auditoria ausentes. Aplique V14 e execute Provision-AuditDatabase.ps1.'
 }
-if ($EnableTransit -and (-not (Test-Path -LiteralPath $roleIdPath) -or -not (Test-Path -LiteralPath $secretIdPath))) {
+if (($EnableTransit -or $EnableVaultKv) -and (-not (Test-Path -LiteralPath $roleIdPath) -or -not (Test-Path -LiteralPath $secretIdPath))) {
   throw 'Arquivos AppRole ausentes. Execute o bootstrap Vault documentado em infra/README.md.'
 }
 if (-not (Test-Path -LiteralPath $jarPath)) {
   throw 'JAR ausente. Execute .\mvnw.cmd verify na raiz antes de iniciar.'
 }
 $applicationEnvironment = @{
+  IAM_PROMETHEUS_ENABLED = $EnablePrometheus.IsPresent.ToString().ToLowerInvariant()
+  IAM_HTTP_HISTOGRAMS_ENABLED = $EnableHttpHistograms.IsPresent.ToString().ToLowerInvariant()
+  IAM_METRICS_TOKEN_FILE = $(if ($EnablePrometheus) { $metricsTokenPath } else { '' })
+  PGPASSWORD = ''
+  VAULT_TOKEN = ''
+  VAULT_DEV_ROOT_TOKEN_ID = ''
+  VAULT_ISSUER_PASSWORD = ''
   IAM_AUDIT_PARTITIONS_ENABLED = $(if ($EnableAuditPartitions) { 'true' } else { 'false' })
   IAM_AUDIT_INGESTION_ENABLED = $(if ($EnableAuditIngestion) { 'true' } else { 'false' })
-  IAM_AUDIT_CONSUMER_ENABLED = $(if ($EnableAuditConsumer) { 'true' } else { 'false' })
+  IAM_AUDIT_QUERY_ENABLED = $(if ($EnableAuditQuery) { 'true' } else { 'false' })
+  IAM_AUDIT_CONSUMER_ENABLED = $(if ($EnableVaultDatabase) { $EnableVaultKv = $true }
+if ($EnableAuditConsumer) { 'true' } else { 'false' })
   IAM_AUDIT_DATABASE_URL = 'jdbc:postgresql://127.0.0.1:' + $settings.POSTGRES_PORT + '/' + $settings.POSTGRES_DB
   IAM_AUDIT_INGEST_USERNAME = 'securegate_audit_ingest_login'
   IAM_AUDIT_MAINTENANCE_USERNAME = 'securegate_audit_maintenance_login'
   IAM_AUDIT_INGEST_PASSWORD_FILE = $auditIngestPath
   IAM_AUDIT_MAINTENANCE_PASSWORD_FILE = $auditMaintenancePath
   IAM_DATABASE_URL = 'jdbc:postgresql://127.0.0.1:' + $settings.POSTGRES_PORT + '/' + $settings.POSTGRES_DB
-  IAM_DATABASE_USERNAME = $settings.POSTGRES_USER
-  IAM_DATABASE_PASSWORD = $settings.POSTGRES_PASSWORD
+  IAM_DATABASE_VAULT_ENABLED = $(if ($EnableVaultDatabase) { 'true' } else { 'false' })
+  SPRING_FLYWAY_ENABLED = $(if ($EnableVaultDatabase) { 'false' } else { 'true' })
+  IAM_MIGRATION_DATABASE_USERNAME = ''
+  IAM_MIGRATION_DATABASE_PASSWORD = ''
+  IAM_MIGRATION_DATABASE_URL = ''
+  IAM_VAULT_KV_ENABLED = $(if ($EnableVaultKv) { 'true' } else { 'false' })
+  IAM_DATABASE_USERNAME = $(if ($EnableVaultKv) { '' } else { $settings.POSTGRES_USER })
+  IAM_DATABASE_PASSWORD = $(if ($EnableVaultKv) { '' } else { $settings.POSTGRES_PASSWORD })
   IAM_PORT = [string]$Port
   IAM_BIND_ADDRESS = '127.0.0.1'
   IAM_RESOURCE_ENFORCEMENT_ENABLED = $(if ($EnableResourceEnforcement) { 'true' } else { 'false' })
   IAM_ENFORCEMENT_REDIS_HOST = '127.0.0.1'
   IAM_ENFORCEMENT_REDIS_PORT = $settings.REDIS_PORT
-  IAM_ENFORCEMENT_REDIS_PASSWORD = $(if ($EnableResourceEnforcement) { $settings.REDIS_PASSWORD } else { '' })
+  IAM_ENFORCEMENT_REDIS_PASSWORD = $(if ($EnableResourceEnforcement -and -not $EnableVaultKv) { $settings.REDIS_PASSWORD } else { '' })
   IAM_TRANSIT_ENABLED = $(if ($EnableTransit) { 'true' } else { 'false' })
   IAM_AUTHORIZATION_ENABLED = $(if ($EnableAuthorization) { 'true' } else { 'false' })
+  IAM_PAM_CREDENTIALS_ENABLED = $(if ($EnablePamCredentials) { 'true' } else { 'false' })
+  IAM_PAM_VAULT_ROLE_ID_FILE = (Join-Path $projectPath 'infra/.local/iam-pam-role-id')
+  IAM_PAM_VAULT_SECRET_ID_FILE = (Join-Path $projectPath 'infra/.local/iam-pam-secret-id')
+  IAM_PAM_ENABLED = $(if ($EnablePam) { 'true' } else { 'false' })
   IAM_ISSUER = 'http://127.0.0.1:' + $Port
   IAM_VAULT_ADDRESS = 'http://127.0.0.1:' + $settings.VAULT_PORT
   IAM_VAULT_ROLE_ID_FILE = $roleIdPath
@@ -57,8 +87,8 @@ $applicationEnvironment = @{
   IAM_RABBITMQ_HOST = '127.0.0.1'
   IAM_RABBITMQ_PORT = $settings.RABBITMQ_PORT
   IAM_RABBITMQ_VHOST = $settings.RABBITMQ_VHOST
-  IAM_RABBITMQ_USERNAME = $(if ($EnableOutboxPublisher -or $EnableAuditConsumer) { $settings.RABBITMQ_USER } else { '' })
-  IAM_RABBITMQ_PASSWORD = $(if ($EnableOutboxPublisher -or $EnableAuditConsumer) { $settings.RABBITMQ_PASSWORD } else { '' })
+  IAM_RABBITMQ_USERNAME = $(if (($EnableOutboxPublisher -or $EnableAuditConsumer) -and -not $EnableVaultKv) { $settings.RABBITMQ_USER } else { '' })
+  IAM_RABBITMQ_PASSWORD = $(if (($EnableOutboxPublisher -or $EnableAuditConsumer) -and -not $EnableVaultKv) { $settings.RABBITMQ_PASSWORD } else { '' })
 }
 $previousValues = @{}
 try {

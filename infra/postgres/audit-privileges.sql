@@ -27,6 +27,11 @@ GRANT USAGE ON SCHEMA iam_audit TO securegate_audit_ingest, securegate_audit_mai
 REVOKE ALL ON ALL TABLES IN SCHEMA iam_audit FROM securegate_audit_ingest, securegate_audit_maintenance;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA iam_audit FROM securegate_audit_ingest, securegate_audit_maintenance;
 GRANT INSERT, SELECT ON iam_audit.event_log TO securegate_audit_ingest;
+DO $$ BEGIN
+  IF to_regprocedure('iam_audit.is_archived_event_replay(jsonb)') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION iam_audit.is_archived_event_replay(JSONB) TO securegate_audit_ingest;
+  END IF;
+END; $$;
 GRANT EXECUTE ON FUNCTION iam_audit.maintain_event_partitions(INTEGER) TO securegate_audit_maintenance;
 
 DO $$
