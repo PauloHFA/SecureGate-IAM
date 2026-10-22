@@ -37,3 +37,10 @@ enforcer:
     virtual-host: ${ENFORCER_RABBITMQ_VHOST:securegate}
     username: ${ENFORCER_RABBITMQ_USERNAME:}
     password: ${ENFORCER_RABBITMQ_PASSWORD:}
+
+# Local OTLP export is a separate opt-in from tracing instrumentation.
+securegate:
+  tracing:
+    export:
+      enabled: false
+      endpoint: http://127.0.0.1:14318/v1/traces

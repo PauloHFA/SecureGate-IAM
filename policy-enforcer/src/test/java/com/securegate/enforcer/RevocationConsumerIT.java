@@ -99,6 +99,61 @@ class RevocationConsumerIT {
     }
   }
 
+  @Test
+  void interruptedNioFailureDisconnectsWithinBoundAndRequeuesUnackedMessage() throws Exception {
+    var event =
+        TestEvents.token(
+            UUID.randomUUID(),
+            "ACCESS_TOKEN",
+            UUID.randomUUID().toString(),
+            Instant.now().plusSeconds(120));
+    var finished = new java.util.concurrent.CountDownLatch(1);
+    var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+    var worker =
+        new RabbitRevocationWorker(
+            factory(),
+            json,
+            (properties, body) -> {
+              Thread.currentThread().interrupt();
+              throw new IllegalStateException("Synthetic interruption before acknowledgement");
+            },
+            meters,
+            20,
+            100,
+            RabbitRevocationWorker.QUEUE);
+    worker.runOnce();
+    publish(event);
+    var tick =
+        new Thread(
+            () -> {
+              try {
+                worker.runOnce();
+              } catch (Throwable unexpected) {
+                failure.set(unexpected);
+              } finally {
+                Thread.interrupted();
+                worker.close();
+                finished.countDown();
+              }
+            },
+            "interrupted-nio-test");
+    // A regression must fail the assertion instead of keeping the test JVM alive indefinitely.
+    tick.setDaemon(true);
+    tick.start();
+    assertTrue(finished.await(5, TimeUnit.SECONDS), "Interrupted NIO disconnect did not complete");
+    assertNull(failure.get());
+    try (var recovering = worker(store)) {
+      long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+      do {
+        recovering.runOnce();
+        if (redis.opsForValue().get(key(event)) != null) break;
+        Thread.sleep(100);
+      } while (System.nanoTime() < deadline);
+      assertNotNull(
+          redis.opsForValue().get(key(event)), "Unacked delivery must remain recoverable");
+    }
+  }
+
   private ConnectionFactory factory() {
     var factory = new ConnectionFactory();
     factory.setHost(RABBIT.getHost());

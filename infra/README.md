@@ -178,3 +178,9 @@ O [overlay](docker-compose.rabbitmq-metrics.yml) habilita plugin Prometheus nati
 O [overlay](docker-compose.vault-metrics.yml) move o listener dev anônimo para loopback interno e mantém a API publicada com métricas autenticadas. **Aplicar/remover recria Vault dev e perde seu estado em memória**, exigindo reset planejado e reprovisionamento; não foi aplicado à stack persistente nesta entrega. O [provisionador](scripts/Provision-VaultMetrics.ps1) recusa listener anônimo, emite/reusa token mínimo de 1h e permite rotação explícita sem reiniciar Vault. Seguir [runbook](../docs/runbooks/metricas-vault-local.md) para impacto, bootstrap, backups/flags da coleta, rotação e correlação das quatro dependências.
 
 Na **10B3c1**, a **V23** acrescenta parent de tracing nullable/imutável ao outbox. Migrar com o JAR atual e identidade de migração antes do novo runtime, mesmo sem tracing; o código referencia a coluna. SELECT/INSERT de tabela do runtime já a abrangem; UPDATE segue restrito às colunas de entrega, sem novo grant. A stack persistente não foi migrada nesta entrega. [Rollout e reversão](../docs/runbooks/tracing-outbox-local.md), [evidências](../docs/evidencias/etapa-10b3c1.md).
+
+O backend local de tracing da 10B4a é opt-in na stack de observabilidade: Start-Observability.ps1 -IncludeTracing acrescenta Tempo e datasource Grafana, mantendo credenciais/datasource Prometheus anteriores. As portas Tempo são loopback e sem autenticação direta, para host/rede confiáveis. Aplicações ainda não exportam. [Ativação, limites e reversão](../docs/runbooks/backend-tracing-local.md).
+
+## Continuação 10B4b
+
+Exportação OTLP opcional implementada no IAM/enforcer, sem alterar a stack persistente. Ativação, destino local, fila/timeouts, descarte em falha e reversão: [guia de exportação](../docs/runbooks/exportacao-otlp-local.md). A validação integrada/sustentada continua na 10B4c; as limitações de entrega anteriores acima são históricas.

@@ -1,0 +1,34 @@
+# Optional overlay; include with the observability base, never the business Compose.
+services:
+  tempo:
+    image: grafana/tempo:3.1.1@sha256:64e2fbd56d9c2b3412a4b430a58ea59e91a670b1e75f920a0c702213ad145044
+    command: ["-target=all", "-config.file=/etc/tempo.yml"]
+    user: "10001:10001"
+    ports:
+      - "127.0.0.1:${TEMPO_HTTP_PORT:-13200}:3200"
+      - "127.0.0.1:${TEMPO_OTLP_PORT:-14318}:4318"
+    volumes:
+      - ./tracing/tempo.yml:/etc/tempo.yml:ro
+      - tempo-data:/var/tempo
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,uid=10001,gid=10001
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1g
+    cpus: 1
+    pids_limit: 128
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "2"
+  grafana:
+    volumes:
+      - ./tracing/grafana-tempo.yml:/etc/grafana/provisioning/datasources/tempo.yml:ro
+    depends_on:
+      tempo:
+        condition: service_started
+volumes:
+  tempo-data:

@@ -151,7 +151,11 @@ A **10B3c3a** acrescenta tracing opcional nas duas filas do enforcer: contexto A
 
 A **10B3c3b** instrumenta a auditoria IAM em lote com raiz CONSUMER e links aos produtores distintos, preservando transação única, commit antes do ACK e isolamento/retry. Reutiliza http-tracing; sem novo schema/exporter. Consultar [operação](docs/runbooks/tracing-consumidores-local.md), [ADR-063](docs/adr/063-tracing-auditoria-em-lote.md) e [evidências](docs/evidencias/etapa-10b3c3b.md).
 
-Próxima proposta: **10B4 — fechamento da observabilidade**, incluindo backend/exportação de tracing e coleta conjunta, antes de **10C — medição**. A instrumentação de consumo 10B3c3 está implementada; aceite global 10B ainda aberto. Trabalho local em `feat/outbox-trace-context`, sobre `103553e`, incluída neste commit; push pendente; build completo aprovado com 845 testes e gates de cobertura/arquitetura, com ressalva de shutdown nas evidências. Publicação/CI e aceite de desempenho permanecem pendentes.
+A **10B4a** acrescenta backend local Tempo opcional, com imagem fixada, armazenamento próprio, portas loopback e datasource Grafana autenticado. Traces sintéticos validam ingestão, links e consulta. Consultar [operação](docs/runbooks/backend-tracing-local.md), [ADR-064](docs/adr/064-backend-local-de-tracing.md) e [evidências](docs/evidencias/etapa-10b4a.md).
+
+A **10B4b** implementa exportação OTLP opcional no IAM/enforcer: destino local validado, transporte JDK sem redirects, fila limitada e timeouts curtos, sem retry. Amostragem e dados finitos da instrumentação anterior são preservados; backend indisponível causa perda de telemetria sem bloquear negócio. [Operação](docs/runbooks/exportacao-otlp-local.md), [ADR-065](docs/adr/065-exportacao-otlp-local.md), [evidências](docs/evidencias/etapa-10b4b.md).
+
+Próxima: **10B4c — validação conjunta**, antes de **10C — medição**. Aceite global 10B continua aberto. Trabalho local em `feat/tracing-backend`, sobre `38dd1ae`, com commit local nesta branch; push/CI pendentes. Build final 10B4b: **886 testes aprovados**, dois gates de cobertura e arquitetura atendidos. Corrigido também bloqueio de disconnect NIO do enforcer, com regressão real e recuperação de entrega sem ACK; permanece a ressalva histórica de shutdown do fork IAM. A 10B4a anterior teve 847 testes aprovados. Stack persistente preservada; publicação/CI e desempenho pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 

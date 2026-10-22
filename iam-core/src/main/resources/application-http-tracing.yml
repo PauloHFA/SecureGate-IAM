@@ -1,4 +1,4 @@
-# Optional synchronous inbound HTTP tracing; no network exporter is installed.
+# Optional synchronous inbound HTTP tracing; network export requires a separate explicit opt-in.
 management:
   tracing:
     enabled: true

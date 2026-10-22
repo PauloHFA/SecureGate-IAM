@@ -6,18 +6,18 @@ Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B3c3b — tracing da auditoria IAM em lote |
-| Base desta entrega | 103553e — consumo no enforcer |
-| Trabalho local | Implementação local; incluída neste commit; push pendente |
-| Branch | feat/outbox-trace-context |
-| Validação da entrega | BUILD SUCCESS às 21:36:26 UTC−03: 845 testes, zero falhas/erros/skips; gates atendidos; ressalva de shutdown do fork IAM/Hikari nas evidências |
-| Próxima implementação | 10B4 — backend/exportação e coleta conjunta |
-| Pendências seguintes | Aceite global 10B; 10C–10D; publicação/CI |
+| Última entrega implementada | 10B4b — exportação OTLP opcional IAM/enforcer |
+| Base desta entrega | 38dd1ae — auditoria em lote, publicada |
+| Trabalho local | Implementação local; sem commit/push desta entrega |
+| Branch | feat/tracing-backend |
+| Validação da entrega | BUILD SUCCESS às 23:15:31 UTC−03: 886 testes aprovados, dois gates de cobertura e arquitetura atendidos; bloqueio NIO enforcer corrigido; ressalva histórica do fork IAM registrada |
+| Próxima implementação | 10B4c — validação integrada e coleta conjunta |
+| Pendências seguintes | 10B4c e aceite global 10B; 10C–10D; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a e a 10B3c3b também estão implementadas abaixo. As demais divisões 10B4–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a e a 10B4b também estão implementadas abaixo. As demais divisões 10B4c–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -578,13 +578,45 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 
 [ADR-063](adr/063-tracing-auditoria-em-lote.md), [operação](runbooks/tracing-consumidores-local.md), [evidências](evidencias/etapa-10b3c3b.md). Branch feat/outbox-trace-context sobre 103553e; incluída neste commit; push pendente. Sem nova migração ou alteração da stack persistente.
 
+## Etapa 10B4a — Backend local de tracing
+
+1. Dividir a 10B4 em backend/consulta (a), exportação de serviços (b) e validação conjunta (c), preservando o aceite global aberto.
+2. Consultar fontes oficiais de Tempo e verificar release/tag/digest; fixar 3.1.1 e reutilizar Grafana/Prometheus já versionados.
+3. Criar overlay opcional da stack de observabilidade e configurar Tempo single-binary com armazenamento local; nenhuma alteração na stack de negócio ou exporter Java.
+4. Publicar apenas query/OTLP HTTP em loopback; documentar acesso direto sem autenticação e limite de host/rede confiáveis. Reutilizar autenticação Grafana no proxy.
+5. Configurar UID sem privilégios, root read-only, volume/tmpfs e limites de memória/CPU/PIDs/logs/ingestão; retenção de blocos 24h sem fingir quota de disco ou expurgo testado após 24h.
+6. Desabilitar MCP, relatório de uso, metrics-generator e logging de spans; manter somente receiver OTLP/HTTP e dados sintéticos nesta entrega.
+7. Provisionar datasource Tempo somente via overlay, sem substituir diretório/credenciais nem mudar Prometheus padrão.
+8. Acrescentar -IncludeTracing ao script, validar colisões de portas antes de up e verificar /ready pelo host, pois a imagem não tem shell.
+9. Testar Compose base/overlay e Tempo/Grafana reais: ingestão sintética com link, recusa sem credencial no Grafana, query autenticada e restart preservando volume. Validar scripts em projeto/workspace descartáveis.
+10. Executar seleção/build, registrar ajustes/evidências e reversão preservando volumes; não declarar exporter, UI visual ou coleta sustentada implementados. Próxima: 10B4b.
+
+[ADR-064](adr/064-backend-local-de-tracing.md), [operação](runbooks/backend-tracing-local.md), [evidências](evidencias/etapa-10b4a.md). Branch feat/tracing-backend sobre 38dd1ae; 10B4a versionada no commit local junto à 10B4b, sem push/CI remota. Nenhum comando de aplicação executado na stack persistente.
+
+## Etapa 10B4b — Exportação OTLP opcional
+
+1. Manter o backend 10B4a e os providers/contratos de instrumentação anteriores; limitar esta entrega ao transporte dos spans.
+2. Acrescentar exporter OTLP e sender JDK gerenciados pelo BOM nos dois executáveis, excluindo sender OkHttp para evitar redirects automáticos.
+3. Criar configuração de bootstrap condicional à propriedade securegate.tracing.export.enabled, falsa por padrão; exigir tracing já habilitado.
+4. Validar endpoint HTTP no IP literal 127.0.0.1, porta explícita e path /v1/traces, sem userinfo/query/fragment ou DNS remoto.
+5. Conectar BatchSpanProcessor ao ObjectProvider existente: 512 spans de fila, 128 por lote, intervalo 1 s e espera por lote 2 s; conexão 500 ms/request 1 s, sem retry.
+6. Preservar sampler local, recursos service.name e spans/atributos finitos; não instalar agente/SDK global nem sanitizar arbitrariamente após instrumentação.
+7. Definir descarte em sobrecarga/falha e recuperação apenas de lotes novos, sem afetar transações/ACKs; registrar fechamento idempotente e limites por lote.
+8. Testar provider Spring + receptor HTTP real em cada módulo: default off, configuração inválida, recurso/parent/link protobuf, amostragem zero, saturação, 503/recuperação, timeout, fechamento e redirect.
+9. Executar seleção limpa (38 casos aprovados) e build completo; registrar a interrupção da primeira verificação para concluir a troca de transporte, sem contar execução parcial como aceite.
+10. Diagnosticar bloqueio de shutdown observado no verify: tick NIO retinha monitor do worker dentro de abort sem limite; reproduzir com RabbitMQ real e corrigir para abort(1000), preservando entrega sem ACK para outro worker.
+11. Reexecutar regressão e bootstrap Vault, depois build completo; distinguir essa correção da ressalva histórica IAM/Hikari e registrar falhas anteriores sem contá-las como aceite.
+12. Documentar ativação por variáveis/perfis existentes, consulta, reversão e limites. Próxima 10B4c comprovará a cadeia de negócio no Tempo e coleta conjunta sustentada.
+
+[ADR-065](adr/065-exportacao-otlp-local.md), [operação](runbooks/exportacao-otlp-local.md), [evidências](evidencias/etapa-10b4b.md). Trabalho local em feat/tracing-backend sobre 38dd1ae, junto à 10B4a no commit local desta branch, sem push/CI remota; nenhuma stack persistente alterada.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
-As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B4 explicita backend/exportação e coleta conjunta, já pendentes no aceite global 10B; não representa uma entrega realizada nem renumera as entregas anteriores.
+As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B4a entrega backend local e a 10B4b implementa exportação opcional; a 10B4c explicita coleta conjunta ainda pendente no aceite global 10B, sem renumerar entregas anteriores.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10B4 — Fechamento da observabilidade | Definir backend/exportação/retenção/acesso → integrar spans/links restritos → validar coleta conjunta e falha/recuperação → registrar aceite. | Observabilidade integrada verificável antes da medição 10C; proposta ainda não implementada. |
+| 10B4c — Validação conjunta | Integrar traces/links no backend → verificar credenciais/retorno → executar coleta conjunta sustentada → registrar limites/aceite. | Evidência integrada de observabilidade antes de 10C. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
 | 11A — Imagens/stack | Criar imagens Java 21 sem root → perfil Compose full → probes e smoke em ambiente limpo. | Stack completa executável conforme guia. |

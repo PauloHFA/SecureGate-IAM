@@ -18,7 +18,9 @@
 | 10B3c2 | Implementada e validada localmente | Span PRODUCER por tentativa, parent durável/raiz explícita e header traceparent restrito. |
 | 10B3c3a | Implementada e validada localmente | Enforcer: contexto restrito, spans CONSUMER e restauração de escopo/MDC nas duas filas. |
 | 10B3c3b | Implementada e validada localmente; ressalva de shutdown nas evidências | Auditoria IAM: raiz por lote com links e fallback com parents individuais; escopos restaurados. |
-| 10B4 | Proposta, pendente | Backend/exportação e coleta conjunta sustentada para fechar o aceite global 10B. |
+| 10B4a | Implementada e validada localmente; ressalva de shutdown nas evidências | Tempo opcional, volume/retenção local e datasource Grafana; somente OTLP sintético. |
+| 10B4b | Implementada e validada localmente; ressalva do fork IAM | Exportação OTLP opcional IAM/enforcer, destino local, transporte JDK e fila/timeouts limitados. |
+| 10B4c | Proposta, pendente | Validação integrada e coleta conjunta sustentada para fechar o aceite global 10B. |
 
 A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none; a 10B2b1 acrescenta listener JDK opcional em loopback, GET /metrics, sem MVC/Actuator. Default sem listener. A 10B2a acrescenta Compose Prometheus/Grafana validado com IAM real em stack descartável, sem coleta sustentada ou alteração dos serviços persistentes do usuário. A 10B2b2a acrescenta plugin opcional do RabbitMQ; a 10B2b2b acrescenta exporter PostgreSQL e login de monitoração; a 10B2b2c acrescenta ACL/exporter Redis; a 10B2b2d acrescenta listener/token Vault próprios. Execução conjunta sustentada ainda não foi validada.
 
@@ -155,3 +157,17 @@ Atributos finitos: messaging.system=rabbitmq, messaging.consumer=revocation/bloc
 Reutiliza o Tracer/provider IAM opcional de http-tracing. Span audit.consume.batch CONSUMER é raiz explícita com links deduplicados dos produtores válidos, até o limite de 100 mensagens; mensagens legacy/hostis não geram links. Não escolher parent único nem herdar worker. O span começa após decode puro e cobre persistência, fallback e disposição. Inválidos têm span de rejeição; fallback tem spans audit.consume.message com parent de cada mensagem e restauração do lote/MDC. Transação única, commit antes do ACK, retry do restante e desconexão em ACK incerto permanecem anteriores.
 
 Cinco atributos finitos: messaging.system=rabbitmq, messaging.consumer=audit, messaging.phase=batch/isolated/invalid, messaging.redelivered=true/false e messaging.outcome=stored/isolated/retry/invalid/appended/duplicate/conflict/late/unavailable. Sem erro livre, payload ou novas métricas. Links não têm atributos e IDs não autorizam operações. Retry cria nova raiz com os mesmos links. Sem novo schema/exporter; aceite global 10B permanece aberto e a proposta 10B4 organiza backend/coleta conjunta antes de 10C. [ADR-063](adr/063-tracing-auditoria-em-lote.md), [operação](runbooks/tracing-consumidores-local.md), [evidências](evidencias/etapa-10b3c3b.md).
+
+## Backend local — 10B4a
+
+Overlay opcional Tempo 3.1.1 por digest e single-binary, dados em volume próprio, portas host loopback 13200 (API) e 14318 (OTLP HTTP), usuário 10001 e raiz read-only. Não há autenticação própria Tempo; o datasource Grafana exige o acesso Grafana existente, sem proteger portas diretas. Prometheus permanece padrão e o datasource Tempo só é montado pelo overlay. -IncludeTracing valida Compose/colisões e readiness pelo host; sem switch a stack base permanece anterior.
+
+Retenção de blocos configurada em 24h com varredura de 5 min, sem quota rígida de volume nem teste de expurgo após 24h. Limites de memória/CPU/PIDs/logs e ingestão estão versionados. MCP/relatório/metrics-generator/logging de spans desabilitados. Testes enviam OTLP sintético e verificam links, proxy autenticado e consulta após restart. A 10B4b acrescenta exportação explícita opcional; 10B4c e aceite global 10B permanecem pendentes. Nenhuma stack persistente foi alterada. [ADR-064](adr/064-backend-local-de-tracing.md), [operação](runbooks/backend-tracing-local.md), [evidências](evidencias/etapa-10b4a.md).
+
+## Exportação OTLP — 10B4b
+
+securegate.tracing.export.enabled=false em ambos os executáveis; true exige management.tracing.enabled=true. Endpoint padrão http://127.0.0.1:14318/v1/traces, validado para IP literal loopback/porta/path e sem credenciais/parâmetros/fragmento. Sender JDK do BOM, sem redirects; sem autoconfiguração OTEL_* ou agente. Providers existentes fornecem service.name=iam-core/policy-enforcer e mantêm sampler local.
+
+BatchSpanProcessor enfileira até 512 spans, envia até 128 por lote a cada 1 s; conexão 500 ms/request 1 s/espera do processor 2 s por lote. Sem retry; fila cheia/timeout/503 descarta telemetria e novos lotes recuperam após retorno. Negócio/ACKs não esperam exportação; tracing não substitui auditoria durável. Fechamento drena best effort; limites por lote não são SLA do processo inteiro.
+
+Exportar somente os nomes/atributos finitos já inventariados, IDs/parents/links e recurso de serviço; não adicionar body, URL, headers, credenciais, eventos de exceção ou baggage. Exporter não sanitiza instrumentação arbitrária. Seleção de 38 casos valida transporte HTTP real dos providers, inclusive recuperação e redirecionamento; não comprova cadeia de negócio consultável no Tempo ou coleta sustentada (10B4c). [ADR-065](adr/065-exportacao-otlp-local.md), [operação](runbooks/exportacao-otlp-local.md), [evidências](evidencias/etapa-10b4b.md).
