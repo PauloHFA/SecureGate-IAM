@@ -11,7 +11,7 @@ Começar pelo [guia de implementação passo a passo](GUIA-DE-IMPLEMENTACAO.md):
 | [Guias operacionais](runbooks/) | Preparação, execução, flags, testes e recuperação. |
 | [Evidências](evidencias/) | Comandos executados, resultados observados, ambiente e pendências históricas. |
 
-Estado desta revisão: **10C2b2b2 — medição de revogação e propagação**, em feat/load-revocation-baseline sobre bef3e67, validada localmente. O plano JMeter mede a chamada `POST /oauth2/revoke` (`token.revoke.call`) e a observação de recusa via polling rápido no recurso (`revocation.observed_refusal`), com token humano obtido via PKCE isolado em `setupSamples`. A seleção descartável passou com 1 teste, zero falhas e p95 de propagação dentro do limite de 2000 ms. [Procedimento e limites](evidencias/etapa-10c2b2b2.md). Auditoria segue na próxima divisão **10C2b2b3**. Nenhuma stack persistente alterada.
+Estado desta revisão: **10C2b2b3 — medição de auditoria centralizada**, em feat/load-audit-baseline, validada localmente. O plano JMeter mede a chamada de produção (`audit.produce.call`), a visibilidade assíncrona (`audit.visibility.observed`) e a consulta paginada por cursor (`audit.cursor.query`), isolando as três unidades sem contaminação mútua. A seleção descartável passou com 1 teste, zero falhas e p95 de visibilidade dentro do limite de 5000 ms. [Procedimento e limites](evidencias/etapa-10c2b2b3.md). Consolidação e runbook unificado seguem na próxima divisão **10C3**. Nenhuma stack persistente alterada.
 
 Ao implementar uma nova subdivisão, atualizar guia, plano, README, decisões aplicáveis, operação e evidências. Proposta, implementação, validação local, commit, publicação, CI e merge devem permanecer identificáveis separadamente.
 

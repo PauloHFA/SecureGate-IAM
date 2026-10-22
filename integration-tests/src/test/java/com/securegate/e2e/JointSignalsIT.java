@@ -89,19 +89,28 @@ class JointSignalsIT {
                 "ENFORCER_METRICS_TOKEN_FILE", enforcerToken.toString()));
         try (var dependencies = new DependencyMetricsFixture(environment, temporary)) {
           dependencies.start();
+          org.testcontainers.Testcontainers.exposeHostPorts(
+              environment.base.getPort(),
+              enforcerPort,
+              dependencies.postgresPort(),
+              dependencies.redisPort(),
+              environment.rabbit.getMappedPort(15692),
+              environment.vault.getMappedPort(8200));
           Files.writeString(
               prometheusConfig,
-              Files.readString(TracingBackendIT.ROOT.resolve("prometheus.template.yml"))
-                      .replace("__IAM_PORT__", Integer.toString(environment.base.getPort()))
-                  + Files.readString(TracingBackendIT.ROOT.resolve("enforcer-scrape.template.yml"))
-                      .replace("__ENFORCER_PORT__", Integer.toString(enforcerPort))
-                  + dependencies.prometheusJobs());
+              (Files.readString(TracingBackendIT.ROOT.resolve("prometheus.template.yml"))
+                          .replace("__IAM_PORT__", Integer.toString(environment.base.getPort()))
+                      + Files.readString(
+                              TracingBackendIT.ROOT.resolve("enforcer-scrape.template.yml"))
+                          .replace("__ENFORCER_PORT__", Integer.toString(enforcerPort))
+                      + dependencies.prometheusJobs())
+                  .replace("host.docker.internal", "host.testcontainers.internal"));
           try (var prometheus =
                   new GenericContainer<>(
                           TracingBackendIT.image("docker-compose.yml", "prom/prometheus:"))
                       .withNetwork(network)
                       .withNetworkAliases("prometheus")
-                      .withExtraHost("host.docker.internal", "host-gateway")
+                      .withAccessToHost(true)
                       .withExposedPorts(9090)
                       .withCommand("--config.file=/etc/prometheus/prometheus.yml")
                       .withCreateContainerCmdModifier(

@@ -2,9 +2,10 @@
 param(
   [Parameter(Mandatory)][string]$JMeterHome,
   [Parameter(Mandatory)][uri]$BaseUri,
-  [Parameter(Mandatory)][string]$MassFile,
+  [Parameter()][string]$MassFile = '',
   [Parameter(Mandatory)][string]$OutputDirectory,
-  [ValidateSet('issuance', 'introspection', 'resource', 'revocation')][string]$Scenario = 'issuance',
+  [ValidateSet('issuance', 'introspection', 'resource', 'revocation', 'audit')][string]$Scenario = 'issuance',
+  [string]$AdminTokenFile = '',
   [ValidateRange(1, 20)][int]$Threads = 2,
   [ValidateRange(3, 900)][int]$WarmupSeconds = 10,
   [ValidateRange(5, 3600)][int]$SteadySeconds = 30,
@@ -20,23 +21,33 @@ if ($BaseUri.Host -notin @('127.0.0.1', 'localhost') -or $BaseUri.Scheme -notin 
 }
 $jar = Join-Path $JMeterHome 'bin/ApacheJMeter.jar'
 if (-not (Test-Path -LiteralPath $jar)) { throw 'JMeter binary is missing.' }
-$mass = (Resolve-Path -LiteralPath $MassFile).Path
-$rows = @(Import-Csv -LiteralPath $mass)
+$mass = if (-not [string]::IsNullOrWhiteSpace($MassFile)) { (Resolve-Path -LiteralPath $MassFile).Path } else { $null }
+$rows = if ($null -ne $mass) { @(Import-Csv -LiteralPath $mass) } else { @() }
 if ($WindowSeconds -gt $SteadySeconds) { throw 'WindowSeconds must not exceed SteadySeconds.' }
 if ($Scenario -in @('resource', 'revocation') -and [Math]::Max($WarmupSeconds, [Math]::Max($SteadySeconds, $CooldownSeconds)) -gt 90) {
   throw "$Scenario phases are limited to 90 seconds by the synthetic human token lifetime."
 }
-if ($rows.Count -lt $Threads) { throw 'Provide at least one synthetic client per thread.' }
-foreach ($row in $rows) {
-  if ($Scenario -in @('resource', 'revocation')) {
-    $valid = $row.user_id -match '^[a-f0-9-]{36}$' -and $row.email -match '^[a-z0-9_-]+@example[.]test$' -and
-      $row.password.Length -ge 12 -and $row.redirect_uri -eq 'http://127.0.0.1:18090/callback' -and
-      $row.client_id -match '^[a-z][a-z0-9_-]{2,63}$' -and -not [string]::IsNullOrWhiteSpace($row.client_secret) -and $row.scope -eq 'api:read'
-  } else {
-    $valid = $row.client_id -match '^[a-z][a-z0-9_-]{2,63}$' -and -not [string]::IsNullOrWhiteSpace($row.client_secret) -and $row.scope -eq 'load:read'
-  }
-  if (-not $valid) {
-    throw 'Invalid synthetic mass file.'
+$adminFile = $null
+if ($Scenario -eq 'audit') {
+  if ([string]::IsNullOrWhiteSpace($AdminTokenFile)) { throw 'AdminTokenFile is required for audit scenario.' }
+  $adminFile = (Resolve-Path -LiteralPath $AdminTokenFile).Path
+  $adminToken = [IO.File]::ReadAllText($adminFile).Trim()
+  if ([string]::IsNullOrWhiteSpace($adminToken) -or $adminToken -match '[\r\n]') { throw 'Invalid administrative token file.' }
+  $adminToken = $null
+} else {
+  if ($null -eq $mass) { throw 'MassFile is required.' }
+  if ($rows.Count -lt $Threads) { throw 'Provide at least one synthetic client per thread.' }
+  foreach ($row in $rows) {
+    if ($Scenario -in @('resource', 'revocation')) {
+      $valid = $row.user_id -match '^[a-f0-9-]{36}$' -and $row.email -match '^[a-z0-9_-]+@example[.]test$' -and
+        $row.password.Length -ge 12 -and $row.redirect_uri -eq 'http://127.0.0.1:18090/callback' -and
+        $row.client_id -match '^[a-z][a-z0-9_-]{2,63}$' -and -not [string]::IsNullOrWhiteSpace($row.client_secret) -and $row.scope -eq 'api:read'
+    } else {
+      $valid = $row.client_id -match '^[a-z][a-z0-9_-]{2,63}$' -and -not [string]::IsNullOrWhiteSpace($row.client_secret) -and $row.scope -eq 'load:read'
+    }
+    if (-not $valid) {
+      throw 'Invalid synthetic mass file.'
+    }
   }
 }
 $output = [IO.Path]::GetFullPath($OutputDirectory)
@@ -50,7 +61,7 @@ if (-not [string]::IsNullOrWhiteSpace($DockerContainerIds)) {
   }
   if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'Docker CLI is required for container sampling.' }
 }
-if ($Scenario -in @('introspection', 'resource', 'revocation')) {
+if ($Scenario -in @('introspection', 'resource', 'revocation', 'audit')) {
   $projectRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
   $privateRoots = @((Join-Path $projectRoot 'load-tests/.local'), (Join-Path $projectRoot 'integration-tests/target'))
   $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
@@ -68,12 +79,14 @@ $plan = switch ($Scenario) {
   'introspection' { 'token-introspection-baseline.jmx' }
   'resource' { 'resource-validation-baseline.jmx' }
   'revocation' { 'token-revocation-baseline.jmx' }
+  'audit' { 'audit-baseline.jmx' }
 }
 $label = switch ($Scenario) {
   'issuance' { 'token.success' }
   'introspection' { 'introspection.active' }
   'resource' { 'resource.validation.success' }
   'revocation' { 'token.revoke.call' }
+  'audit' { 'audit.produce.call' }
 }
 
 function New-PhaseTokenMass([string]$folder, [int]$duration) {
@@ -232,6 +245,12 @@ function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
     if ($Scenario -eq 'revocation') {
       $arguments += @("-Jpropagation_script=$(Join-Path $PSScriptRoot 'token-revocation-propagation.groovy')")
     }
+    if ($Scenario -eq 'audit') {
+      $arguments += @(
+        "-Jadmin_token_file=$adminFile",
+        "-Jaudit_script=$(Join-Path $PSScriptRoot 'audit-baseline.groovy')"
+      )
+    }
     & java @arguments *> (Join-Path $folder 'console.log')
     if ($LASTEXITCODE -ne 0) { throw "JMeter $name phase failed; inspect the local run log." }
   } finally {
@@ -275,6 +294,8 @@ function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
     @('pkce.journey.success', 'token.revoke.call', 'revocation.observed_refusal')
   } elseif ($Scenario -eq 'resource') {
     @('pkce.journey.success', 'resource.validation.success')
+  } elseif ($Scenario -eq 'audit') {
+    @('audit.produce.call', 'audit.visibility.observed', 'audit.cursor.query')
   } else {
     @($label)
   }
@@ -293,6 +314,33 @@ function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
       p50Ms = Get-Percentile $propElapsed 0.50
       p95Ms = Get-Percentile $propElapsed 0.95
       p99Ms = Get-Percentile $propElapsed 0.99
+    }
+  }
+  $visibility = $null
+  $cursorQuery = $null
+  if ($Scenario -eq 'audit') {
+    $visSamples = @($samples | Where-Object { $_.label -eq 'audit.visibility.observed' })
+    if ($visSamples.Count -eq 0) { throw "No audit visibility samples recorded in $name." }
+    $visFailures = @($visSamples | Where-Object { $_.success -ne 'true' }).Count
+    $visElapsed = @($visSamples | ForEach-Object { [double]::Parse($_.elapsed, [Globalization.CultureInfo]::InvariantCulture) })
+    $visibility = [ordered]@{
+      observations = $visSamples.Count
+      failures = $visFailures
+      p50Ms = Get-Percentile $visElapsed 0.50
+      p95Ms = Get-Percentile $visElapsed 0.95
+      p99Ms = Get-Percentile $visElapsed 0.99
+    }
+    $curSamples = @($samples | Where-Object { $_.label -eq 'audit.cursor.query' })
+    if ($curSamples.Count -eq 0) { throw "No audit cursor query samples recorded in $name." }
+    $curFailures = @($curSamples | Where-Object { $_.success -ne 'true' }).Count
+    $curElapsed = @($curSamples | ForEach-Object { [double]::Parse($_.elapsed, [Globalization.CultureInfo]::InvariantCulture) })
+    $cursorQuery = [ordered]@{
+      queries = $curSamples.Count
+      failures = $curFailures
+      effectiveRequestsPerSecond = [Math]::Round($curSamples.Count / $duration, 2)
+      p50Ms = Get-Percentile $curElapsed 0.50
+      p95Ms = Get-Percentile $curElapsed 0.95
+      p99Ms = Get-Percentile $curElapsed 0.99
     }
   }
   $samples = @($samples | Where-Object { $_.label -eq $label })
@@ -346,6 +394,8 @@ function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
     p95Ms = Get-Percentile $elapsed 0.95
     p99Ms = Get-Percentile $elapsed 0.99
     propagation = $propagation
+    visibility = $visibility
+    cursorQuery = $cursorQuery
     windows = $windows
     iamProcess = $resource
     containers = $containers
@@ -369,6 +419,7 @@ $summary = [ordered]@{
     'introspection' { 'owned_active_token_introspection' }
     'resource' { 'protected_resource_validation' }
     'revocation' { 'token_revocation_and_propagation' }
+    'audit' { 'centralized_audit_pipeline' }
   }
   scope = 'local baseline; separate JMeter phase processes; no production SLA claim'
   jmeterValidatedBaseline = '5.6.3'
@@ -377,19 +428,32 @@ $summary = [ordered]@{
   dockerCapacity = $docker
   targetP95Ms = if ($Scenario -eq 'issuance') { 200 } else { $null }
   targetRequestsPerSecond = if ($Scenario -eq 'issuance') { 300 } else { $null }
-  targetPropagationMs = if ($Scenario -eq 'revocation') { 2000 } else { $null }
+  targetPropagationMs = if ($Scenario -eq 'revocation') { 2000 } elseif ($Scenario -eq 'audit') { 5000 } else { $null }
   windowSeconds = $WindowSeconds
   windowMethod = 'windows anchored at first steady sample timestamp; only windows ending before the last observed sample start are included'
   phases = $phases
   steadyMeetsReferenceP95 = if ($Scenario -eq 'issuance') { $phases[1].p95Ms -lt 200 } else { $null }
   steadyMeetsReferenceRate = if ($Scenario -eq 'issuance') { $phases[1].effectiveRequestsPerSecond -ge 300 } else { $null }
-  steadyPropagationMeetsTarget = if ($Scenario -eq 'revocation') { $phases[1].propagation.p95Ms -lt 2000 } else { $null }
+  steadyPropagationMeetsTarget = if ($Scenario -eq 'revocation') {
+    $phases[1].propagation.p95Ms -lt 2000
+  } elseif ($Scenario -eq 'audit') {
+    $phases[1].visibility.p95Ms -lt 5000
+  } else {
+    $null
+  }
 }
 $summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $output 'summary.json') -Encoding UTF8
-if (@($phases | Where-Object { $_.failures -gt 0 -or ($null -ne $_.propagation -and $_.propagation.failures -gt 0) }).Count -gt 0) {
+if (@($phases | Where-Object {
+  $_.failures -gt 0 -or
+  ($null -ne $_.propagation -and $_.propagation.failures -gt 0) -or
+  ($null -ne $_.visibility -and $_.visibility.failures -gt 0) -or
+  ($null -ne $_.cursorQuery -and $_.cursorQuery.failures -gt 0)
+}).Count -gt 0) {
   throw 'Measured contract failed in at least one phase; inspect summary.json.'
 }
-if ($Scenario -eq 'revocation') {
+if ($Scenario -eq 'audit') {
+  Write-Output "Audit baseline recorded: steady produce p95 $($phases[1].p95Ms) ms, visibility p95 $($phases[1].visibility.p95Ms) ms (target < 5000 ms: $($summary.steadyPropagationMeetsTarget)), cursor query p95 $($phases[1].cursorQuery.p95Ms) ms."
+} elseif ($Scenario -eq 'revocation') {
   Write-Output "Revocation baseline recorded: steady revoke p95 $($phases[1].p95Ms) ms, propagation p95 $($phases[1].propagation.p95Ms) ms (target < 2000 ms: $($summary.steadyPropagationMeetsTarget))."
 } else {
   Write-Output "Baseline recorded: steady $($phases[1].effectiveRequestsPerSecond) req/s, p95 $($phases[1].p95Ms) ms."
