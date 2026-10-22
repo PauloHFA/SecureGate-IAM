@@ -17,11 +17,12 @@ class TokenBaselineSmoke {
   @Test
   void measuresThreeRealPhasesWithoutLeakingSyntheticCredentials() throws Exception {
     String home = System.getProperty("securegate.jmeter.home", "");
-    int steadySeconds = Integer.getInteger("securegate.load.steady.seconds", 5);
-    int windowSeconds = Integer.getInteger("securegate.load.window.seconds", 1);
     String scenario = System.getProperty("securegate.load.scenario", "issuance");
+    int steadySeconds =
+        Integer.getInteger("securegate.load.steady.seconds", scenario.equals("resource") ? 10 : 5);
+    int windowSeconds = Integer.getInteger("securegate.load.window.seconds", 1);
     boolean omitIamPid = Boolean.getBoolean("securegate.load.omitIamPid");
-    assertTrue(List.of("issuance", "introspection").contains(scenario));
+    assertTrue(List.of("issuance", "introspection", "resource").contains(scenario));
     assertTrue(steadySeconds >= windowSeconds && windowSeconds > 0);
     assertTrue(Files.isRegularFile(Path.of(home, "bin", "ApacheJMeter.jar")));
     Path output = Path.of("target/load-capacity", UUID.randomUUID().toString()).toAbsolutePath();
@@ -31,22 +32,32 @@ class TokenBaselineSmoke {
     Path mass = privateFiles.resolve("clients.csv");
     try (var environment = new PropagationEnvironment()) {
       environment.start();
+      if (scenario.equals("resource")) {
+        configureTestRisk(environment);
+      }
       Files.writeString(admin, environment.admin);
+      var prepareArgs =
+          new ArrayList<>(
+              List.of(
+                  "-BaseUri",
+                  environment.base.toString(),
+                  "-AdminTokenFile",
+                  admin.toString(),
+                  "-OutputFile",
+                  mass.toString(),
+                  "-Prefix",
+                  "capacity-smoke",
+                  "-Count",
+                  "2"));
+      if (scenario.equals("resource")) {
+        prepareArgs.add("-IncludeAccountPolicy");
+      }
       assertEquals(
           0,
           script(
               output.resolve("prepare.log"),
-              "New-ClientMass.ps1",
-              "-BaseUri",
-              environment.base.toString(),
-              "-AdminTokenFile",
-              admin.toString(),
-              "-OutputFile",
-              mass.toString(),
-              "-Prefix",
-              "capacity-smoke",
-              "-Count",
-              "2"));
+              scenario.equals("resource") ? "New-HumanMass.ps1" : "New-ClientMass.ps1",
+              prepareArgs.toArray(String[]::new)));
       assertEquals(
           0,
           script(
@@ -65,13 +76,13 @@ class TokenBaselineSmoke {
               "-Threads",
               "2",
               "-WarmupSeconds",
-              "3",
+              scenario.equals("resource") ? "8" : "3",
               "-SteadySeconds",
               Integer.toString(steadySeconds),
               "-WindowSeconds",
               Integer.toString(windowSeconds),
               "-CooldownSeconds",
-              "3",
+              scenario.equals("resource") ? "8" : "3",
               "-IamProcessId",
               omitIamPid ? "0" : Long.toString(environment.iamProcessId()),
               "-DockerContainerIds",
@@ -84,9 +95,11 @@ class TokenBaselineSmoke {
       var report =
           PropagationEnvironment.JSON.readTree(output.resolve("baseline/summary.json").toFile());
       assertEquals(
-          scenario.equals("issuance")
-              ? "client_credentials_token_issuance"
-              : "owned_active_token_introspection",
+          switch (scenario) {
+            case "issuance" -> "client_credentials_token_issuance";
+            case "introspection" -> "owned_active_token_introspection";
+            default -> "protected_resource_validation";
+          },
           report.path("scenario").asText());
       var phases = report.path("phases");
       assertEquals(3, phases.size());
@@ -94,6 +107,9 @@ class TokenBaselineSmoke {
         assertEquals(0, phases.get(i).path("failures").asInt());
         assertTrue(phases.get(i).path("requests").asInt() > 0);
         assertTrue(phases.get(i).path("p95Ms").asDouble() > 0);
+        assertEquals(
+            scenario.equals("resource") ? (i == 1 ? 2 : 1) : 0,
+            phases.get(i).path("setupSamples").asInt());
         if (omitIamPid) {
           assertTrue(phases.get(i).path("iamProcess").isNull());
         } else {
@@ -117,6 +133,10 @@ class TokenBaselineSmoke {
       var timestamps =
           Files.readAllLines(output.resolve("baseline/steady/samples.csv")).stream()
               .skip(1)
+              .filter(
+                  line ->
+                      !scenario.equals("resource")
+                          || line.contains(",resource.validation.success,"))
               .mapToLong(line -> Long.parseLong(line.substring(0, line.indexOf(','))))
               .summaryStatistics();
       assertTrue(
@@ -142,12 +162,24 @@ class TokenBaselineSmoke {
       secrets.add(environment.admin);
       for (String row : Files.readAllLines(mass).subList(1, 3)) {
         String[] fields = row.replace("\"", "").split(",");
-        secrets.add(fields[1]);
-        secrets.add(
-            Base64.getEncoder()
-                .encodeToString(
-                    (fields[0] + ":" + fields[1])
-                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        if (scenario.equals("resource")) {
+          secrets.add(fields[0]);
+          secrets.add(fields[1]);
+          secrets.add(fields[2]);
+          secrets.add(fields[4]);
+          secrets.add(
+              Base64.getEncoder()
+                  .encodeToString(
+                      (fields[3] + ":" + fields[4])
+                          .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } else {
+          secrets.add(fields[1]);
+          secrets.add(
+              Base64.getEncoder()
+                  .encodeToString(
+                      (fields[0] + ":" + fields[1])
+                          .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        }
       }
       try (var paths = Files.walk(output.resolve("baseline"))) {
         for (Path path : paths.filter(Files::isRegularFile).toList()) {
@@ -174,6 +206,28 @@ class TokenBaselineSmoke {
       Files.deleteIfExists(admin);
       Files.deleteIfExists(mass);
       Files.deleteIfExists(privateFiles);
+    }
+  }
+
+  private static void configureTestRisk(PropagationEnvironment environment) throws Exception {
+    for (var setting :
+        java.util.Map.of(
+                "/api/admin/risk/networks", java.util.Map.of("cidr", "127.0.0.0/24"),
+                "/api/admin/risk/resources",
+                    java.util.Map.of("resource", "auth:login", "sensitivity", "PUBLIC"))
+            .entrySet()) {
+      var response =
+          PropagationEnvironment.HTTP.send(
+              java.net.http.HttpRequest.newBuilder(environment.base.resolve(setting.getKey()))
+                  .timeout(Duration.ofSeconds(5))
+                  .header("Authorization", "Bearer " + environment.admin)
+                  .header("Content-Type", "application/json")
+                  .POST(
+                      java.net.http.HttpRequest.BodyPublishers.ofString(
+                          PropagationEnvironment.JSON.writeValueAsString(setting.getValue())))
+                  .build(),
+              java.net.http.HttpResponse.BodyHandlers.discarding());
+      assertEquals(201, response.statusCode());
     }
   }
 

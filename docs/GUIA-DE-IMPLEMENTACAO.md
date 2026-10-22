@@ -6,18 +6,18 @@ Atualizado em 22/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10C2b2a — recursos das dependências durante carga |
-| Base desta entrega | 9e13ed5 — introspecção 10C2b1, commit local |
-| Trabalho local | Alterações 10C2b2a versionadas em commit local; push e CI remota pendentes |
+| Última entrega implementada | 10C2b2b1 — medição da validação no recurso protegido |
+| Base desta entrega | 059cc48 — recursos das dependências 10C2b2a, commit local |
+| Trabalho local | Alterações 10C2b2b1 sem commit/push/CI remota |
 | Branch | feat/tracing-backend |
-| Validação da entrega | Seleção `TokenBaselineSmoke` com Docker: emissão curta, emissão de 60 s, introspecção curta e Docker sem PID IAM aprovados; build completo anterior 10B5b com 888 testes |
-| Próxima implementação | 10C2b2b — validação no recurso, revogação e auditoria |
-| Pendências seguintes | Aceite operacional 10B condicionado aos limites abaixo; 10C2b2b–10D; publicação/CI |
+| Validação da entrega | Seleção curta `TokenBaselineSmoke` de recurso aprovada; ensaio de 60 s em execução; build completo anterior 10B5b com 888 testes |
+| Próxima implementação | 10C2b2b2 — medição de revogação; depois 10C2b2b3 — auditoria |
+| Pendências seguintes | Aceite operacional 10B condicionado aos limites abaixo; 10C2b2b2–10D; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b, a 10C1, a 10C2a, a 10C2b1 e a 10C2b2a também estão implementadas abaixo. As divisões 10C2b2b–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b, a 10C1, a 10C2a, a 10C2b1, a 10C2b2a e a 10C2b2b1 também estão implementadas abaixo. As divisões 10C2b2b2–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -683,13 +683,23 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 
 [Operação](runbooks/medicao-recursos-dependencias-carga-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java), [evidência](evidencias/etapa-10c2b2a.md). A 10C2b2b segue com validação no recurso, revogação e auditoria.
 
+## Etapa 10C2b2b1 — Validação no recurso protegido
+
+1. Reutilizar a massa humana e as políticas sintéticas da 10A2b2; executar login PKCE uma vez por thread em cada fase e manter token válido apenas em memória.
+2. Medir somente `GET /api/resources/account` com Bearer, sem cookies do navegador. Exigir HTTP 200, `sub` esperado e validade residual; tratar falha de preparação como falha do ensaio.
+3. Reutilizar as três fases, janelas, CSV de recursos e resumo da linha de base, registrando as amostras PKCE separadamente dos GETs. Restringir a fase ao TTL de 120 s do token sintético.
+4. Validar com IAM e dependências descartáveis, verificar ausência de credenciais/JWT nos artefatos e registrar que o tempo de GET inclui processamento e rede, sem isolar validação criptográfica/cache.
+
+[Operação](runbooks/medicao-validacao-recurso-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java), [evidência](evidencias/etapa-10c2b2b1.md). A 10C2b2b2 medirá revogação; a 10C2b2b3 medirá auditoria.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
-As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B5b conclui a integração funcional local dos quatro exporters na coleta conjunta; a 10C1 valida o método de medição de emissão em janela curta, a 10C2a observa variação por janela, a 10C2b1 mede introspecção HTTP e a 10C2b2a coleta recursos das dependências durante carga. O aceite global de observabilidade ainda deve explicitar os limites dos logs locais, sem renumerar entregas anteriores.
+As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B5b conclui a integração funcional local dos quatro exporters na coleta conjunta; a 10C1 valida o método de medição de emissão em janela curta, a 10C2a observa variação por janela, a 10C2b1 mede introspecção HTTP, a 10C2b2a coleta recursos das dependências durante carga e a 10C2b2b1 mede GET protegido. O aceite global de observabilidade ainda deve explicitar os limites dos logs locais, sem renumerar entregas anteriores.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10C2b2b — Medição dos demais fluxos | Medir validação no recurso, revogação e auditoria em patamares longos → registrar taxa ofertada/efetiva quando controlável. | Relatórios comparáveis às metas, desvios e limites explícitos. |
+| 10C2b2b2 — Revogação | Separar criação do token, POST de revogação e recusa observável; medir cada unidade sem incluir preparação ou espera oculta nos percentis. | Relatório de revogação e limites de propagação explícitos. |
+| 10C2b2b3 — Auditoria | Separar produção, visibilidade e consulta paginada; medir as unidades e recursos, com janela de observação declarada. | Relatório de auditoria com falhas, taxa e limites explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
 | 11A — Imagens/stack | Criar imagens Java 21 sem root → perfil Compose full → probes e smoke em ambiente limpo. | Stack completa executável conforme guia. |
 | 11B — CI e release | Integrar scans/checks → versionar artefatos/imagens → definir publicação GHCR no fluxo de release. | Pipeline verificável, sem publicar imagens de PR como release. |

@@ -1,6 +1,6 @@
 # Recursos das dependências durante carga — 10C2b2a
 
-A 10C2b2a acrescenta amostragem de containers ao [runner de token](../../load-tests/jmeter/Run-TokenIssuanceBaseline.ps1), para correlacionar carga de emissão ou introspecção com CPU e memória de PostgreSQL, Redis, RabbitMQ e Vault. Os quatro IDs são passados por `-DockerContainerIds`, separados por vírgula, na ordem indicada. O runner aceita somente 1–8 IDs Docker completos e distintos e não inicia sem a CLI Docker quando essa opção é usada.
+A 10C2b2a acrescenta amostragem de containers ao [runner JMeter](../../load-tests/jmeter/Run-TokenIssuanceBaseline.ps1), para correlacionar carga de emissão ou introspecção com CPU e memória de PostgreSQL, Redis, RabbitMQ e Vault. A 10C2b2b1 reutiliza a coleta no cenário de recurso protegido. Os quatro IDs são passados por `-DockerContainerIds`, separados por vírgula, na ordem indicada. O runner aceita somente 1–8 IDs Docker completos e distintos e não inicia sem a CLI Docker quando essa opção é usada.
 
 Durante cada fase, `docker stats --no-stream` coleta snapshots aproximadamente a cada 2 s. `container-resources.csv` registra timestamp UTC, ID abreviado, porcentagem de CPU, uso/limite de memória e quantidade de processos; não grava nomes, variáveis, comandos nem segredos dos containers. `summary.json` registra quantidade de pontos, maior CPU% e maior memória MiB por ID. Os valores são snapshots, sujeitos à latência da CLI e à precisão/unidade relatada pelo Docker; 100% de CPU equivale aproximadamente a um núcleo e pode ser ultrapassado.
 

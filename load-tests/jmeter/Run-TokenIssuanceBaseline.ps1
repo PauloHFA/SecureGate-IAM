@@ -4,7 +4,7 @@ param(
   [Parameter(Mandatory)][uri]$BaseUri,
   [Parameter(Mandatory)][string]$MassFile,
   [Parameter(Mandatory)][string]$OutputDirectory,
-  [ValidateSet('issuance', 'introspection')][string]$Scenario = 'issuance',
+  [ValidateSet('issuance', 'introspection', 'resource')][string]$Scenario = 'issuance',
   [ValidateRange(1, 20)][int]$Threads = 2,
   [ValidateRange(3, 900)][int]$WarmupSeconds = 10,
   [ValidateRange(5, 3600)][int]$SteadySeconds = 30,
@@ -23,9 +23,19 @@ if (-not (Test-Path -LiteralPath $jar)) { throw 'JMeter binary is missing.' }
 $mass = (Resolve-Path -LiteralPath $MassFile).Path
 $rows = @(Import-Csv -LiteralPath $mass)
 if ($WindowSeconds -gt $SteadySeconds) { throw 'WindowSeconds must not exceed SteadySeconds.' }
+if ($Scenario -eq 'resource' -and [Math]::Max($WarmupSeconds, [Math]::Max($SteadySeconds, $CooldownSeconds)) -gt 90) {
+  throw 'Resource phases are limited to 90 seconds by the synthetic human token lifetime.'
+}
 if ($rows.Count -lt $Threads) { throw 'Provide at least one synthetic client per thread.' }
 foreach ($row in $rows) {
-  if ($row.client_id -notmatch '^[a-z][a-z0-9_-]{2,63}$' -or [string]::IsNullOrWhiteSpace($row.client_secret) -or $row.scope -ne 'load:read') {
+  if ($Scenario -eq 'resource') {
+    $valid = $row.user_id -match '^[a-f0-9-]{36}$' -and $row.email -match '^[a-z0-9_-]+@example[.]test$' -and
+      $row.password.Length -ge 12 -and $row.redirect_uri -eq 'http://127.0.0.1:18090/callback' -and
+      $row.client_id -match '^[a-z][a-z0-9_-]{2,63}$' -and -not [string]::IsNullOrWhiteSpace($row.client_secret) -and $row.scope -eq 'api:read'
+  } else {
+    $valid = $row.client_id -match '^[a-z][a-z0-9_-]{2,63}$' -and -not [string]::IsNullOrWhiteSpace($row.client_secret) -and $row.scope -eq 'load:read'
+  }
+  if (-not $valid) {
     throw 'Invalid synthetic mass file.'
   }
 }
@@ -40,7 +50,7 @@ if (-not [string]::IsNullOrWhiteSpace($DockerContainerIds)) {
   }
   if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'Docker CLI is required for container sampling.' }
 }
-if ($Scenario -eq 'introspection') {
+if ($Scenario -in @('introspection', 'resource')) {
   $projectRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
   $privateRoots = @((Join-Path $projectRoot 'load-tests/.local'), (Join-Path $projectRoot 'integration-tests/target'))
   $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
@@ -49,12 +59,20 @@ if ($Scenario -eq 'introspection') {
     $prefix = [IO.Path]::GetFullPath($root).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
     if ($output.StartsWith($prefix, $comparison)) { $allowed = $true }
   }
-  if (-not $allowed) { throw 'Introspection output must stay under load-tests/.local or integration-tests/target.' }
+  if (-not $allowed) { throw 'Sensitive load output must stay under load-tests/.local or integration-tests/target.' }
 }
 if (Test-Path -LiteralPath $output) { throw 'Output directory already exists; choose a new run directory.' }
 [IO.Directory]::CreateDirectory($output) | Out-Null
-$plan = if ($Scenario -eq 'issuance') { 'token-issuance-baseline.jmx' } else { 'token-introspection-baseline.jmx' }
-$label = if ($Scenario -eq 'issuance') { 'token.success' } else { 'introspection.active' }
+$plan = switch ($Scenario) {
+  'issuance' { 'token-issuance-baseline.jmx' }
+  'introspection' { 'token-introspection-baseline.jmx' }
+  'resource' { 'resource-validation-baseline.jmx' }
+}
+$label = switch ($Scenario) {
+  'issuance' { 'token.success' }
+  'introspection' { 'introspection.active' }
+  'resource' { 'resource.validation.success' }
+}
 
 function New-PhaseTokenMass([string]$folder, [int]$duration) {
   $phaseMass = Join-Path $folder 'private-token-mass.csv'
@@ -206,6 +224,9 @@ function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
       "-Jramp_up=$([Math]::Min($duration, [Math]::Max(1, $phaseThreads)))",
       '-Lorg.apache.http=WARN'
     )
+    if ($Scenario -eq 'resource') {
+      $arguments += @("-Jflow_script=$(Join-Path $PSScriptRoot 'human-pkce.groovy')", '-Jretain_resource_token=true')
+    }
     & java @arguments *> (Join-Path $folder 'console.log')
     if ($LASTEXITCODE -ne 0) { throw "JMeter $name phase failed; inspect the local run log." }
   } finally {
@@ -236,9 +257,15 @@ function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
   }
   $samples = @(Import-Csv -LiteralPath $samplesFile)
   if ($samples.Count -eq 0) { throw "No $name samples were recorded." }
-  if (@($samples | Where-Object { $_.label -ne $label }).Count -ne 0) {
+  $setup = @($samples | Where-Object { $_.label -eq 'pkce.journey.success' })
+  if ($Scenario -eq 'resource' -and ($setup.Count -ne $phaseThreads -or
+      @($setup | Where-Object { $_.success -ne 'true' }).Count -gt 0)) {
+    throw "Human token setup failed or was incomplete in $name."
+  }
+  if (@($samples | Where-Object { $_.label -ne $label -and ($Scenario -ne 'resource' -or $_.label -ne 'pkce.journey.success') }).Count -ne 0) {
     throw "Unexpected sample label in $name; do not mix flows in the baseline."
   }
+  $samples = @($samples | Where-Object { $_.label -eq $label })
   $failures = @($samples | Where-Object { $_.success -ne 'true' }).Count
   $elapsed = @($samples | ForEach-Object { [double]::Parse($_.elapsed, [Globalization.CultureInfo]::InvariantCulture) })
   $windows = if ($name -eq 'steady') { @(Get-SteadyWindows $samples $duration $WindowSeconds) } else { @() }
@@ -281,6 +308,7 @@ function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
   }
   return [ordered]@{
     phase = $name; threads = $phaseThreads; durationSeconds = $duration
+    setupSamples = $setup.Count
     requests = $samples.Count; failures = $failures
     effectiveRequestsPerSecond = [Math]::Round($samples.Count / $duration, 2)
     errorPercent = [Math]::Round(100 * $failures / $samples.Count, 3)
@@ -305,7 +333,11 @@ try {
 } catch { $docker = $null }
 $summary = [ordered]@{
   timestampUtc = [DateTime]::UtcNow.ToString('o')
-  scenario = if ($Scenario -eq 'issuance') { 'client_credentials_token_issuance' } else { 'owned_active_token_introspection' }
+  scenario = switch ($Scenario) {
+    'issuance' { 'client_credentials_token_issuance' }
+    'introspection' { 'owned_active_token_introspection' }
+    'resource' { 'protected_resource_validation' }
+  }
   scope = 'local baseline; separate JMeter phase processes; no production SLA claim'
   jmeterValidatedBaseline = '5.6.3'
   logicalProcessors = [Environment]::ProcessorCount
@@ -321,6 +353,6 @@ $summary = [ordered]@{
 }
 $summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $output 'summary.json') -Encoding UTF8
 if (@($phases | Where-Object { $_.failures -gt 0 }).Count -gt 0) {
-  throw 'Token contract failed in at least one phase; inspect summary.json.'
+  throw 'Measured contract failed in at least one phase; inspect summary.json.'
 }
-Write-Output "Token baseline recorded: steady $($phases[1].effectiveRequestsPerSecond) req/s, p95 $($phases[1].p95Ms) ms."
+Write-Output "Baseline recorded: steady $($phases[1].effectiveRequestsPerSecond) req/s, p95 $($phases[1].p95Ms) ms."
