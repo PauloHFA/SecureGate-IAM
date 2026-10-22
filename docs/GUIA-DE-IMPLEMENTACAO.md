@@ -7,17 +7,17 @@ Atualizado em 22/10/2026. Este guia consolida a sequência de construção, as r
 | Item | Situação registrada |
 | --- | --- |
 | Última entrega implementada | 10C2b2b2 — medição da revogação e propagação |
-| Base desta entrega | bef3e67 — merge PR #10 (10C2b2b1), commit remoto |
-| Trabalho local | Alterações 10C2b2b2 validadas localmente na branch |
-| Branch | feat/load-revocation-baseline |
-| Validação da entrega | Seleção `TokenBaselineSmoke` com cenário revocation aprovada com 0 falhas; BUILD SUCCESS em 1 min 23 s |
-| Próxima implementação | 10C2b2b3 — medição de auditoria centralizada |
-| Pendências seguintes | 10C2b2b3, 10C3–10D; Etapa 11 — entrega/hardening; Etapa 12 — gateway opcional |
+| Base desta entrega | feat/load-revocation-baseline |
+| Trabalho local | Alterações 10C2b2b3 validadas localmente na branch |
+| Branch | feat/load-audit-baseline |
+| Validação da entrega | Seleção `TokenBaselineSmoke` com cenário audit aprovada com 0 falhas; BUILD SUCCESS em 1 min 24 s |
+| Próxima implementação | 10C3 — consolidação e runbook unificado de carga |
+| Pendências seguintes | 10C3–10D; Etapa 11 — entrega/hardening; Etapa 12 — gateway opcional |
 | Etapas posteriores | 10D — ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b, a 10C1, a 10C2a, a 10C2b1, a 10C2b2a, a 10C2b2b1 e a 10C2b2b2 também estão implementadas abaixo. As divisões 10C2b2b3–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b, a 10C1, a 10C2a, a 10C2b1, a 10C2b2a, a 10C2b2b1, a 10C2b2b2 e a 10C2b2b3 também estão implementadas abaixo. As divisões 10C3–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -700,15 +700,26 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 4. Consolidar métricas de `propagation` separadamente no `summary.json`, calculando percentis (p50, p95, p99) e comparando explicitamente o p95 de propagação com a meta de referência de 2000 ms (`targetPropagationMs = 2000`).
 5. Adicionar configuração `withExtraHost("host.docker.internal", "host-gateway")` no Testcontainers para manter compatibilidade com ambiente Linux na CI do GitHub Actions.
 
-[Operação](runbooks/medicao-revogacao-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java), [evidência](evidencias/etapa-10c2b2b2.md). A 10C2b2b3 medirá auditoria centralizada.
+[Operação](runbooks/medicao-revogacao-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java), [evidência](evidencias/etapa-10c2b2b2.md). A 10C2b2b3 mede auditoria centralizada.
+
+## Etapa 10C2b2b3 — Medição de auditoria centralizada
+
+1. Separar a medição de auditoria em três unidades estritas: produção de eventos (`audit.produce.call`), ingestão e visibilidade assíncrona (`audit.visibility.observed`) e consulta paginada (`audit.cursor.query`).
+2. Medir chamadas `POST /api/admin/users` com `X-Correlation-Id`, inserindo registros em identity e outbox transacional de forma ACID.
+3. Observar a visibilidade assíncrona via polling rápido em `GET /api/admin/audit/events?from=...&to=...&eventType=identity.user.created&correlationId=...&limit=1` até retorno de HTTP 200 com item válido e `nextCursor`, medindo o tempo decorrido do pipeline RabbitMQ e ingestão particionada.
+4. Medir a consulta paginada via `GET /api/admin/audit/events?...&cursor=<nextCursor>`, validando integridade, ordenação cronológica decrescente e ausência de cursores órfãos.
+5. Implementar encaminhamento e exposição de portas via `Testcontainers.exposeHostPorts(...)` e `.withAccessToHost(true)` em `JointSignalsIT` e `DependencyMetricsFixture`, resolvendo a conectividade dos scrape jobs do Prometheus com serviços locais em containers Linux (CI).
+6. Consolidar os blocos `visibility` e `cursorQuery` no `summary.json`, comparando a visibilidade contra o limite máximo de 5000 ms (`targetPropagationMs = 5000`).
+
+[Operação](runbooks/medicao-auditoria-centralizada-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java), [evidência](evidencias/etapa-10c2b2b3.md). A 10C3 consolidará os cenários em runbook unificado.
 
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
-As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B5b conclui a integração funcional local dos quatro exporters na coleta conjunta; a 10C1 valida o método de medição de emissão em janela curta, a 10C2a observa variação por janela, a 10C2b1 mede introspecção HTTP, a 10C2b2a coleta recursos das dependências durante carga, a 10C2b2b1 mede GET protegido e a 10C2b2b2 mede revogação e propagação. O aceite global de observabilidade ainda deve explicitar os limites dos logs locais, sem renumerar entregas anteriores.
+As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B5b conclui a integração funcional local dos quatro exporters na coleta conjunta; a 10C1 valida o método de medição de emissão em janela curta, a 10C2a observa variação por janela, a 10C2b1 mede introspecção HTTP, a 10C2b2a coleta recursos das dependências durante carga, a 10C2b2b1 mede GET protegido, a 10C2b2b2 mede revogação e propagação e a 10C2b2b3 mede auditoria centralizada. O aceite global de observabilidade ainda deve explicitar os limites dos logs locais, sem renumerar entregas anteriores.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10C2b2b3 — Auditoria | Separar produção, visibilidade e consulta paginada; medir as unidades e recursos, com janela de observação declarada. | Relatório de auditoria com falhas, taxa e limites explícitos. |
+| 10C3 — Consolidação | Consolidar os cinco fluxos de carga em runbook unificado e script de automação comparativa. | Runbook único com parâmetros e relatórios comparativos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
 | 11A — Imagens/stack | Criar imagens Java 21 sem root → perfil Compose full → probes e smoke em ambiente limpo. | Stack completa executável conforme guia. |
 | 11B — CI e release | Integrar scans/checks → versionar artefatos/imagens → definir publicação GHCR no fluxo de release. | Pipeline verificável, sem publicar imagens de PR como release. |

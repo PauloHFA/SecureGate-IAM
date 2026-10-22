@@ -21,10 +21,15 @@ class TokenBaselineSmoke {
     int steadySeconds =
         Integer.getInteger(
             "securegate.load.steady.seconds",
-            (scenario.equals("resource") || scenario.equals("revocation")) ? 10 : 5);
+            (scenario.equals("resource")
+                    || scenario.equals("revocation")
+                    || scenario.equals("audit"))
+                ? 10
+                : 5);
     int windowSeconds = Integer.getInteger("securegate.load.window.seconds", 1);
     boolean omitIamPid = Boolean.getBoolean("securegate.load.omitIamPid");
-    assertTrue(List.of("issuance", "introspection", "resource", "revocation").contains(scenario));
+    assertTrue(
+        List.of("issuance", "introspection", "resource", "revocation", "audit").contains(scenario));
     assertTrue(steadySeconds >= windowSeconds && windowSeconds > 0);
     assertTrue(Files.isRegularFile(Path.of(home, "bin", "ApacheJMeter.jar")));
     Path output = Path.of("target/load-capacity", UUID.randomUUID().toString()).toAbsolutePath();
@@ -36,6 +41,9 @@ class TokenBaselineSmoke {
       environment.start();
       if (scenario.equals("resource") || scenario.equals("revocation")) {
         configureTestRisk(environment);
+      }
+      if (scenario.equals("audit")) {
+        environment.enableAuditJourney();
       }
       Files.writeString(admin, environment.admin);
       var prepareArgs =
@@ -62,40 +70,56 @@ class TokenBaselineSmoke {
                   ? "New-HumanMass.ps1"
                   : "New-ClientMass.ps1",
               prepareArgs.toArray(String[]::new)));
+      var baselineArgs =
+          new ArrayList<>(
+              List.of(
+                  "-JMeterHome",
+                  home,
+                  "-BaseUri",
+                  environment.base.toString(),
+                  "-MassFile",
+                  mass.toString(),
+                  "-OutputDirectory",
+                  output.resolve("baseline").toString(),
+                  "-Scenario",
+                  scenario,
+                  "-Threads",
+                  "2",
+                  "-WarmupSeconds",
+                  (scenario.equals("resource")
+                          || scenario.equals("revocation")
+                          || scenario.equals("audit"))
+                      ? "8"
+                      : "3",
+                  "-SteadySeconds",
+                  Integer.toString(steadySeconds),
+                  "-WindowSeconds",
+                  Integer.toString(windowSeconds),
+                  "-CooldownSeconds",
+                  (scenario.equals("resource")
+                          || scenario.equals("revocation")
+                          || scenario.equals("audit"))
+                      ? "8"
+                      : "3",
+                  "-IamProcessId",
+                  omitIamPid ? "0" : Long.toString(environment.iamProcessId()),
+                  "-DockerContainerIds",
+                  String.join(
+                      ",",
+                      environment.database.getContainerId(),
+                      environment.redisContainer.getContainerId(),
+                      environment.rabbit.getContainerId(),
+                      environment.vault.getContainerId())));
+      if (scenario.equals("audit")) {
+        baselineArgs.add("-AdminTokenFile");
+        baselineArgs.add(admin.toString());
+      }
       assertEquals(
           0,
           script(
               output.resolve("baseline.log"),
               "Run-TokenIssuanceBaseline.ps1",
-              "-JMeterHome",
-              home,
-              "-BaseUri",
-              environment.base.toString(),
-              "-MassFile",
-              mass.toString(),
-              "-OutputDirectory",
-              output.resolve("baseline").toString(),
-              "-Scenario",
-              scenario,
-              "-Threads",
-              "2",
-              "-WarmupSeconds",
-              (scenario.equals("resource") || scenario.equals("revocation")) ? "8" : "3",
-              "-SteadySeconds",
-              Integer.toString(steadySeconds),
-              "-WindowSeconds",
-              Integer.toString(windowSeconds),
-              "-CooldownSeconds",
-              (scenario.equals("resource") || scenario.equals("revocation")) ? "8" : "3",
-              "-IamProcessId",
-              omitIamPid ? "0" : Long.toString(environment.iamProcessId()),
-              "-DockerContainerIds",
-              String.join(
-                  ",",
-                  environment.database.getContainerId(),
-                  environment.redisContainer.getContainerId(),
-                  environment.rabbit.getContainerId(),
-                  environment.vault.getContainerId())));
+              baselineArgs.toArray(String[]::new)));
       var report =
           PropagationEnvironment.JSON.readTree(output.resolve("baseline/summary.json").toFile());
       assertEquals(
@@ -103,11 +127,16 @@ class TokenBaselineSmoke {
             case "issuance" -> "client_credentials_token_issuance";
             case "introspection" -> "owned_active_token_introspection";
             case "revocation" -> "token_revocation_and_propagation";
+            case "audit" -> "centralized_audit_pipeline";
             default -> "protected_resource_validation";
           },
           report.path("scenario").asText());
       if (scenario.equals("revocation")) {
         assertEquals(2000, report.path("targetPropagationMs").asInt());
+        assertTrue(report.has("steadyPropagationMeetsTarget"));
+      }
+      if (scenario.equals("audit")) {
+        assertEquals(5000, report.path("targetPropagationMs").asInt());
         assertTrue(report.has("steadyPropagationMeetsTarget"));
       }
       var phases = report.path("phases");
@@ -122,6 +151,13 @@ class TokenBaselineSmoke {
           assertTrue(phases.get(i).path("propagation").path("observations").asInt() > 0);
           assertEquals(0, phases.get(i).path("propagation").path("failures").asInt());
           assertTrue(phases.get(i).path("propagation").path("p95Ms").asDouble() > 0);
+        } else if (scenario.equals("audit")) {
+          assertTrue(phases.get(i).path("visibility").path("observations").asInt() > 0);
+          assertEquals(0, phases.get(i).path("visibility").path("failures").asInt());
+          assertTrue(phases.get(i).path("visibility").path("p95Ms").asDouble() > 0);
+          assertTrue(phases.get(i).path("cursorQuery").path("queries").asInt() > 0);
+          assertEquals(0, phases.get(i).path("cursorQuery").path("failures").asInt());
+          assertTrue(phases.get(i).path("cursorQuery").path("p95Ms").asDouble() > 0);
         } else {
           assertEquals(
               scenario.equals("resource") ? (i == 1 ? 2 : 1) : 0,
@@ -155,6 +191,7 @@ class TokenBaselineSmoke {
                       switch (scenario) {
                         case "resource" -> line.contains(",resource.validation.success,");
                         case "revocation" -> line.contains(",token.revoke.call,");
+                        case "audit" -> line.contains(",audit.produce.call,");
                         default -> true;
                       })
               .mapToLong(line -> Long.parseLong(line.substring(0, line.indexOf(','))))

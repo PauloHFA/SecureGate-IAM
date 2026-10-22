@@ -34,6 +34,9 @@ final class DependencyMetricsFixture implements AutoCloseable {
   }
 
   void start() throws Exception {
+    org.testcontainers.Testcontainers.exposeHostPorts(
+        environment.database.getMappedPort(5432), environment.redisContainer.getMappedPort(6379));
+
     String postgresPassword = randomHex();
     Path postgresFile = temporary.resolve("postgres-metrics-password");
     Files.writeString(postgresFile, postgresPassword);
@@ -48,7 +51,7 @@ final class DependencyMetricsFixture implements AutoCloseable {
 
     String redisPassword = randomHex();
     String redisTarget =
-        "redis://host.docker.internal:" + environment.redisContainer.getMappedPort(6379);
+        "redis://host.testcontainers.internal:" + environment.redisContainer.getMappedPort(6379);
     byte[][] acl =
         List.of(
                 "SETUSER",
@@ -72,7 +75,7 @@ final class DependencyMetricsFixture implements AutoCloseable {
         redisFile,
         PropagationEnvironment.JSON.writeValueAsString(
             Map.of(
-                "redis://securegate_metrics@host.docker.internal:"
+                "redis://securegate_metrics@host.testcontainers.internal:"
                     + environment.redisContainer.getMappedPort(6379),
                 redisPassword)));
 
@@ -93,11 +96,11 @@ final class DependencyMetricsFixture implements AutoCloseable {
                 image(
                     "docker-compose.postgres-metrics.yml",
                     "quay.io/prometheuscommunity/postgres-exporter:"))
-            .withExtraHost("host.docker.internal", "host-gateway")
+            .withAccessToHost(true)
             .withExposedPorts(9187)
             .withEnv(
                 "DATA_SOURCE_URI",
-                "host.docker.internal:"
+                "host.testcontainers.internal:"
                     + environment.database.getMappedPort(5432)
                     + "/propagation_test?sslmode=disable&connect_timeout=2")
             .withEnv("DATA_SOURCE_USER", "securegate_metrics")
@@ -131,7 +134,7 @@ final class DependencyMetricsFixture implements AutoCloseable {
     redisExporter =
         new GenericContainer<>(
                 image("docker-compose.redis-metrics.yml", "oliver006/redis_exporter:"))
-            .withExtraHost("host.docker.internal", "host-gateway")
+            .withAccessToHost(true)
             .withExposedPorts(9121)
             .withEnv("REDIS_ADDR", redisTarget)
             .withEnv("REDIS_USER", "securegate_metrics")
@@ -158,6 +161,14 @@ final class DependencyMetricsFixture implements AutoCloseable {
 
   Path vaultTokenFile() {
     return vaultTokenFile;
+  }
+
+  int postgresPort() {
+    return postgresExporter.getMappedPort(9187);
+  }
+
+  int redisPort() {
+    return redisExporter.getMappedPort(9121);
   }
 
   String prometheusJobs() throws Exception {

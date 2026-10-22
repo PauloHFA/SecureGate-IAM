@@ -80,7 +80,9 @@ A 10C2b2a permite `-DockerContainerIds` para amostrar CPU, memória e processos 
 
 A 10C2b2b1 adiciona `-Scenario resource` e um [plano exclusivo](resource-validation-baseline.jmx). O login PKCE acontece uma vez por thread e fase, enquanto somente o GET protegido compõe as métricas. A duração da fase inclui a preparação inicial; `setupSamples` informa quantas jornadas ocorreram. Ver [procedimento e limites](../../docs/runbooks/medicao-validacao-recurso-local.md).
 
-A 10C2b2b2 adiciona `-Scenario revocation` e um [plano dedicado](token-revocation-baseline.jmx). A preparação humana PKCE fica isolada em `setupSamples`, a chamada `POST /oauth2/revoke` é medida em `token.revoke.call` e o tempo até a recusa no recurso em `revocation.observed_refusal`. O relatório compara explicitamente o p95 de propagação com o alvo de 2000 ms. Ver [procedimento e limites](../../docs/runbooks/medicao-revogacao-local.md). A auditoria segue na próxima divisão.
+A 10C2b2b2 adiciona `-Scenario revocation` e um [plano dedicado](token-revocation-baseline.jmx). A preparação humana PKCE fica isolada em `setupSamples`, a chamada `POST /oauth2/revoke` é medida em `token.revoke.call` e o tempo até a recusa no recurso em `revocation.observed_refusal`. O relatório compara explicitamente o p95 de propagação com o alvo de 2000 ms. Ver [procedimento e limites](../../docs/runbooks/medicao-revogacao-local.md).
+
+A 10C2b2b3 adiciona `-Scenario audit` e um [plano dedicado](audit-baseline.jmx) e [script sampler](audit-baseline.groovy). O cenário separa três unidades: produção (`audit.produce.call`), visibilidade assíncrona (`audit.visibility.observed`) e consulta paginada (`audit.cursor.query`). O relatório compara explicitamente o p95 de visibilidade com a meta de 5000 ms. Ver [procedimento e limites](../../docs/runbooks/medicao-auditoria-centralizada-local.md).
 
 Ver [ADR-045](../../docs/adr/045-base-de-carga-jmeter.md), [evidências 10A1](../../docs/evidencias/etapa-10a1.md) e [guia passo a passo](../../docs/GUIA-DE-IMPLEMENTACAO.md).
 
