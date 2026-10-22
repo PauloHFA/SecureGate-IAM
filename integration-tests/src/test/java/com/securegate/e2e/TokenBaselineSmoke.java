@@ -19,10 +19,12 @@ class TokenBaselineSmoke {
     String home = System.getProperty("securegate.jmeter.home", "");
     String scenario = System.getProperty("securegate.load.scenario", "issuance");
     int steadySeconds =
-        Integer.getInteger("securegate.load.steady.seconds", scenario.equals("resource") ? 10 : 5);
+        Integer.getInteger(
+            "securegate.load.steady.seconds",
+            (scenario.equals("resource") || scenario.equals("revocation")) ? 10 : 5);
     int windowSeconds = Integer.getInteger("securegate.load.window.seconds", 1);
     boolean omitIamPid = Boolean.getBoolean("securegate.load.omitIamPid");
-    assertTrue(List.of("issuance", "introspection", "resource").contains(scenario));
+    assertTrue(List.of("issuance", "introspection", "resource", "revocation").contains(scenario));
     assertTrue(steadySeconds >= windowSeconds && windowSeconds > 0);
     assertTrue(Files.isRegularFile(Path.of(home, "bin", "ApacheJMeter.jar")));
     Path output = Path.of("target/load-capacity", UUID.randomUUID().toString()).toAbsolutePath();
@@ -32,7 +34,7 @@ class TokenBaselineSmoke {
     Path mass = privateFiles.resolve("clients.csv");
     try (var environment = new PropagationEnvironment()) {
       environment.start();
-      if (scenario.equals("resource")) {
+      if (scenario.equals("resource") || scenario.equals("revocation")) {
         configureTestRisk(environment);
       }
       Files.writeString(admin, environment.admin);
@@ -49,14 +51,16 @@ class TokenBaselineSmoke {
                   "capacity-smoke",
                   "-Count",
                   "2"));
-      if (scenario.equals("resource")) {
+      if (scenario.equals("resource") || scenario.equals("revocation")) {
         prepareArgs.add("-IncludeAccountPolicy");
       }
       assertEquals(
           0,
           script(
               output.resolve("prepare.log"),
-              scenario.equals("resource") ? "New-HumanMass.ps1" : "New-ClientMass.ps1",
+              (scenario.equals("resource") || scenario.equals("revocation"))
+                  ? "New-HumanMass.ps1"
+                  : "New-ClientMass.ps1",
               prepareArgs.toArray(String[]::new)));
       assertEquals(
           0,
@@ -76,13 +80,13 @@ class TokenBaselineSmoke {
               "-Threads",
               "2",
               "-WarmupSeconds",
-              scenario.equals("resource") ? "8" : "3",
+              (scenario.equals("resource") || scenario.equals("revocation")) ? "8" : "3",
               "-SteadySeconds",
               Integer.toString(steadySeconds),
               "-WindowSeconds",
               Integer.toString(windowSeconds),
               "-CooldownSeconds",
-              scenario.equals("resource") ? "8" : "3",
+              (scenario.equals("resource") || scenario.equals("revocation")) ? "8" : "3",
               "-IamProcessId",
               omitIamPid ? "0" : Long.toString(environment.iamProcessId()),
               "-DockerContainerIds",
@@ -98,18 +102,31 @@ class TokenBaselineSmoke {
           switch (scenario) {
             case "issuance" -> "client_credentials_token_issuance";
             case "introspection" -> "owned_active_token_introspection";
+            case "revocation" -> "token_revocation_and_propagation";
             default -> "protected_resource_validation";
           },
           report.path("scenario").asText());
+      if (scenario.equals("revocation")) {
+        assertEquals(2000, report.path("targetPropagationMs").asInt());
+        assertTrue(report.has("steadyPropagationMeetsTarget"));
+      }
       var phases = report.path("phases");
       assertEquals(3, phases.size());
       for (int i = 0; i < 3; i++) {
         assertEquals(0, phases.get(i).path("failures").asInt());
         assertTrue(phases.get(i).path("requests").asInt() > 0);
         assertTrue(phases.get(i).path("p95Ms").asDouble() > 0);
-        assertEquals(
-            scenario.equals("resource") ? (i == 1 ? 2 : 1) : 0,
-            phases.get(i).path("setupSamples").asInt());
+        if (scenario.equals("revocation")) {
+          assertTrue(
+              phases.get(i).path("setupSamples").asInt() >= phases.get(i).path("requests").asInt());
+          assertTrue(phases.get(i).path("propagation").path("observations").asInt() > 0);
+          assertEquals(0, phases.get(i).path("propagation").path("failures").asInt());
+          assertTrue(phases.get(i).path("propagation").path("p95Ms").asDouble() > 0);
+        } else {
+          assertEquals(
+              scenario.equals("resource") ? (i == 1 ? 2 : 1) : 0,
+              phases.get(i).path("setupSamples").asInt());
+        }
         if (omitIamPid) {
           assertTrue(phases.get(i).path("iamProcess").isNull());
         } else {
@@ -135,8 +152,11 @@ class TokenBaselineSmoke {
               .skip(1)
               .filter(
                   line ->
-                      !scenario.equals("resource")
-                          || line.contains(",resource.validation.success,"))
+                      switch (scenario) {
+                        case "resource" -> line.contains(",resource.validation.success,");
+                        case "revocation" -> line.contains(",token.revoke.call,");
+                        default -> true;
+                      })
               .mapToLong(line -> Long.parseLong(line.substring(0, line.indexOf(','))))
               .summaryStatistics();
       assertTrue(
@@ -162,7 +182,7 @@ class TokenBaselineSmoke {
       secrets.add(environment.admin);
       for (String row : Files.readAllLines(mass).subList(1, 3)) {
         String[] fields = row.replace("\"", "").split(",");
-        if (scenario.equals("resource")) {
+        if (scenario.equals("resource") || scenario.equals("revocation")) {
           secrets.add(fields[0]);
           secrets.add(fields[1]);
           secrets.add(fields[2]);

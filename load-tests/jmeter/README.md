@@ -78,7 +78,9 @@ A 10C2b1 adiciona `-Scenario introspection` ao runner e um [plano exclusivo](tok
 
 A 10C2b2a permite `-DockerContainerIds` para amostrar CPU, memória e processos das dependências durante emissão ou introspecção. O runner registra somente IDs abreviados e métricas, com um resumo por fase; exige amostra de cada ID informado. Ver [procedimento de recursos](../../docs/runbooks/medicao-recursos-dependencias-carga-local.md). Validação no recurso, revogação e auditoria seguem na 10C2b2b.
 
-A 10C2b2b1 adiciona `-Scenario resource` e um [plano exclusivo](resource-validation-baseline.jmx). O login PKCE acontece uma vez por thread e fase, enquanto somente o GET protegido compõe as métricas. A duração da fase inclui a preparação inicial; `setupSamples` informa quantas jornadas ocorreram. Ver [procedimento e limites](../../docs/runbooks/medicao-validacao-recurso-local.md). Revogação e auditoria seguem nas próximas divisões.
+A 10C2b2b1 adiciona `-Scenario resource` e um [plano exclusivo](resource-validation-baseline.jmx). O login PKCE acontece uma vez por thread e fase, enquanto somente o GET protegido compõe as métricas. A duração da fase inclui a preparação inicial; `setupSamples` informa quantas jornadas ocorreram. Ver [procedimento e limites](../../docs/runbooks/medicao-validacao-recurso-local.md).
+
+A 10C2b2b2 adiciona `-Scenario revocation` e um [plano dedicado](token-revocation-baseline.jmx). A preparação humana PKCE fica isolada em `setupSamples`, a chamada `POST /oauth2/revoke` é medida em `token.revoke.call` e o tempo até a recusa no recurso em `revocation.observed_refusal`. O relatório compara explicitamente o p95 de propagação com o alvo de 2000 ms. Ver [procedimento e limites](../../docs/runbooks/medicao-revogacao-local.md). A auditoria segue na próxima divisão.
 
 Ver [ADR-045](../../docs/adr/045-base-de-carga-jmeter.md), [evidências 10A1](../../docs/evidencias/etapa-10a1.md) e [guia passo a passo](../../docs/GUIA-DE-IMPLEMENTACAO.md).
 
