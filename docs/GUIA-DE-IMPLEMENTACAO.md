@@ -6,18 +6,18 @@ Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B3c3a — tracing do consumo no enforcer |
-| Base desta entrega | be06e27 — publicação AMQP |
+| Última entrega implementada | 10B3c3b — tracing da auditoria IAM em lote |
+| Base desta entrega | 103553e — consumo no enforcer |
 | Trabalho local | Implementação local; incluída neste commit; push pendente |
 | Branch | feat/outbox-trace-context |
-| Validação da entrega | Build completo: 835 testes, zero falhas/erros/skips; cobertura/arquitetura atendidas; BUILD SUCCESS às 20:53:30 UTC−03 |
-| Próxima implementação | 10B3c3b — auditoria IAM em lote |
-| Pendências seguintes | 10B3c3b — auditoria IAM; 10C–10D; publicação/CI |
+| Validação da entrega | BUILD SUCCESS às 21:36:26 UTC−03: 845 testes, zero falhas/erros/skips; gates atendidos; ressalva de shutdown do fork IAM/Hikari nas evidências |
+| Próxima implementação | 10B4 — backend/exportação e coleta conjunta |
+| Pendências seguintes | Aceite global 10B; 10C–10D; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2 e a 10B3c3a também estão implementadas abaixo. As demais divisões 10B3c3b–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a e a 10B3c3b também estão implementadas abaixo. As demais divisões 10B4–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -563,13 +563,28 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 
 [ADR-062](adr/062-tracing-consumo-enforcer.md), [operação](runbooks/tracing-consumidores-local.md), [evidências](evidencias/etapa-10b3c3a.md). Branch feat/outbox-trace-context sobre be06e27, incluída neste commit; push pendente. Próxima: c3b, preservando lote/isolamento/ACK da auditoria.
 
+## Etapa 10B3c3b — Tracing da auditoria IAM em lote
+
+1. Conferir estado inicial: 10B3c3a já estava no commit 103553e, sem alterações pendentes; não criar commit vazio nem push ao iniciar esta entrega.
+2. Identificar appendBatch atômico e parents distintos; escolher span raiz com links, sem dividir transação ou atribuir arbitrariamente o primeiro parent.
+3. Criar AuditConsumerTrace na infraestrutura; conectar Tracer opcional do IAM no bootstrap e preservar construtor anterior/default sem inspeção de headers.
+4. Extrair somente String/LongString traceparent W3C estrito por OutboxTraceParent; rejeitar parent ambíguo/hostil/ausente para NULL, preservando decisão de negócio.
+5. Guardar apenas parent validado/redelivery no Pending, com toString restrito; deduplicar links por traceId/spanId, no máximo o limite de 100 mensagens do lote.
+6. Após decode puro, criar audit.consume.batch CONSUMER raiz explícita. Envolver appendBatch, fallback e disposição; sampler local e links sem atributos arbitrários.
+7. Rejeição inválida recebe span de disposição; fallback isolado recebe span com parent próprio. Restaurar lote/escopo/MDC em finally e manter commit/ACK/poison/late/retry/desconexão anteriores.
+8. Limitar cinco atributos finitos e excluir payload, erro livre, identidade ou métricas novas. Não persistir contexto de consumo no banco/envelope v1.
+9. Testar SDK/canal simulado para links/parents/MDC/ACK incerto e banco/broker reais para lote misto, appendBatch único, retry/redelivery e deduplicação.
+10. Executar seleção e verify completo; registrar resultados/limites e atualizar decisões/operação/inventário. Concluir instrumentação c3 sem declarar aceite global 10B: backend/coleta conjunta seguem propostos na 10B4.
+
+[ADR-063](adr/063-tracing-auditoria-em-lote.md), [operação](runbooks/tracing-consumidores-local.md), [evidências](evidencias/etapa-10b3c3b.md). Branch feat/outbox-trace-context sobre 103553e; incluída neste commit; push pendente. Sem nova migração ou alteração da stack persistente.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
-As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados.
+As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B4 explicita backend/exportação e coleta conjunta, já pendentes no aceite global 10B; não representa uma entrega realizada nem renumera as entregas anteriores.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10B3c3b — Consumo de auditoria IAM | Modelar parents/links de lotes → extrair/validar contexto → preservar commit/isolamento/retry/ACK → testar escopo e redelivery. | Tracing de auditoria em lote sem parent arbitrário ou perda de atomicidade. |
+| 10B4 — Fechamento da observabilidade | Definir backend/exportação/retenção/acesso → integrar spans/links restritos → validar coleta conjunta e falha/recuperação → registrar aceite. | Observabilidade integrada verificável antes da medição 10C; proposta ainda não implementada. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
 | 11A — Imagens/stack | Criar imagens Java 21 sem root → perfil Compose full → probes e smoke em ambiente limpo. | Stack completa executável conforme guia. |

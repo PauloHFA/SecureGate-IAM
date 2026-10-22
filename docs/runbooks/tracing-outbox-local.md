@@ -35,7 +35,7 @@ Linhas existentes e produtores sem contexto ficam NULL; não há backfill. Valor
 6. Em retry, conferir por testes que parent durável/body/eventId permanecem iguais, mas spanId do produtor muda. Confirm não significa consumidor concluído; queda antes do UPDATE ainda permite redelivery. Não registrar headers/credenciais ao diagnosticar.
 7. Desabilitar tracing e reiniciar o runtime para suspender spans/headers; a coluna e os eventos existentes permanecem. Não remover a migração nem alterar o payload para reverter.
 
-Não há exporter/backend instalado: spans de produção não são armazenados para consulta. Os testes capturam spans localmente e verificam o header entregue pelo broker. O enforcer passa a extrair o header na [10B3c3a](tracing-consumidores-local.md); auditoria IAM em lote permanece na 10B3c3b.
+Não há exporter/backend instalado: spans de produção não são armazenados para consulta. Os testes capturam spans localmente e verificam o header entregue pelo broker. O enforcer passa a extrair o header na [10B3c3a](tracing-consumidores-local.md); auditoria IAM em lote usa raízes com links na 10B3c3b descrita nesse mesmo guia.
 
 ## Verificação
 
@@ -50,4 +50,4 @@ OutboxTraceContextIT usa PostgreSQL real e contexto SDK: upgrade V22 → V23 com
 
 Para parar a captura, desativar tracing e reiniciar o IAM; metadados já persistidos permanecem. Não remover a coluna nem reescrever histórico Flyway para reverter o binário. Aplicação anterior usa INSERT de campos nomeados e deixa a coluna em NULL; avaliar compatibilidade da versão exata no processo de release. Retenção do parent acompanha a linha de outbox; nenhuma retenção nova foi criada.
 
-A [10B3c3a](tracing-consumidores-local.md) implementa restauração/limpeza no enforcer. Próxima proposta: **10B3c3b** tratar contexto no consumo de auditoria IAM em lote, preservando atomicidade, isolamento e retries/redelivery. A publicação da 10B3c2 está descrita na [ADR-061](../adr/061-tracing-publicacao-amqp.md) e nas [evidências 10B3c2](../evidencias/etapa-10b3c2.md). Exporter/backend e aceite de desempenho permanecem pendentes. [ADR-060](../adr/060-contexto-duravel-no-outbox.md), [evidências](../evidencias/etapa-10b3c1.md).
+A [10B3c3a](tracing-consumidores-local.md) implementa restauração/limpeza no enforcer. A 10B3c3b trata contexto no consumo de auditoria IAM em lote, preservando atomicidade, isolamento e retries/redelivery. Próxima proposta: 10B4, fechamento de backend/exportação e coleta conjunta. A publicação da 10B3c2 está descrita na [ADR-061](../adr/061-tracing-publicacao-amqp.md) e nas [evidências 10B3c2](../evidencias/etapa-10b3c2.md). Exporter/backend e aceite de desempenho permanecem pendentes. [ADR-060](../adr/060-contexto-duravel-no-outbox.md), [evidências](../evidencias/etapa-10b3c1.md).

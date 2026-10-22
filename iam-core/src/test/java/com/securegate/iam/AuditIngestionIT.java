@@ -383,6 +383,185 @@ class AuditIngestionIT {
     assertEquals(0, ready("audit.persist"));
   }
 
+  @Test
+  void tracedMixedParentBatchCommitsOnceWithLinksAndCleansScope() throws Exception {
+    try (var tracing = new TraceCapture()) {
+      var first = event();
+      var second = event();
+      var legacy = event();
+      publishRaw(
+          first,
+          JSON.writeValueAsBytes(first),
+          properties(first)
+              .builder()
+              .headers(
+                  Map.of(
+                      "schemaVersion",
+                      1,
+                      "traceparent",
+                      traceParent("1"),
+                      "baggage",
+                      "secret=synthetic"))
+              .build());
+      publishRaw(
+          second,
+          JSON.writeValueAsBytes(second),
+          properties(second)
+              .builder()
+              .headers(Map.of("schemaVersion", 1, "traceparent", traceParent("2")))
+              .build());
+      publish(legacy);
+      var calls = new java.util.concurrent.atomic.AtomicInteger();
+      AuditEventStore tracedStore =
+          new AuditEventStore() {
+            public Result append(SecurityEvent event) {
+              fail("Unexpected fallback");
+              return null;
+            }
+
+            public List<Result> appendBatch(List<SecurityEvent> events) {
+              calls.incrementAndGet();
+              assertEquals(3, events.size());
+              assertNotNull(tracing.tracer.currentSpan());
+              assertEquals(
+                  tracing.tracer.currentSpan().context().traceId(), org.slf4j.MDC.get("traceId"));
+              return store.appendBatch(events);
+            }
+          };
+      worker.close();
+      worker =
+          new RabbitAuditWorker(
+              factory(),
+              JSON,
+              tracedStore,
+              meters,
+              20,
+              1000,
+              new AuditConsumerTrace(tracing.tracer));
+      worker.runOnce();
+      assertEquals(1, calls.get());
+      for (var event : List.of(first, second, legacy)) {
+        assertEquals(1, rows(event));
+        assertEquals(1, receipts(event));
+      }
+      assertEquals(0, ready("audit.persist"));
+      assertEquals(1, tracing.spans.size());
+      var span = tracing.spans.getFirst();
+      assertEquals("0".repeat(16), span.getParentSpanId());
+      assertEquals(
+          List.of("1".repeat(32), "2".repeat(32)),
+          span.getLinks().stream().map(link -> link.getSpanContext().getTraceId()).toList());
+      assertEquals(5, span.getAttributes().size());
+      assertTrue(span.getEvents().isEmpty());
+      assertNull(tracing.tracer.currentSpan());
+      assertNull(org.slf4j.MDC.get("traceId"));
+    }
+  }
+
+  @Test
+  void tracedRedeliveryRetainsProducerLinksAcrossRetryAndRecovery() throws Exception {
+    try (var tracing = new TraceCapture()) {
+      var event = event();
+      publishRaw(
+          event,
+          JSON.writeValueAsBytes(event),
+          properties(event)
+              .builder()
+              .headers(Map.of("schemaVersion", 1, "traceparent", traceParent("1")))
+              .build());
+      var fail = new java.util.concurrent.atomic.AtomicBoolean(true);
+      AuditEventStore transientStore =
+          new AuditEventStore() {
+            public Result append(SecurityEvent value) {
+              return store.append(value);
+            }
+
+            public List<Result> appendBatch(List<SecurityEvent> values) {
+              if (fail.getAndSet(false))
+                throw new org.springframework.dao.DataAccessResourceFailureException(
+                    "synthetic outage");
+              return store.appendBatch(values);
+            }
+          };
+      worker.close();
+      worker =
+          new RabbitAuditWorker(
+              factory(),
+              JSON,
+              transientStore,
+              meters,
+              20,
+              1000,
+              new AuditConsumerTrace(tracing.tracer));
+      worker.runOnce();
+      assertEquals(0, rows(event));
+      assertNull(tracing.tracer.currentSpan());
+      worker.runOnce();
+      assertEquals(1, rows(event));
+      assertEquals(1, receipts(event));
+      assertEquals(0, ready("audit.persist"));
+      assertEquals(2, tracing.spans.size());
+      assertNotEquals(tracing.spans.getFirst().getTraceId(), tracing.spans.getLast().getTraceId());
+      for (var span : tracing.spans)
+        assertEquals("1".repeat(32), span.getLinks().getFirst().getSpanContext().getTraceId());
+      var outcome = io.opentelemetry.api.common.AttributeKey.stringKey("messaging.outcome");
+      assertEquals("retry", tracing.spans.getFirst().getAttributes().get(outcome));
+      assertEquals("stored", tracing.spans.getLast().getAttributes().get(outcome));
+      assertEquals(
+          "true",
+          tracing
+              .spans
+              .getLast()
+              .getAttributes()
+              .get(io.opentelemetry.api.common.AttributeKey.stringKey("messaging.redelivered")));
+      assertNull(org.slf4j.MDC.get("spanId"));
+    }
+  }
+
+  private static String traceParent(String digit) {
+    return "00-" + digit.repeat(32) + "-" + digit.repeat(16) + "-01";
+  }
+
+  private static class TraceCapture implements AutoCloseable {
+    final List<io.opentelemetry.sdk.trace.data.SpanData> spans = new java.util.ArrayList<>();
+    final io.opentelemetry.sdk.trace.SdkTracerProvider provider;
+    final io.micrometer.tracing.Tracer tracer;
+
+    TraceCapture() {
+      provider =
+          io.opentelemetry.sdk.trace.SdkTracerProvider.builder()
+              .setSampler(io.opentelemetry.sdk.trace.samplers.Sampler.traceIdRatioBased(1))
+              .addSpanProcessor(
+                  new io.opentelemetry.sdk.trace.SpanProcessor() {
+                    public void onStart(
+                        io.opentelemetry.context.Context context,
+                        io.opentelemetry.sdk.trace.ReadWriteSpan span) {}
+
+                    public boolean isStartRequired() {
+                      return false;
+                    }
+
+                    public void onEnd(io.opentelemetry.sdk.trace.ReadableSpan span) {
+                      spans.add(span.toSpanData());
+                    }
+
+                    public boolean isEndRequired() {
+                      return true;
+                    }
+                  })
+              .build();
+      tracer =
+          new io.micrometer.tracing.otel.bridge.OtelTracer(
+              provider.get("test"),
+              new io.micrometer.tracing.otel.bridge.OtelCurrentTraceContext(),
+              event -> {});
+    }
+
+    public void close() {
+      provider.close();
+    }
+  }
+
   private ConnectionFactory factory() {
     var result = new ConnectionFactory();
     result.setHost(RABBIT.getHost());

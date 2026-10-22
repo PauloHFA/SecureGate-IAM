@@ -170,6 +170,109 @@ class RabbitAuditWorkerTest {
         () -> decoder.decode(valid.getProps().builder().timestamp(null).build(), valid.getBody()));
   }
 
+  @Test
+  void tracedBatchAndAckShareRootWhileConflictIsolationUsesMessageContexts() throws Exception {
+    try (var fixture =
+        new AuditConsumerTraceTest.Fixture(
+            io.opentelemetry.sdk.trace.samplers.Sampler.traceIdRatioBased(1))) {
+      var firstMessage = message(first, 1);
+      var secondMessage = message(second, 2);
+      firstMessage =
+          new GetResponse(
+              firstMessage.getEnvelope(),
+              firstMessage
+                  .getProps()
+                  .builder()
+                  .headers(
+                      Map.of("schemaVersion", 1, "traceparent", AuditConsumerTraceTest.parent("1")))
+                  .build(),
+              firstMessage.getBody(),
+              0);
+      secondMessage =
+          new GetResponse(
+              secondMessage.getEnvelope(),
+              secondMessage
+                  .getProps()
+                  .builder()
+                  .headers(
+                      Map.of("schemaVersion", 1, "traceparent", AuditConsumerTraceTest.parent("2")))
+                  .build(),
+              secondMessage.getBody(),
+              0);
+      when(channel.basicGet(RabbitAuditWorker.QUEUE, false))
+          .thenReturn(firstMessage, secondMessage, null);
+      when(store.appendBatch(anyList()))
+          .thenAnswer(
+              call -> {
+                assertNotNull(fixture.tracer.currentSpan());
+                assertNotEquals("1".repeat(32), fixture.tracer.currentSpan().context().traceId());
+                throw new DuplicateKeyException("synthetic");
+              });
+      when(store.append(first))
+          .thenAnswer(
+              call -> {
+                assertEquals("1".repeat(32), fixture.tracer.currentSpan().context().traceId());
+                throw new DuplicateKeyException("synthetic");
+              });
+      when(store.append(second))
+          .thenAnswer(
+              call -> {
+                assertEquals("2".repeat(32), fixture.tracer.currentSpan().context().traceId());
+                return AuditEventStore.Result.APPENDED;
+              });
+      doAnswer(
+              call -> {
+                assertEquals("2".repeat(32), fixture.tracer.currentSpan().context().traceId());
+                return null;
+              })
+          .when(channel)
+          .basicAck(2, false);
+      try (var worker =
+          new RabbitAuditWorker(factory, json, store, meters, 20, 1000, fixture.trace)) {
+        worker.runOnce();
+      }
+      verify(channel).basicReject(1, false);
+      verify(channel).basicAck(2, false);
+      assertNull(fixture.tracer.currentSpan());
+      assertNull(org.slf4j.MDC.get("traceId"));
+      assertEquals(3, fixture.spans.size());
+      assertEquals(2, fixture.spans.getLast().getLinks().size());
+    }
+  }
+
+  @Test
+  void tracedUncertainAckClosesBothScopeAndBatchBeforeRequeue() throws Exception {
+    try (var fixture =
+        new AuditConsumerTraceTest.Fixture(
+            io.opentelemetry.sdk.trace.samplers.Sampler.traceIdRatioBased(1))) {
+      when(store.appendBatch(anyList()))
+          .thenReturn(List.of(AuditEventStore.Result.APPENDED, AuditEventStore.Result.APPENDED));
+      doAnswer(
+              call -> {
+                assertNotNull(fixture.tracer.currentSpan());
+                throw new IOException("synthetic-private-error");
+              })
+          .when(channel)
+          .basicAck(1, false);
+      try (var worker =
+          new RabbitAuditWorker(factory, json, store, meters, 20, 1000, fixture.trace)) {
+        worker.runOnce();
+      }
+      verify(connection).abort();
+      assertNull(fixture.tracer.currentSpan());
+      assertNull(org.slf4j.MDC.get("spanId"));
+      assertEquals(1, fixture.spans.size());
+      assertEquals(
+          "unavailable",
+          fixture
+              .spans
+              .getFirst()
+              .getAttributes()
+              .get(io.opentelemetry.api.common.AttributeKey.stringKey("messaging.outcome")));
+      assertTrue(fixture.spans.getFirst().getEvents().isEmpty());
+    }
+  }
+
   private RabbitAuditWorker worker() {
     return new RabbitAuditWorker(factory, json, store, meters, 20, 1000);
   }

@@ -149,7 +149,9 @@ A **10B3c2** adiciona span PRODUCER por tentativa de publicação, com parent du
 
 A **10B3c3a** acrescenta tracing opcional nas duas filas do enforcer: contexto AMQP restrito, span CONSUMER por entrega e limpeza de escopo/MDC, preservando ACK/retry/DLQ e efeitos Redis. O perfil consumer-tracing é independente da ativação dos workers. Consultar [operação](docs/runbooks/tracing-consumidores-local.md), [ADR-062](docs/adr/062-tracing-consumo-enforcer.md) e [evidências](docs/evidencias/etapa-10b3c3a.md).
 
-Próxima implementação: **10B3c3b — auditoria em lote no IAM**, para completar a divisão de consumo 10B3c3. Trabalho local em `feat/outbox-trace-context`, sobre `be06e27`, incluída neste commit; push pendente; build completo aprovado com 835 testes e gates de cobertura/arquitetura. Publicação/CI, backend e aceite de desempenho permanecem pendentes.
+A **10B3c3b** instrumenta a auditoria IAM em lote com raiz CONSUMER e links aos produtores distintos, preservando transação única, commit antes do ACK e isolamento/retry. Reutiliza http-tracing; sem novo schema/exporter. Consultar [operação](docs/runbooks/tracing-consumidores-local.md), [ADR-063](docs/adr/063-tracing-auditoria-em-lote.md) e [evidências](docs/evidencias/etapa-10b3c3b.md).
+
+Próxima proposta: **10B4 — fechamento da observabilidade**, incluindo backend/exportação de tracing e coleta conjunta, antes de **10C — medição**. A instrumentação de consumo 10B3c3 está implementada; aceite global 10B ainda aberto. Trabalho local em `feat/outbox-trace-context`, sobre `103553e`, incluída neste commit; push pendente; build completo aprovado com 845 testes e gates de cobertura/arquitetura, com ressalva de shutdown nas evidências. Publicação/CI e aceite de desempenho permanecem pendentes.
 
 A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
