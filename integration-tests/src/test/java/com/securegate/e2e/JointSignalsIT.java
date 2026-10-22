@@ -74,6 +74,7 @@ class JointSignalsIT {
               "SECUREGATE_TRACING_EXPORT_ENDPOINT",
               receiver);
       try (var environment = new PropagationEnvironment(tracing, true)) {
+        environment.enableDependencyMetrics();
         environment.start();
         environment.stopIam();
         environment.startIam(
@@ -86,140 +87,190 @@ class JointSignalsIT {
                 "ENFORCER_METRICS_ENABLED", "true",
                 "ENFORCER_METRICS_PORT", Integer.toString(enforcerPort),
                 "ENFORCER_METRICS_TOKEN_FILE", enforcerToken.toString()));
-        Files.writeString(
-            prometheusConfig,
-            Files.readString(TracingBackendIT.ROOT.resolve("prometheus.template.yml"))
-                    .replace("__IAM_PORT__", Integer.toString(environment.base.getPort()))
-                + Files.readString(TracingBackendIT.ROOT.resolve("enforcer-scrape.template.yml"))
-                    .replace("__ENFORCER_PORT__", Integer.toString(enforcerPort)));
-        try (var prometheus =
-                new GenericContainer<>(
-                        TracingBackendIT.image("docker-compose.yml", "prom/prometheus:"))
-                    .withNetwork(network)
-                    .withNetworkAliases("prometheus")
-                    .withExposedPorts(9090)
-                    .withCommand("--config.file=/etc/prometheus/prometheus.yml")
-                    .withCreateContainerCmdModifier(
-                        cmd ->
-                            cmd.getHostConfig()
-                                .withBinds(
-                                    new Bind(
-                                        prometheusConfig.toString(),
-                                        new Volume("/etc/prometheus/prometheus.yml"),
-                                        AccessMode.ro),
-                                    new Bind(
-                                        iamToken.toString(),
-                                        new Volume("/run/secrets/iam-metrics-token"),
-                                        AccessMode.ro),
-                                    new Bind(
-                                        enforcerToken.toString(),
-                                        new Volume("/run/secrets/enforcer-metrics-token"),
-                                        AccessMode.ro)))
-                    .waitingFor(Wait.forHttp("/-/ready").forPort(9090))
-                    .withStartupTimeout(Duration.ofSeconds(90));
-            var grafana =
-                new GenericContainer<>(
-                        TracingBackendIT.image("docker-compose.yml", "grafana/grafana:"))
-                    .withNetwork(network)
-                    .withExposedPorts(3000)
-                    .withEnv("GF_SECURITY_ADMIN_USER", "admin")
-                    .withEnv("GF_SECURITY_ADMIN_PASSWORD", grafanaCredential)
-                    .withEnv("GF_AUTH_ANONYMOUS_ENABLED", "false")
-                    .withEnv("GF_USERS_ALLOW_SIGN_UP", "false")
-                    .withEnv("GF_ANALYTICS_REPORTING_ENABLED", "false")
-                    .withEnv("GF_ANALYTICS_CHECK_FOR_UPDATES", "false")
-                    .withEnv("GF_PLUGINS_CHECK_FOR_UPDATES", "false")
-                    .withEnv("GF_PLUGINS_PREINSTALL_DISABLED", "true")
-                    .withCreateContainerCmdModifier(
-                        cmd ->
-                            cmd.getHostConfig()
-                                .withBinds(
-                                    new Bind(
-                                        TracingBackendIT.ROOT
-                                            .resolve("grafana/provisioning")
-                                            .toString(),
-                                        new Volume("/etc/grafana/provisioning"),
-                                        AccessMode.ro),
-                                    new Bind(
-                                        TracingBackendIT.ROOT
-                                            .resolve("tracing/grafana-tempo.yml")
-                                            .toString(),
-                                        new Volume(
-                                            "/etc/grafana/provisioning/datasources/tempo.yml"),
-                                        AccessMode.ro)))
-                    .waitingFor(Wait.forHttp("/api/health"))
-                    .withStartupTimeout(Duration.ofSeconds(90))) {
-          prometheus.start();
-          grafana.start();
-          URI metrics = URI.create("http://127.0.0.1:" + prometheus.getMappedPort(9090));
-          URI ui = URI.create("http://127.0.0.1:" + grafana.getMappedPort(3000));
-          PropagationEnvironment.await(
-              "both service scrapes healthy",
-              Duration.ofSeconds(45),
-              () ->
-                  "1".equals(value(metrics, "up{job=\"iam-core\"}"))
-                      && "1".equals(value(metrics, "up{job=\"policy-enforcer\"}")));
-          String auth =
-              "Basic "
-                  + Base64.getEncoder()
-                      .encodeToString(
-                          ("admin:" + grafanaCredential).getBytes(StandardCharsets.UTF_8));
-          assertEquals(
-              401,
-              TracingBackendIT.get(
-                      PropagationEnvironment.HTTP,
-                      ui.resolve("/api/datasources/uid/securegate-prometheus"),
-                      null)
-                  .statusCode());
-          assertEquals(
-              200,
-              TracingBackendIT.get(
-                      PropagationEnvironment.HTTP,
-                      ui.resolve("/api/datasources/uid/securegate-prometheus"),
-                      auth)
-                  .statusCode());
-          assertEquals(
-              200,
-              TracingBackendIT.get(
-                      PropagationEnvironment.HTTP,
-                      ui.resolve("/api/datasources/uid/securegate-tempo"),
-                      auth)
-                  .statusCode());
+        try (var dependencies = new DependencyMetricsFixture(environment, temporary)) {
+          dependencies.start();
+          Files.writeString(
+              prometheusConfig,
+              Files.readString(TracingBackendIT.ROOT.resolve("prometheus.template.yml"))
+                      .replace("__IAM_PORT__", Integer.toString(environment.base.getPort()))
+                  + Files.readString(TracingBackendIT.ROOT.resolve("enforcer-scrape.template.yml"))
+                      .replace("__ENFORCER_PORT__", Integer.toString(enforcerPort))
+                  + dependencies.prometheusJobs());
+          try (var prometheus =
+                  new GenericContainer<>(
+                          TracingBackendIT.image("docker-compose.yml", "prom/prometheus:"))
+                      .withNetwork(network)
+                      .withNetworkAliases("prometheus")
+                      .withExposedPorts(9090)
+                      .withCommand("--config.file=/etc/prometheus/prometheus.yml")
+                      .withCreateContainerCmdModifier(
+                          cmd ->
+                              cmd.getHostConfig()
+                                  .withBinds(
+                                      new Bind(
+                                          prometheusConfig.toString(),
+                                          new Volume("/etc/prometheus/prometheus.yml"),
+                                          AccessMode.ro),
+                                      new Bind(
+                                          iamToken.toString(),
+                                          new Volume("/run/secrets/iam-metrics-token"),
+                                          AccessMode.ro),
+                                      new Bind(
+                                          enforcerToken.toString(),
+                                          new Volume("/run/secrets/enforcer-metrics-token"),
+                                          AccessMode.ro),
+                                      new Bind(
+                                          dependencies.vaultTokenFile().toString(),
+                                          new Volume("/run/secrets/vault-metrics-token"),
+                                          AccessMode.ro)))
+                      .waitingFor(Wait.forHttp("/-/ready").forPort(9090))
+                      .withStartupTimeout(Duration.ofSeconds(90));
+              var grafana =
+                  new GenericContainer<>(
+                          TracingBackendIT.image("docker-compose.yml", "grafana/grafana:"))
+                      .withNetwork(network)
+                      .withExposedPorts(3000)
+                      .withEnv("GF_SECURITY_ADMIN_USER", "admin")
+                      .withEnv("GF_SECURITY_ADMIN_PASSWORD", grafanaCredential)
+                      .withEnv("GF_AUTH_ANONYMOUS_ENABLED", "false")
+                      .withEnv("GF_USERS_ALLOW_SIGN_UP", "false")
+                      .withEnv("GF_ANALYTICS_REPORTING_ENABLED", "false")
+                      .withEnv("GF_ANALYTICS_CHECK_FOR_UPDATES", "false")
+                      .withEnv("GF_PLUGINS_CHECK_FOR_UPDATES", "false")
+                      .withEnv("GF_PLUGINS_PREINSTALL_DISABLED", "true")
+                      .withCreateContainerCmdModifier(
+                          cmd ->
+                              cmd.getHostConfig()
+                                  .withBinds(
+                                      new Bind(
+                                          TracingBackendIT.ROOT
+                                              .resolve("grafana/provisioning")
+                                              .toString(),
+                                          new Volume("/etc/grafana/provisioning"),
+                                          AccessMode.ro),
+                                      new Bind(
+                                          TracingBackendIT.ROOT
+                                              .resolve("tracing/grafana-tempo.yml")
+                                              .toString(),
+                                          new Volume(
+                                              "/etc/grafana/provisioning/datasources/tempo.yml"),
+                                          AccessMode.ro),
+                                      new Bind(
+                                          TracingBackendIT.ROOT
+                                              .resolve("grafana/dashboards")
+                                              .toString(),
+                                          new Volume("/var/lib/grafana/dashboards"),
+                                          AccessMode.ro)))
+                      .waitingFor(Wait.forHttp("/api/health"))
+                      .withStartupTimeout(Duration.ofSeconds(90))) {
+            prometheus.start();
+            grafana.start();
+            URI metrics = URI.create("http://127.0.0.1:" + prometheus.getMappedPort(9090));
+            URI ui = URI.create("http://127.0.0.1:" + grafana.getMappedPort(3000));
+            PropagationEnvironment.await(
+                "all six scrapes and exporter connections healthy",
+                Duration.ofSeconds(90),
+                () ->
+                    "1".equals(value(metrics, "up{job=\"iam-core\"}"))
+                        && "1".equals(value(metrics, "up{job=\"policy-enforcer\"}"))
+                        && "1".equals(value(metrics, "up{job=\"postgres\"}"))
+                        && "1".equals(value(metrics, "up{job=\"redis\"}"))
+                        && "1".equals(value(metrics, "up{job=\"rabbitmq\"}"))
+                        && "1".equals(value(metrics, "up{job=\"vault\"}"))
+                        && "1".equals(value(metrics, "pg_up{job=\"postgres\"}"))
+                        && "1".equals(value(metrics, "redis_up{job=\"redis\"}"))
+                        && "1".equals(value(metrics, "vault_core_unsealed{job=\"vault\"}")));
+            String auth =
+                "Basic "
+                    + Base64.getEncoder()
+                        .encodeToString(
+                            ("admin:" + grafanaCredential).getBytes(StandardCharsets.UTF_8));
+            assertEquals(
+                401,
+                TracingBackendIT.get(
+                        PropagationEnvironment.HTTP,
+                        ui.resolve("/api/datasources/uid/securegate-prometheus"),
+                        null)
+                    .statusCode());
+            assertEquals(
+                200,
+                TracingBackendIT.get(
+                        PropagationEnvironment.HTTP,
+                        ui.resolve("/api/datasources/uid/securegate-prometheus"),
+                        auth)
+                    .statusCode());
+            assertEquals(
+                200,
+                TracingBackendIT.get(
+                        PropagationEnvironment.HTTP,
+                        ui.resolve("/api/datasources/uid/securegate-tempo"),
+                        auth)
+                    .statusCode());
+            for (String uid :
+                List.of(
+                    "securegate-postgres",
+                    "securegate-redis",
+                    "securegate-rabbitmq",
+                    "securegate-vault")) {
+              assertEquals(
+                  200,
+                  TracingBackendIT.get(
+                          PropagationEnvironment.HTTP,
+                          ui.resolve("/api/dashboards/uid/" + uid),
+                          auth)
+                      .statusCode());
+            }
 
-          var ids = new ArrayList<String>();
-          long started = System.nanoTime();
-          for (int i = 0; i < 12; i++) {
-            ids.add(TracingJourneyIT.lockUser(environment));
-            assertEquals("1", value(metrics, "up{job=\"iam-core\"}"));
-            assertEquals("1", value(metrics, "up{job=\"policy-enforcer\"}"));
-            Thread.sleep(5000);
-          }
-          assertTrue(Duration.ofNanos(System.nanoTime() - started).toSeconds() >= 60);
-          assertTrue(
-              Double.parseDouble(value(metrics, "count_over_time(up{job=\"iam-core\"}[1m])")) >= 8);
-          assertTrue(
-              Double.parseDouble(value(metrics, "count_over_time(up{job=\"policy-enforcer\"}[1m])"))
-                  >= 8);
-          assertTrue(
-              Double.parseDouble(
-                      value(
-                          metrics,
-                          "sum(iam_enforcer_block_policy_messages_total{application=\"policy-enforcer\",result=\"ACK\"})"))
-                  >= 12);
-          for (int index : List.of(0, 5, 11)) {
-            String traceId = TracingJourneyIT.traceId(environment, ids.get(index));
-            JsonNode trace = TracingJourneyIT.awaitChain(backend, traceId);
-            assertFalse(trace.toString().contains(iamCredential));
-            assertFalse(trace.toString().contains(enforcerCredential));
-            URI proxied =
-                ui.resolve("/api/datasources/proxy/uid/securegate-tempo/api/traces/" + traceId);
+            var ids = new ArrayList<String>();
+            long started = System.nanoTime();
+            for (int i = 0; i < 12; i++) {
+              ids.add(TracingJourneyIT.lockUser(environment));
+              assertEquals("1", value(metrics, "up{job=\"iam-core\"}"));
+              assertEquals("1", value(metrics, "up{job=\"policy-enforcer\"}"));
+              for (String job : List.of("postgres", "redis", "rabbitmq", "vault")) {
+                assertEquals("1", value(metrics, "up{job=\"" + job + "\"}"));
+              }
+              Thread.sleep(5000);
+            }
+            assertTrue(Duration.ofNanos(System.nanoTime() - started).toSeconds() >= 60);
             assertTrue(
-                TracingJourneyIT.names(
-                        TracingBackendIT.awaitTrace(PropagationEnvironment.HTTP, proxied, auth))
-                    .contains("security.consume"));
+                Double.parseDouble(value(metrics, "count_over_time(up{job=\"iam-core\"}[1m])"))
+                    >= 8);
+            assertTrue(
+                Double.parseDouble(
+                        value(metrics, "count_over_time(up{job=\"policy-enforcer\"}[1m])"))
+                    >= 8);
+            for (String job : List.of("postgres", "redis", "rabbitmq", "vault")) {
+              assertTrue(
+                  Double.parseDouble(value(metrics, "count_over_time(up{job=\"" + job + "\"}[1m])"))
+                      >= 3);
+            }
+            assertEquals("1", value(metrics, "pg_up{job=\"postgres\"}"));
+            assertEquals("1", value(metrics, "redis_up{job=\"redis\"}"));
+            assertEquals("1", value(metrics, "vault_core_unsealed{job=\"vault\"}"));
+            assertFalse(
+                "NaN".equals(value(metrics, "rabbitmq_queue_messages_ready{job=\"rabbitmq\"}")));
+            assertTrue(
+                Double.parseDouble(
+                        value(
+                            metrics,
+                            "sum(iam_enforcer_block_policy_messages_total{application=\"policy-enforcer\",result=\"ACK\"})"))
+                    >= 12);
+            for (int index : List.of(0, 5, 11)) {
+              String traceId = TracingJourneyIT.traceId(environment, ids.get(index));
+              JsonNode trace = TracingJourneyIT.awaitChain(backend, traceId);
+              assertFalse(trace.toString().contains(iamCredential));
+              assertFalse(trace.toString().contains(enforcerCredential));
+              URI proxied =
+                  ui.resolve("/api/datasources/proxy/uid/securegate-tempo/api/traces/" + traceId);
+              assertTrue(
+                  TracingJourneyIT.names(
+                          TracingBackendIT.awaitTrace(PropagationEnvironment.HTTP, proxied, auth))
+                      .contains("security.consume"));
+            }
+            assertStructured(iamLog, iamOffset, "iam-core", iamCredential);
+            assertStructured(enforcerLog, enforcerOffset, "policy-enforcer", enforcerCredential);
           }
-          assertStructured(iamLog, iamOffset, "iam-core", iamCredential);
-          assertStructured(enforcerLog, enforcerOffset, "policy-enforcer", enforcerCredential);
         }
       }
     }

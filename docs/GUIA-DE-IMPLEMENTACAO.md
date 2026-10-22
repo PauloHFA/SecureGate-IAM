@@ -6,18 +6,18 @@ Atualizado em 22/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B5a — coleta conjunta de métricas, logs e traces IAM/enforcer |
-| Base desta entrega | cc95318 — validação integrada do tracing, commit local |
-| Trabalho local | Commit local desta entrega; push/CI remota pendentes |
+| Última entrega implementada | 10B5b — coleta conjunta dos quatro exporters de dependências com IAM/enforcer |
+| Base desta entrega | a8ccaed — coleta conjunta do núcleo, commit local |
+| Trabalho local | Entrega 10B5b versionada em commit local; push/CI remota pendentes |
 | Branch | feat/tracing-backend |
-| Validação da entrega | `verify` completo: BUILD SUCCESS em 22/10/2026 às 00:07:30 UTC−03, 888 testes, dois gates de cobertura e arquitetura atendidos; ressalva histórica do fork IAM |
-| Próxima implementação | 10B5b — exporters PostgreSQL/Redis/RabbitMQ/Vault simultâneos e aceite global 10B |
-| Pendências seguintes | 10B5b e aceite global 10B; 10C–10D; publicação/CI |
+| Validação da entrega | Seleção `JointSignalsIT`: BUILD SUCCESS, 1 teste em 158 s; `verify` completo: BUILD SUCCESS às 11:15:55 UTC−03, 888 testes e dois gates de cobertura atendidos |
+| Próxima implementação | 10C — medição de capacidade e estabilidade; avaliar agregação central de logs conforme escopo operacional |
+| Pendências seguintes | Aceite global 10B condicionado aos limites abaixo; 10C–10D; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c e a 10B5a também estão implementadas abaixo. As demais divisões 10B5b–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a e a 10B5b também estão implementadas abaixo. As divisões 10C–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -634,13 +634,23 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 
 [Operação](runbooks/coleta-conjunta-nucleo-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/JointSignalsIT.java), [evidência](evidencias/etapa-10b5a.md). Entrega versionada em commit local nesta branch, sem push/CI remota; nenhuma stack persistente alterada.
 
+## Etapa 10B5b — Quatro dependências na coleta conjunta
+
+1. Reusar a fixture da 10B5a e habilitar, antes do startup descartável, o plugin Prometheus do RabbitMQ e o listener protegido de métricas do Vault. Usar configuração RabbitMQ de teste sem importação de definições para preservar o usuário temporário criado pelo Testcontainers.
+2. Criar no PostgreSQL descartável um login com `pg_monitor`, conexão ao banco de teste e transações somente leitura; criar ACL Redis limitada a comandos de observação, sem acesso a chaves.
+3. Gerar senhas e token Vault por execução, gravá-los apenas em arquivos temporários e iniciar exporters PostgreSQL/Redis com imagens fixadas por digest. Exigir 403 sem token e 200 com token mínimo na rota de métricas Vault.
+4. Acrescentar os quatro templates de scrape existentes ao Prometheus da 10B5a, montar o token Vault por arquivo e provisionar os dashboards de dependências no Grafana.
+5. Exigir `up=1` nos seis jobs, `pg_up=1`, `redis_up=1`, `vault_core_unsealed=1` e a série agregada de filas RabbitMQ. Durante 12 bloqueios espaçados em 5 s, manter os seis jobs saudáveis; conferir amostras na janela, ACKs, dashboards, traces e logs restritos.
+6. Registrar seleção, build completo, limites e decisão de aceite. A janela funcional de 1 min não mede capacidade, retenção nem agregação central dos logs; a 10C continua responsável pela medição. A stack persistente não é alterada.
+
+[Operação](runbooks/coleta-conjunta-dependencias-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/JointSignalsIT.java), [evidência](evidencias/etapa-10b5b.md). Entrega versionada em commit local; push/CI remota pendentes.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
-As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B4a entrega backend local, a 10B4b implementa exportação opcional, a 10B4c valida a cadeia de tracing real e a 10B5a coleta os três sinais do núcleo por um minuto. O aceite global 10B ainda exige os exporters de dependências em coleta conjunta, sem renumerar entregas anteriores.
+As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B5b conclui a integração funcional local dos quatro exporters na coleta conjunta. O aceite global de observabilidade ainda deve explicitar os limites da janela curta e dos logs locais, sem renumerar entregas anteriores.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10B5b — dependências e aceite global 10B | Integrar scrapes PostgreSQL, Redis, RabbitMQ e Vault ao patamar conjunto → consultar painéis, logs e traces → registrar limites/aceite. | Evidência integrada dos três sinais e quatro dependências antes de 10C. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
 | 11A — Imagens/stack | Criar imagens Java 21 sem root → perfil Compose full → probes e smoke em ambiente limpo. | Stack completa executável conforme guia. |

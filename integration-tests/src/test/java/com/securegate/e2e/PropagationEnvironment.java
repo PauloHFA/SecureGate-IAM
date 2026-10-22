@@ -97,6 +97,46 @@ final class PropagationEnvironment implements AutoCloseable {
   private boolean pamConfigured;
   URI base;
 
+  void enableDependencyMetrics() {
+    var root = Path.of("../infra").toAbsolutePath().normalize();
+    rabbit
+        .withExposedPorts(5672, 15692)
+        .withFileSystemBind(
+            root.resolve("rabbitmq/rabbitmq.metrics-test.conf").toString(),
+            "/etc/rabbitmq/rabbitmq.conf",
+            org.testcontainers.containers.BindMode.READ_ONLY)
+        .withFileSystemBind(
+            root.resolve("rabbitmq/enabled_plugins.metrics").toString(),
+            "/etc/rabbitmq/enabled_plugins",
+            org.testcontainers.containers.BindMode.READ_ONLY);
+    vault
+        .withFileSystemBind(
+            root.resolve("vault/metrics-listener.hcl").toString(),
+            "/vault/config/metrics-listener.hcl",
+            org.testcontainers.containers.BindMode.READ_ONLY)
+        .withCommand("server", "-dev", "-dev-listen-address=127.0.0.1:18200");
+  }
+
+  String provisionVaultMetricsToken() throws Exception {
+    vault(
+        "sys/policies/acl/securegate-metrics",
+        Map.of("policy", Files.readString(Path.of("../infra/vault/metrics.hcl"))));
+    return vault(
+            "auth/token/create-orphan",
+            Map.of(
+                "policies",
+                List.of("securegate-metrics"),
+                "no_default_policy",
+                true,
+                "ttl",
+                "30m",
+                "renewable",
+                false))
+        .path("auth")
+        .path("client_token")
+        .asText();
+  }
+
   void start() throws Exception {
     database.start();
     redisContainer.start();
