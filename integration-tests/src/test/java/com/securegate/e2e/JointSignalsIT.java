@@ -101,6 +101,7 @@ class JointSignalsIT {
                           TracingBackendIT.image("docker-compose.yml", "prom/prometheus:"))
                       .withNetwork(network)
                       .withNetworkAliases("prometheus")
+                      .withExtraHost("host.docker.internal", "host-gateway")
                       .withExposedPorts(9090)
                       .withCommand("--config.file=/etc/prometheus/prometheus.yml")
                       .withCreateContainerCmdModifier(
