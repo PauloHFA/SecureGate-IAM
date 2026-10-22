@@ -7,6 +7,7 @@ param(
   [ValidateRange(1, 20)][int]$Threads = 2,
   [ValidateRange(3, 900)][int]$WarmupSeconds = 10,
   [ValidateRange(5, 3600)][int]$SteadySeconds = 30,
+  [ValidateRange(1, 300)][int]$WindowSeconds = 10,
   [ValidateRange(3, 900)][int]$CooldownSeconds = 10,
   [ValidateRange(0, 2147483647)][int]$IamProcessId = 0
 )
@@ -19,6 +20,7 @@ $jar = Join-Path $JMeterHome 'bin/ApacheJMeter.jar'
 if (-not (Test-Path -LiteralPath $jar)) { throw 'JMeter binary is missing.' }
 $mass = (Resolve-Path -LiteralPath $MassFile).Path
 $rows = @(Import-Csv -LiteralPath $mass)
+if ($WindowSeconds -gt $SteadySeconds) { throw 'WindowSeconds must not exceed SteadySeconds.' }
 if ($rows.Count -lt $Threads) { throw 'Provide at least one synthetic client per thread.' }
 foreach ($row in $rows) {
   if ($row.client_id -notmatch '^[a-z][a-z0-9_-]{2,63}$' -or [string]::IsNullOrWhiteSpace($row.client_secret) -or $row.scope -ne 'load:read') {
@@ -32,6 +34,46 @@ if (Test-Path -LiteralPath $output) { throw 'Output directory already exists; ch
 function Get-Percentile([double[]]$values, [double]$fraction) {
   $sorted = @($values | Sort-Object)
   return [double]$sorted[[Math]::Ceiling($sorted.Count * $fraction) - 1]
+}
+
+function Get-SteadyWindows($samples, [int]$duration, [int]$width) {
+  $timestamps = @($samples | ForEach-Object {
+    [long]::Parse($_.timeStamp, [Globalization.CultureInfo]::InvariantCulture)
+  })
+  $origin = ($timestamps | Measure-Object -Minimum).Minimum
+  $last = ($timestamps | Measure-Object -Maximum).Maximum
+  $complete = [Math]::Min(
+    [Math]::Floor($duration / $width),
+    [Math]::Floor(($last - $origin) / ($width * 1000))
+  )
+  $buckets = @{}
+  foreach ($sample in $samples) {
+    $stamp = [long]::Parse($sample.timeStamp, [Globalization.CultureInfo]::InvariantCulture)
+    $index = [int][Math]::Floor(($stamp - $origin) / ($width * 1000))
+    if ($index -ge $complete) { continue }
+    if (-not $buckets.ContainsKey($index)) {
+      $buckets[$index] = [System.Collections.Generic.List[object]]::new()
+    }
+    $buckets[$index].Add($sample)
+  }
+  $windows = @()
+  for ($index = 0; $index -lt $complete; $index++) {
+    $bucket = if ($buckets.ContainsKey($index)) { @($buckets[$index].ToArray()) } else { @() }
+    $elapsed = @($bucket | ForEach-Object {
+      [double]::Parse($_.elapsed, [Globalization.CultureInfo]::InvariantCulture)
+    })
+    $failures = @($bucket | Where-Object { $_.success -ne 'true' }).Count
+    $windows += [ordered]@{
+      index = $index
+      offsetSeconds = $index * $width
+      durationSeconds = $width
+      requests = $bucket.Count
+      failures = $failures
+      effectiveRequestsPerSecond = [Math]::Round($bucket.Count / $width, 2)
+      p95Ms = if ($elapsed.Count -gt 0) { Get-Percentile $elapsed 0.95 } else { $null }
+    }
+  }
+  return $windows
 }
 
 function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
@@ -86,6 +128,10 @@ function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
   }
   $failures = @($samples | Where-Object { $_.success -ne 'true' }).Count
   $elapsed = @($samples | ForEach-Object { [double]::Parse($_.elapsed, [Globalization.CultureInfo]::InvariantCulture) })
+  $windows = if ($name -eq 'steady') { @(Get-SteadyWindows $samples $duration $WindowSeconds) } else { @() }
+  if ($name -eq 'steady' -and $windows.Count -eq 0) {
+    throw 'No complete steady window was observed; extend the phase or reduce WindowSeconds.'
+  }
   $resource = $null
   if ($IamProcessId -gt 0) {
     $points = @(Import-Csv -LiteralPath $resourceFile)
@@ -110,6 +156,7 @@ function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
     p50Ms = Get-Percentile $elapsed 0.50
     p95Ms = Get-Percentile $elapsed 0.95
     p99Ms = Get-Percentile $elapsed 0.99
+    windows = $windows
     iamProcess = $resource
   }
 }
@@ -134,6 +181,8 @@ $summary = [ordered]@{
   dockerCapacity = $docker
   targetP95Ms = 200
   targetRequestsPerSecond = 300
+  windowSeconds = $WindowSeconds
+  windowMethod = 'windows anchored at first steady sample timestamp; only windows ending before the last observed sample start are included'
   phases = $phases
   steadyMeetsReferenceP95 = ($phases[1].p95Ms -lt 200)
   steadyMeetsReferenceRate = ($phases[1].effectiveRequestsPerSecond -ge 300)

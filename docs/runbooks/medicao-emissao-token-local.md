@@ -1,4 +1,4 @@
-# Medição local de emissão de token — 10C1
+# Medição local de emissão de token — 10C1/10C2a
 
 A 10C1 cria uma linha de base reproduzível para `/oauth2/token` com `client_credentials`. O plano [token-issuance-baseline.jmx](../../load-tests/jmeter/token-issuance-baseline.jmx) executa somente `token.success`; recusas esperadas não entram na taxa nem nos percentis de emissão. Ele usa três processos JMeter sequenciais: aquecimento, patamar e redução de concorrência. Essa separação introduz intervalo entre fases; não representa um único ramp-up contínuo.
 
@@ -26,4 +26,8 @@ Preparar IAM de teste e CSV privado conforme [guia JMeter](../../load-tests/jmet
 
 O arquivo `summary.json` guarda contagem, falhas, taxa efetiva (`requisições / duração configurada`), p50/p95/p99 por fase e indicadores separados para as referências de 200 ms e 300 req/s. `samples.csv`, `jmeter.log`, `console.log` e `iam-resources.csv` ficam por fase sob o diretório privado ignorado pelo Git. Nenhum token, corpo ou cabeçalho deve ser enviado a logs externos; revisar os artefatos antes de compartilhá-los.
 
-Uma execução válida exige zero falhas do contrato e amostras em cada fase. Referências de desempenho não são critérios de aprovação do runner. Para declarar capacidade, repetir patamares mais longos com recursos de todos os componentes, taxa ofertada/efetiva, distribuição de erros e degradação ao longo do tempo. A 10C2 continua responsável por isso e pelos demais fluxos de validação, revogação e auditoria.
+Na 10C2a, `-WindowSeconds` (padrão 10 s) acrescenta `windows` apenas ao patamar. Cada janela registra índice, deslocamento desde a primeira amostra, duração nominal, emissões, falhas, taxa e p95. Só entram janelas cujo fim não é posterior ao timestamp da última amostra observada; amostras da cauda e a janela parcial ficam apenas no agregado. Esse método usa o timestamp de início da amostra JMeter como relógio e pode excluir uma janela completa se o tráfego parar antes da borda. Janelas sem amostras têm taxa zero e p95 nulo. Comparar janelas para detectar queda de taxa ou aumento de latência, sem usar a média para esconder degradação.
+
+Para uma seleção descartável de 1 minuto, acrescentar `'-Dsecuregate.load.steady.seconds=60' '-Dsecuregate.load.window.seconds=10'` ao comando Maven acima. O teste continua com duas threads no patamar e verifica as janelas, não demonstra 300 req/s nem mede a oferta independente. Em ambiente dedicado, escolher `-SteadySeconds 120 -WindowSeconds 10` ou duração maior, registrar a concorrência e repetir perfis. O runner rejeita largura de janela maior que o patamar.
+
+Uma execução válida exige zero falhas do contrato e amostras em cada fase. Referências de desempenho não são critérios de aprovação do runner. Para declarar capacidade, repetir patamares mais longos com recursos de todos os componentes, taxa ofertada/efetiva, distribuição de erros e degradação ao longo do tempo. A 10C2b continua responsável por isso e pelos demais fluxos de validação, revogação e auditoria.

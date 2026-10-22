@@ -6,18 +6,18 @@ Atualizado em 22/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10C1 — linha de base curta de emissão de token com JMeter |
+| Última entrega implementada | 10C2a — janelas temporais da emissão de token com JMeter |
 | Base desta entrega | 59843d7 — coleta conjunta 10B5b, commit local |
-| Trabalho local | Alterações 10C1 versionadas em commit local; push e CI remota pendentes |
+| Trabalho local | Alterações 10C2a versionadas em commit local; push e CI remota pendentes |
 | Branch | feat/tracing-backend |
 | Validação da entrega | Seleção `TokenBaselineSmoke`: BUILD SUCCESS, 1 teste em 57,925 s; build completo anterior 10B5b com 888 testes |
-| Próxima implementação | 10C2 — patamares longos, recursos das dependências e demais fluxos |
-| Pendências seguintes | Aceite operacional 10B condicionado aos limites abaixo; 10C2–10D; publicação/CI |
+| Próxima implementação | 10C2b — validação, revogação, auditoria e recursos das dependências |
+| Pendências seguintes | Aceite operacional 10B condicionado aos limites abaixo; 10C2b–10D; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b e a 10C1 também estão implementadas abaixo. As divisões 10C2–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b, a 10C1 e a 10C2a também estão implementadas abaixo. As divisões 10C2b–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -655,13 +655,22 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 
 [Operação](runbooks/medicao-emissao-token-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java), [evidência](evidencias/etapa-10c1.md). Implementação versionada em commit local, com push e CI remota pendentes; a 10C2 fica com patamares longos e os demais fluxos.
 
+## Etapa 10C2a — Janelas de estabilidade da emissão de token
+
+1. Dividir o patamar em janelas completas configuráveis, ancoradas no primeiro timestamp JMeter, com taxa efetiva, falhas e p95 por janela. Descartar a janela final incompleta para não inflar ou reduzir artificialmente sua taxa.
+2. Manter o agregado do patamar e as amostras originais; conferir contagem, sequência e unidades das janelas no ensaio integrado descartável.
+3. Executar uma seleção mais longa em ambiente descartável e registrar a variação entre janelas. Concorrência de threads é apenas carga fechada; a taxa ofertada independente e a capacidade máxima continuam sem medição.
+4. Preservar massa privada e checagem de artefatos contra vazamento de credenciais e JWT.
+
+[Operação](runbooks/medicao-emissao-token-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java), [evidência](evidencias/etapa-10c2a.md). A 10C2b medirá os outros fluxos e recursos das dependências.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
-As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B5b conclui a integração funcional local dos quatro exporters na coleta conjunta; a 10C1 valida o método de medição de emissão em janela curta. O aceite global de observabilidade ainda deve explicitar os limites dos logs locais, sem renumerar entregas anteriores.
+As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B5b conclui a integração funcional local dos quatro exporters na coleta conjunta; a 10C1 valida o método de medição de emissão em janela curta e a 10C2a observa variação por janela. O aceite global de observabilidade ainda deve explicitar os limites dos logs locais, sem renumerar entregas anteriores.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10C2 — Medição sustentada | Medir emissão, validação, revogação e auditoria em patamares longos → registrar recursos de todos os componentes e taxa ofertada/efetiva. | Relatórios comparáveis às metas, desvios e limites explícitos. |
+| 10C2b — Medição dos demais fluxos | Medir validação, revogação e auditoria em patamares longos → registrar recursos de todos os componentes e taxa ofertada/efetiva quando controlável. | Relatórios comparáveis às metas, desvios e limites explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
 | 11A — Imagens/stack | Criar imagens Java 21 sem root → perfil Compose full → probes e smoke em ambiente limpo. | Stack completa executável conforme guia. |
 | 11B — CI e release | Integrar scans/checks → versionar artefatos/imagens → definir publicação GHCR no fluxo de release. | Pipeline verificável, sem publicar imagens de PR como release. |

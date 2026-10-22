@@ -12,11 +12,14 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
-/** Opt-in 10C1 baseline: real JMeter phases, contract, resource samples and redacted artifacts. */
+/** Opt-in token baseline: real JMeter phases, time windows and redacted artifacts. */
 class TokenBaselineSmoke {
   @Test
   void measuresThreeRealPhasesWithoutLeakingSyntheticCredentials() throws Exception {
     String home = System.getProperty("securegate.jmeter.home", "");
+    int steadySeconds = Integer.getInteger("securegate.load.steady.seconds", 5);
+    int windowSeconds = Integer.getInteger("securegate.load.window.seconds", 1);
+    assertTrue(steadySeconds >= windowSeconds && windowSeconds > 0);
     assertTrue(Files.isRegularFile(Path.of(home, "bin", "ApacheJMeter.jar")));
     Path output = Path.of("target/load-capacity", UUID.randomUUID().toString()).toAbsolutePath();
     Path privateFiles = output.resolve("private");
@@ -59,7 +62,9 @@ class TokenBaselineSmoke {
               "-WarmupSeconds",
               "3",
               "-SteadySeconds",
-              "5",
+              Integer.toString(steadySeconds),
+              "-WindowSeconds",
+              Integer.toString(windowSeconds),
               "-CooldownSeconds",
               "3",
               "-IamProcessId",
@@ -77,6 +82,33 @@ class TokenBaselineSmoke {
       }
       assertEquals("steady", phases.get(1).path("phase").asText());
       assertEquals(2, phases.get(1).path("threads").asInt());
+      assertEquals(windowSeconds, report.path("windowSeconds").asInt());
+      var windows = phases.get(1).path("windows");
+      assertTrue(windows.size() > 0);
+      assertTrue(windows.size() <= steadySeconds / windowSeconds);
+      var timestamps =
+          Files.readAllLines(output.resolve("baseline/steady/samples.csv")).stream()
+              .skip(1)
+              .mapToLong(line -> Long.parseLong(line.substring(0, line.indexOf(','))))
+              .summaryStatistics();
+      assertTrue(
+          (long) windows.size() * windowSeconds * 1000
+              <= timestamps.getMax() - timestamps.getMin());
+      int countedRequests = 0;
+      for (int i = 0; i < windows.size(); i++) {
+        var window = windows.get(i);
+        assertEquals(i, window.path("index").asInt());
+        assertEquals(i * windowSeconds, window.path("offsetSeconds").asInt());
+        assertEquals(windowSeconds, window.path("durationSeconds").asInt());
+        assertEquals(0, window.path("failures").asInt());
+        assertEquals(
+            (double) window.path("requests").asInt() / windowSeconds,
+            window.path("effectiveRequestsPerSecond").asDouble(),
+            0.01);
+        countedRequests += window.path("requests").asInt();
+      }
+      assertTrue(countedRequests > 0);
+      assertTrue(countedRequests <= phases.get(1).path("requests").asInt());
       var secrets = new ArrayList<String>();
       secrets.add(environment.admin);
       for (String row : Files.readAllLines(mass).subList(1, 3)) {

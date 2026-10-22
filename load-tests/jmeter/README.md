@@ -70,7 +70,9 @@ O agregado mistura emissão e negativa: não o usar como latência de emissão. 
 
 ## Linha de base de emissão — 10C1
 
-O [runner de emissão](Run-TokenIssuanceBaseline.ps1) usa um plano separado com apenas `token.success`. Executa aquecimento, patamar e redução em três processos JMeter sequenciais, calcula taxa e p50/p95/p99 por fase e pode amostrar o processo IAM com `-IamProcessId`. As referências de 200 ms e 300 req/s são indicadores separados no `summary.json`, sem aprovação automática por meta. O [teste opt-in](../../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java) valida o runner contra IAM e dependências descartáveis; consulte o [procedimento e limites](../../docs/runbooks/medicao-emissao-token-local.md). A 10C2 fará os patamares longos e demais fluxos.
+O [runner de emissão](Run-TokenIssuanceBaseline.ps1) usa um plano separado com apenas `token.success`. Executa aquecimento, patamar e redução em três processos JMeter sequenciais, calcula taxa e p50/p95/p99 por fase e pode amostrar o processo IAM com `-IamProcessId`. As referências de 200 ms e 300 req/s são indicadores separados no `summary.json`, sem aprovação automática por meta. O [teste opt-in](../../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java) valida o runner contra IAM e dependências descartáveis; consulte o [procedimento e limites](../../docs/runbooks/medicao-emissao-token-local.md). A 10C2b fará os patamares longos e demais fluxos.
+
+A 10C2a acrescenta janelas completas configuráveis com `-WindowSeconds` ao patamar, para enxergar variação de taxa, erros e p95 ao longo da execução. A cauda parcial não entra nas janelas, mas permanece no agregado. O [procedimento](../../docs/runbooks/medicao-emissao-token-local.md) mostra a seleção de 1 minuto; os demais fluxos e recursos das dependências ficam para 10C2b.
 
 Ver [ADR-045](../../docs/adr/045-base-de-carga-jmeter.md), [evidências 10A1](../../docs/evidencias/etapa-10a1.md) e [guia passo a passo](../../docs/GUIA-DE-IMPLEMENTACAO.md).
 
