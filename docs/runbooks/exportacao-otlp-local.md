@@ -27,7 +27,7 @@ Ativar -EnableConsumer somente com as credenciais/dependências do [consumidor](
 
 5. Se TEMPO_OTLP_PORT foi alterada ao subir o backend, usar a mesma porta em SECUREGATE_TRACING_EXPORT_ENDPOINT nas duas janelas. Somente http://127.0.0.1:<porta>/v1/traces, porta 1024–65535, sem credenciais/parâmetros/fragmento. Hostnames (inclusive localhost), HTTPS e endpoints remotos são recusados. O exporter não segue redirecionamentos HTTP.
 6. Amostragem local padrão 0,1: IAM_HTTP_TRACE_PROBABILITY e ENFORCER_TRACING_SAMPLING_PROBABILITY aceitam 0–1. Zero não envia spans; um só para diagnóstico controlado com dados sintéticos. Flags sampled remotas não sobrepõem essa política. Não tratar ausência de um trace como falha de negócio.
-7. Consultar pelo Grafana autenticado, datasource Tempo, usando traceId de um fluxo amostrado. service.name diferencia iam-core/policy-enforcer. Auditoria em lote é raiz com links; pesquisar apenas parent pode não mostrar o lote. A jornada real completa será validada na 10B4c.
+7. Consultar pelo Grafana autenticado, datasource Tempo, usando traceId de um fluxo amostrado. service.name diferencia iam-core/policy-enforcer. Auditoria em lote é raiz com links; pesquisar apenas parent pode não mostrar o lote. A jornada real foi validada em fixture descartável na [10B4c](../evidencias/etapa-10b4c.md); ainda falta coleta simultânea sustentada dos demais sinais/exporters para o aceite global 10B.
 
 As variáveis acima são de processo, não setx nem novo segredo no .env. Encerrar a janela remove esse ambiente. Se reutilizar uma janela, restaurar seus valores anteriores ao terminar. Flags de exportação nas duas aplicações são independentes do -IncludeTracing da infraestrutura.
 

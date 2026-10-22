@@ -22,7 +22,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
 
-/** Real backend and Grafana, synthetic OTLP only; application exporters are a later stage. */
+/** Backend fixture with synthetic OTLP; TracingJourneyIT covers real application exporters. */
 class TracingBackendIT {
   static final ObjectMapper JSON = new ObjectMapper();
   static final Path ROOT = Path.of("../infra/observability").toAbsolutePath().normalize();

@@ -35,6 +35,18 @@ final class PropagationEnvironment implements AutoCloseable {
   static final HttpClient HTTP =
       HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
   private final String password = UUID.randomUUID().toString();
+  private final Map<String, String> tracingOverrides;
+  private final boolean tracingExport;
+
+  PropagationEnvironment() {
+    this(Map.of());
+  }
+
+  PropagationEnvironment(Map<String, String> tracingOverrides) {
+    this.tracingOverrides = Map.copyOf(tracingOverrides);
+    this.tracingExport = !tracingOverrides.isEmpty();
+  }
+
   private final org.testcontainers.containers.Network pamNetwork =
       org.testcontainers.containers.Network.newNetwork();
   final String admin = UUID.randomUUID().toString();
@@ -193,6 +205,18 @@ final class PropagationEnvironment implements AutoCloseable {
   }
 
   private void launch(String module, Map<String, String> environment) throws Exception {
+    var effectiveEnvironment = new java.util.HashMap<>(environment);
+    effectiveEnvironment.putAll(tracingOverrides);
+    if (tracingExport) {
+      effectiveEnvironment.put(
+          "SPRING_PROFILES_ACTIVE",
+          module.equals("iam-core") ? "http-tracing" : "consumer-tracing");
+      effectiveEnvironment.put(
+          module.equals("iam-core")
+              ? "IAM_HTTP_TRACE_PROBABILITY"
+              : "ENFORCER_TRACING_SAMPLING_PROBABILITY",
+          "1.0");
+    }
     var jar =
         Path.of(
                 "..",
@@ -223,7 +247,7 @@ final class PropagationEnvironment implements AutoCloseable {
                     || key.equals("TRACE")
                     || key.equals("JAVA_TOOL_OPTIONS")
                     || key.equals("JDK_JAVA_OPTIONS"));
-    builder.environment().putAll(environment);
+    builder.environment().putAll(effectiveEnvironment);
     Files.createDirectories(Path.of("target/e2e"));
     builder
         .redirectErrorStream(true)
@@ -233,11 +257,11 @@ final class PropagationEnvironment implements AutoCloseable {
     processes.add(process);
     if (module.equals("policy-enforcer")) {
       enforcer = process;
-      enforcerEnvironment = Map.copyOf(environment);
+      enforcerEnvironment = Map.copyOf(effectiveEnvironment);
     }
     if (module.equals("iam-core")) {
       iam = process;
-      iamEnvironment = Map.copyOf(environment);
+      iamEnvironment = Map.copyOf(effectiveEnvironment);
     }
   }
 

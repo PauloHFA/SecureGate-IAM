@@ -6,18 +6,18 @@ Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B4b — exportação OTLP opcional IAM/enforcer |
-| Base desta entrega | 38dd1ae — auditoria em lote, publicada |
-| Trabalho local | Implementação local; sem commit/push desta entrega |
+| Última entrega implementada | 10B4c — validação integrada do tracing real |
+| Base desta entrega | 81aeffa — backend Tempo e exportação OTLP, commit local |
+| Trabalho local | Commit local desta entrega; push/CI remota pendentes |
 | Branch | feat/tracing-backend |
-| Validação da entrega | BUILD SUCCESS às 23:15:31 UTC−03: 886 testes aprovados, dois gates de cobertura e arquitetura atendidos; bloqueio NIO enforcer corrigido; ressalva histórica do fork IAM registrada |
-| Próxima implementação | 10B4c — validação integrada e coleta conjunta |
-| Pendências seguintes | 10B4c e aceite global 10B; 10C–10D; publicação/CI |
+| Validação da entrega | `verify` completo: BUILD SUCCESS às 23:34:45 UTC−03, 887 testes, dois gates de cobertura e arquitetura atendidos; ressalva histórica do fork IAM |
+| Próxima implementação | Aceite global 10B — coleta conjunta sustentada de métricas, logs e traces com exporters |
+| Pendências seguintes | Aceite global 10B; 10C–10D; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a e a 10B4b também estão implementadas abaixo. As demais divisões 10B4c–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b e a 10B4c também estão implementadas abaixo. As demais divisões 10C–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -610,13 +610,25 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 
 [ADR-065](adr/065-exportacao-otlp-local.md), [operação](runbooks/exportacao-otlp-local.md), [evidências](evidencias/etapa-10b4b.md). Trabalho local em feat/tracing-backend sobre 38dd1ae, junto à 10B4a no commit local desta branch, sem push/CI remota; nenhuma stack persistente alterada.
 
+## Etapa 10B4c — Validação integrada do tracing
+
+1. Reutilizar os contêineres descartáveis de PostgreSQL, Redis, RabbitMQ e Vault; acrescentar Tempo/Grafana provisionados com os arquivos reais do projeto.
+2. Ligar os perfis `http-tracing`/`consumer-tracing` e exportação OTLP somente nos processos de teste, com destino loopback e amostragem 1 para massa sintética.
+3. Criar e bloquear um usuário pela API real. Exigir projeção Redis e ler o `trace_parent` imutável do fato `user.locked` na outbox.
+4. Consultar o trace no Tempo e conferir os spans HTTP, produtor AMQP e consumidor enforcer nos dois recursos de serviço; pelo proxy Grafana, exigir 401 anônimo e resposta autenticada.
+5. Pausar o Tempo descartável e confirmar que um novo bloqueio ainda completa o efeito de negócio; reativar o receptor e aguardar readiness.
+6. Produzir dez bloqueios adicionais com intervalo de 2 s, conferindo projeção e cadeia consultável para cada evento; localizar `audit.consume.batch` e exigir link não vazio a produtor.
+7. Registrar tempo, resultado, limites da amostra e pendências. O patamar curto valida coleta funcional e recuperação, sem medir capacidade nem fechar a coleta conjunta de métricas/logs/traces e exporters do aceite global 10B.
+
+[Teste](../integration-tests/src/test/java/com/securegate/e2e/TracingJourneyIT.java), [evidência](evidencias/etapa-10b4c.md), [inventário](OBSERVABILIDADE.md). Entrega versionada em commit local nesta branch, sem push/CI remota; stack persistente preservada.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
-As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B4a entrega backend local e a 10B4b implementa exportação opcional; a 10B4c explicita coleta conjunta ainda pendente no aceite global 10B, sem renumerar entregas anteriores.
+As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B4a entrega backend local, a 10B4b implementa exportação opcional e a 10B4c valida a cadeia de tracing real. O aceite global 10B ainda exige coleta conjunta de métricas, logs, traces e exporters, sem renumerar entregas anteriores.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10B4c — Validação conjunta | Integrar traces/links no backend → verificar credenciais/retorno → executar coleta conjunta sustentada → registrar limites/aceite. | Evidência integrada de observabilidade antes de 10C. |
+| Aceite global 10B — sinais conjuntos | Coletar Prometheus, logs e traces com todos os exporters em patamar sustentado → consultar painéis e traces → registrar limites/aceite. | Evidência integrada dos três sinais antes de 10C. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
 | 11A — Imagens/stack | Criar imagens Java 21 sem root → perfil Compose full → probes e smoke em ambiente limpo. | Stack completa executável conforme guia. |
