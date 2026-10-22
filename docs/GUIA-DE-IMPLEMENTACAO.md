@@ -6,18 +6,18 @@ Atualizado em 22/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B5b — coleta conjunta dos quatro exporters de dependências com IAM/enforcer |
-| Base desta entrega | a8ccaed — coleta conjunta do núcleo, commit local |
-| Trabalho local | Entrega 10B5b versionada em commit local; push/CI remota pendentes |
+| Última entrega implementada | 10C1 — linha de base curta de emissão de token com JMeter |
+| Base desta entrega | 59843d7 — coleta conjunta 10B5b, commit local |
+| Trabalho local | Alterações 10C1 versionadas em commit local; push e CI remota pendentes |
 | Branch | feat/tracing-backend |
-| Validação da entrega | Seleção `JointSignalsIT`: BUILD SUCCESS, 1 teste em 158 s; `verify` completo: BUILD SUCCESS às 11:15:55 UTC−03, 888 testes e dois gates de cobertura atendidos |
-| Próxima implementação | 10C — medição de capacidade e estabilidade; avaliar agregação central de logs conforme escopo operacional |
-| Pendências seguintes | Aceite global 10B condicionado aos limites abaixo; 10C–10D; publicação/CI |
+| Validação da entrega | Seleção `TokenBaselineSmoke`: BUILD SUCCESS, 1 teste em 57,925 s; build completo anterior 10B5b com 888 testes |
+| Próxima implementação | 10C2 — patamares longos, recursos das dependências e demais fluxos |
+| Pendências seguintes | Aceite operacional 10B condicionado aos limites abaixo; 10C2–10D; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a e a 10B5b também estão implementadas abaixo. As divisões 10C–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b e a 10C1 também estão implementadas abaixo. As divisões 10C2–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -645,13 +645,23 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 
 [Operação](runbooks/coleta-conjunta-dependencias-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/JointSignalsIT.java), [evidência](evidencias/etapa-10b5b.md). Entrega versionada em commit local; push/CI remota pendentes.
 
+## Etapa 10C1 — Linha de base curta de emissão de token
+
+1. Separar o cenário `client_credentials` válido do `invalid_client` esperado para que percentis e taxa representem somente emissão.
+2. Criar plano JMeter com duração configurável e três fases sequenciais: aquecimento, patamar e redução da concorrência. Manter massa sintética privada e validação do contrato OAuth existente.
+3. Calcular por fase amostras, falhas, taxa efetiva pela duração configurada e p50/p95/p99. Registrar referências de 200 ms e 300 req/s como comparação, sem transformar um ensaio curto em SLA.
+4. Registrar metadados do host/Docker e, quando o PID é fornecido, CPU e memória do IAM a cada segundo. Não gravar corpos, cabeçalhos, senhas, Basic ou JWT.
+5. Validar o runner contra IAM/dependências reais descartáveis em perfil 3/5/3 s e duas threads no patamar; verificar relatório, recursos e ausência de segredos nos artefatos. Documentar taxa abaixo da referência e limites da amostra.
+
+[Operação](runbooks/medicao-emissao-token-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java), [evidência](evidencias/etapa-10c1.md). Implementação versionada em commit local, com push e CI remota pendentes; a 10C2 fica com patamares longos e os demais fluxos.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
-As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B5b conclui a integração funcional local dos quatro exporters na coleta conjunta. O aceite global de observabilidade ainda deve explicitar os limites da janela curta e dos logs locais, sem renumerar entregas anteriores.
+As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B5b conclui a integração funcional local dos quatro exporters na coleta conjunta; a 10C1 valida o método de medição de emissão em janela curta. O aceite global de observabilidade ainda deve explicitar os limites dos logs locais, sem renumerar entregas anteriores.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
+| 10C2 — Medição sustentada | Medir emissão, validação, revogação e auditoria em patamares longos → registrar recursos de todos os componentes e taxa ofertada/efetiva. | Relatórios comparáveis às metas, desvios e limites explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
 | 11A — Imagens/stack | Criar imagens Java 21 sem root → perfil Compose full → probes e smoke em ambiente limpo. | Stack completa executável conforme guia. |
 | 11B — CI e release | Integrar scans/checks → versionar artefatos/imagens → definir publicação GHCR no fluxo de release. | Pipeline verificável, sem publicar imagens de PR como release. |

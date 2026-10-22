@@ -97,6 +97,10 @@ final class PropagationEnvironment implements AutoCloseable {
   private boolean pamConfigured;
   URI base;
 
+  long iamProcessId() {
+    return iam.pid();
+  }
+
   void enableDependencyMetrics() {
     var root = Path.of("../infra").toAbsolutePath().normalize();
     rabbit
