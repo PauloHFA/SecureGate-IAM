@@ -1,0 +1,11 @@
+apiVersion: 1
+datasources:
+  - name: SecureGate Tempo
+    uid: securegate-tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    isDefault: false
+    editable: false
+    jsonData:
+      httpMethod: GET

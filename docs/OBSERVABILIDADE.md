@@ -18,9 +18,13 @@
 | 10B3c2 | Implementada e validada localmente | Span PRODUCER por tentativa, parent durável/raiz explícita e header traceparent restrito. |
 | 10B3c3a | Implementada e validada localmente | Enforcer: contexto restrito, spans CONSUMER e restauração de escopo/MDC nas duas filas. |
 | 10B3c3b | Implementada e validada localmente; ressalva de shutdown nas evidências | Auditoria IAM: raiz por lote com links e fallback com parents individuais; escopos restaurados. |
-| 10B4 | Proposta, pendente | Backend/exportação e coleta conjunta sustentada para fechar o aceite global 10B. |
+| 10B4a | Implementada e validada localmente; ressalva de shutdown nas evidências | Tempo opcional, volume/retenção local e datasource Grafana; somente OTLP sintético. |
+| 10B4b | Implementada e validada localmente; ressalva do fork IAM | Exportação OTLP opcional IAM/enforcer, destino local, transporte JDK e fila/timeouts limitados. |
+| 10B4c | Implementada e validada localmente, com limites | Cadeia real IAM/outbox/enforcer e links da auditoria no Tempo; Grafana autenticado, pausa/recuperação e dez eventos em ~20 s. Coleta conjunta de todos os sinais/exporters ainda pendente no aceite global 10B. |
+| 10B5a | Implementada e validada localmente, com limites | Prometheus IAM/enforcer, logs JSON locais e traces Tempo/Grafana simultâneos durante 12 eventos em 1 min. Exporters de dependências ficam para 10B5b. |
+| 10B5b | Implementada e validada localmente, com limites | Quatro exporters de dependências coletados junto aos dois serviços e aos três sinais; seis jobs saudáveis por 1 min, dashboards consultáveis. Logs ainda locais. |
 
-A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none; a 10B2b1 acrescenta listener JDK opcional em loopback, GET /metrics, sem MVC/Actuator. Default sem listener. A 10B2a acrescenta Compose Prometheus/Grafana validado com IAM real em stack descartável, sem coleta sustentada ou alteração dos serviços persistentes do usuário. A 10B2b2a acrescenta plugin opcional do RabbitMQ; a 10B2b2b acrescenta exporter PostgreSQL e login de monitoração; a 10B2b2c acrescenta ACL/exporter Redis; a 10B2b2d acrescenta listener/token Vault próprios. Execução conjunta sustentada ainda não foi validada.
+A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none; a 10B2b1 acrescenta listener JDK opcional em loopback, GET /metrics, sem MVC/Actuator. Default sem listener. A 10B2a acrescenta Compose Prometheus/Grafana validado com IAM real em stack descartável, sem coleta sustentada ou alteração dos serviços persistentes do usuário. A 10B2b2a acrescenta plugin opcional do RabbitMQ; a 10B2b2b acrescenta exporter PostgreSQL e login de monitoração; a 10B2b2c acrescenta ACL/exporter Redis; a 10B2b2d acrescenta listener/token Vault próprios. A 10B4c verifica tracing real por ~20 s, a 10B5a coleta os três sinais do núcleo por 1 min e a 10B5b integra os quatro exporters à mesma janela. Capacidade e agregação central de logs permanecem fora dessa prova funcional.
 
 ## IAM: superfície e controle de acesso
 
@@ -155,3 +159,35 @@ Atributos finitos: messaging.system=rabbitmq, messaging.consumer=revocation/bloc
 Reutiliza o Tracer/provider IAM opcional de http-tracing. Span audit.consume.batch CONSUMER é raiz explícita com links deduplicados dos produtores válidos, até o limite de 100 mensagens; mensagens legacy/hostis não geram links. Não escolher parent único nem herdar worker. O span começa após decode puro e cobre persistência, fallback e disposição. Inválidos têm span de rejeição; fallback tem spans audit.consume.message com parent de cada mensagem e restauração do lote/MDC. Transação única, commit antes do ACK, retry do restante e desconexão em ACK incerto permanecem anteriores.
 
 Cinco atributos finitos: messaging.system=rabbitmq, messaging.consumer=audit, messaging.phase=batch/isolated/invalid, messaging.redelivered=true/false e messaging.outcome=stored/isolated/retry/invalid/appended/duplicate/conflict/late/unavailable. Sem erro livre, payload ou novas métricas. Links não têm atributos e IDs não autorizam operações. Retry cria nova raiz com os mesmos links. Sem novo schema/exporter; aceite global 10B permanece aberto e a proposta 10B4 organiza backend/coleta conjunta antes de 10C. [ADR-063](adr/063-tracing-auditoria-em-lote.md), [operação](runbooks/tracing-consumidores-local.md), [evidências](evidencias/etapa-10b3c3b.md).
+
+## Backend local — 10B4a
+
+Overlay opcional Tempo 3.1.1 por digest e single-binary, dados em volume próprio, portas host loopback 13200 (API) e 14318 (OTLP HTTP), usuário 10001 e raiz read-only. Não há autenticação própria Tempo; o datasource Grafana exige o acesso Grafana existente, sem proteger portas diretas. Prometheus permanece padrão e o datasource Tempo só é montado pelo overlay. -IncludeTracing valida Compose/colisões e readiness pelo host; sem switch a stack base permanece anterior.
+
+Retenção de blocos configurada em 24h com varredura de 5 min, sem quota rígida de volume nem teste de expurgo após 24h. Limites de memória/CPU/PIDs/logs e ingestão estão versionados. MCP/relatório/metrics-generator/logging de spans desabilitados. O teste 10B4a envia OTLP sintético e verifica links, proxy autenticado e consulta após restart; 10B4b acrescenta exportação opcional, e 10B4c valida a cadeia real. Aceite global 10B permanece aberto. Nenhuma stack persistente foi alterada. [ADR-064](adr/064-backend-local-de-tracing.md), [operação](runbooks/backend-tracing-local.md), [evidências](evidencias/etapa-10b4a.md).
+
+## Exportação OTLP — 10B4b
+
+securegate.tracing.export.enabled=false em ambos os executáveis; true exige management.tracing.enabled=true. Endpoint padrão http://127.0.0.1:14318/v1/traces, validado para IP literal loopback/porta/path e sem credenciais/parâmetros/fragmento. Sender JDK do BOM, sem redirects; sem autoconfiguração OTEL_* ou agente. Providers existentes fornecem service.name=iam-core/policy-enforcer e mantêm sampler local.
+
+BatchSpanProcessor enfileira até 512 spans, envia até 128 por lote a cada 1 s; conexão 500 ms/request 1 s/espera do processor 2 s por lote. Sem retry; fila cheia/timeout/503 descarta telemetria e novos lotes recuperam após retorno. Negócio/ACKs não esperam exportação; tracing não substitui auditoria durável. Fechamento drena best effort; limites por lote não são SLA do processo inteiro.
+
+Exportar somente os nomes/atributos finitos já inventariados, IDs/parents/links e recurso de serviço; não adicionar body, URL, headers, credenciais, eventos de exceção ou baggage. Exporter não sanitiza instrumentação arbitrária. Seleção de 38 casos valida transporte HTTP real dos providers, inclusive recuperação e redirecionamento; não comprova cadeia de negócio consultável no Tempo ou coleta sustentada (10B4c). [ADR-065](adr/065-exportacao-otlp-local.md), [operação](runbooks/exportacao-otlp-local.md), [evidências](evidencias/etapa-10b4b.md).
+
+## Validação integrada — 10B4c
+
+Em infraestrutura descartável, os JARs reais enviam spans OTLP ao Tempo: um bloqueio administrativo permite consultar no mesmo trace `http.server`, `outbox.publish` e `security.consume`, com recursos IAM/enforcer. O consumidor de auditoria produz raiz própria `audit.consume.batch` com links de produtores. O Grafana nega proxy anônimo e aceita credencial gerada. Com o Tempo pausado, o bloqueio continua a projetar no Redis; após retorno, dez novos bloqueios espaçados em 2 s produzem efeitos e traces consultáveis. A senha de Grafana não aparece no trace examinado.
+
+Esse patamar curto valida recuperação funcional do tracing, não capacidade ou retenção de longo prazo. Não foram coletados simultaneamente Prometheus, logs e traces com todos os exporters de dependências; o aceite global 10B permanece aberto. [Teste integrado](../integration-tests/src/test/java/com/securegate/e2e/TracingJourneyIT.java), [evidência](evidencias/etapa-10b4c.md).
+
+## Coleta conjunta do núcleo — 10B5a
+
+IAM e enforcer reais foram observados simultaneamente por Prometheus, logs JSON restritos nos processos e Tempo/Grafana. Em 12 bloqueios espaçados em 5 s, ambos os jobs Prometheus mantiveram `up=1`; a última janela de um minuto continha pelo menos oito amostras por serviço. O contador do enforcer atingiu 12 ACKs e traces do começo, meio e fim da janela mostraram HTTP IAM, publicação outbox e consumo enforcer, também acessíveis pelo proxy autenticado Grafana. Os logs novos de ambos os JARs seguiram exatamente o esquema de sete campos e não continham os tokens de scrape.
+
+A amostra funcional de 1 min não mede capacidade. Logs são verificados nos arquivos locais, sem backend central; os exporters PostgreSQL, Redis, RabbitMQ e Vault não foram executados em conjunto nesta fixture. A 10B5b permanece necessária para o aceite global 10B. [Operação](runbooks/coleta-conjunta-nucleo-local.md), [evidência](evidencias/etapa-10b5a.md).
+
+## Coleta conjunta das dependências — 10B5b
+
+A fixture de 10B5a agora inicia também exporters PostgreSQL/Redis, plugin RabbitMQ e endpoint Vault protegido. Prometheus coleta seis jobs em paralelo; o teste exige `up=1` ao longo dos 12 bloqueios, conexão real de PostgreSQL e Redis, Vault desbloqueado, série de filas RabbitMQ e pelo menos três amostras recentes de cada dependência. Os quatro dashboards são lidos por API Grafana autenticada. Os traces e logs do núcleo continuam verificados na mesma janela.
+
+Isso fecha a **integração funcional local** dos scrapes de dependências. O aceite operacional global 10B fica parcial: logs somente locais, sem agregador central, e uma janela sintética de 1 min não prova retenção nem estabilidade prolongada. A medição de desempenho permanece na 10C. [Operação](runbooks/coleta-conjunta-dependencias-local.md), [evidência](evidencias/etapa-10b5b.md).

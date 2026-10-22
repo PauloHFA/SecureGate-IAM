@@ -1,23 +1,23 @@
 # Implementação passo a passo — SecureGate IAM
 
-Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as razões das divisões e os caminhos para executar e validar cada entrega. Complementa o [plano com os critérios de aceite](PLANO-DE-IMPLEMENTACAO.md); os detalhes de operação ficam nos guias indicados em cada linha.
+Atualizado em 22/10/2026. Este guia consolida a sequência de construção, as razões das divisões e os caminhos para executar e validar cada entrega. Complementa o [plano com os critérios de aceite](PLANO-DE-IMPLEMENTACAO.md); os detalhes de operação ficam nos guias indicados em cada linha.
 
 ## Ponto atual
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B3c3b — tracing da auditoria IAM em lote |
-| Base desta entrega | 103553e — consumo no enforcer |
-| Trabalho local | Implementação local; incluída neste commit; push pendente |
-| Branch | feat/outbox-trace-context |
-| Validação da entrega | BUILD SUCCESS às 21:36:26 UTC−03: 845 testes, zero falhas/erros/skips; gates atendidos; ressalva de shutdown do fork IAM/Hikari nas evidências |
-| Próxima implementação | 10B4 — backend/exportação e coleta conjunta |
-| Pendências seguintes | Aceite global 10B; 10C–10D; publicação/CI |
+| Última entrega implementada | 10C2b2b1 — medição da validação no recurso protegido |
+| Base desta entrega | 059cc48 — recursos das dependências 10C2b2a, commit local |
+| Trabalho local | Alterações 10C2b2b1 sem commit/push/CI remota |
+| Branch | feat/tracing-backend |
+| Validação da entrega | Seleção curta `TokenBaselineSmoke` de recurso aprovada; ensaio de 60 s em execução; build completo anterior 10B5b com 888 testes |
+| Próxima implementação | 10C2b2b2 — medição de revogação; depois 10C2b2b3 — auditoria |
+| Pendências seguintes | Aceite operacional 10B condicionado aos limites abaixo; 10C2b2b2–10D; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a e a 10B3c3b também estão implementadas abaixo. As demais divisões 10B4–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b, a 10C1, a 10C2a, a 10C2b1, a 10C2b2a e a 10C2b2b1 também estão implementadas abaixo. As divisões 10C2b2b2–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -578,14 +578,128 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 
 [ADR-063](adr/063-tracing-auditoria-em-lote.md), [operação](runbooks/tracing-consumidores-local.md), [evidências](evidencias/etapa-10b3c3b.md). Branch feat/outbox-trace-context sobre 103553e; incluída neste commit; push pendente. Sem nova migração ou alteração da stack persistente.
 
+## Etapa 10B4a — Backend local de tracing
+
+1. Dividir a 10B4 em backend/consulta (a), exportação de serviços (b) e validação conjunta (c), preservando o aceite global aberto.
+2. Consultar fontes oficiais de Tempo e verificar release/tag/digest; fixar 3.1.1 e reutilizar Grafana/Prometheus já versionados.
+3. Criar overlay opcional da stack de observabilidade e configurar Tempo single-binary com armazenamento local; nenhuma alteração na stack de negócio ou exporter Java.
+4. Publicar apenas query/OTLP HTTP em loopback; documentar acesso direto sem autenticação e limite de host/rede confiáveis. Reutilizar autenticação Grafana no proxy.
+5. Configurar UID sem privilégios, root read-only, volume/tmpfs e limites de memória/CPU/PIDs/logs/ingestão; retenção de blocos 24h sem fingir quota de disco ou expurgo testado após 24h.
+6. Desabilitar MCP, relatório de uso, metrics-generator e logging de spans; manter somente receiver OTLP/HTTP e dados sintéticos nesta entrega.
+7. Provisionar datasource Tempo somente via overlay, sem substituir diretório/credenciais nem mudar Prometheus padrão.
+8. Acrescentar -IncludeTracing ao script, validar colisões de portas antes de up e verificar /ready pelo host, pois a imagem não tem shell.
+9. Testar Compose base/overlay e Tempo/Grafana reais: ingestão sintética com link, recusa sem credencial no Grafana, query autenticada e restart preservando volume. Validar scripts em projeto/workspace descartáveis.
+10. Executar seleção/build, registrar ajustes/evidências e reversão preservando volumes; não declarar exporter, UI visual ou coleta sustentada implementados. Próxima: 10B4b.
+
+[ADR-064](adr/064-backend-local-de-tracing.md), [operação](runbooks/backend-tracing-local.md), [evidências](evidencias/etapa-10b4a.md). Branch feat/tracing-backend sobre 38dd1ae; 10B4a versionada no commit local junto à 10B4b, sem push/CI remota. Nenhum comando de aplicação executado na stack persistente.
+
+## Etapa 10B4b — Exportação OTLP opcional
+
+1. Manter o backend 10B4a e os providers/contratos de instrumentação anteriores; limitar esta entrega ao transporte dos spans.
+2. Acrescentar exporter OTLP e sender JDK gerenciados pelo BOM nos dois executáveis, excluindo sender OkHttp para evitar redirects automáticos.
+3. Criar configuração de bootstrap condicional à propriedade securegate.tracing.export.enabled, falsa por padrão; exigir tracing já habilitado.
+4. Validar endpoint HTTP no IP literal 127.0.0.1, porta explícita e path /v1/traces, sem userinfo/query/fragment ou DNS remoto.
+5. Conectar BatchSpanProcessor ao ObjectProvider existente: 512 spans de fila, 128 por lote, intervalo 1 s e espera por lote 2 s; conexão 500 ms/request 1 s, sem retry.
+6. Preservar sampler local, recursos service.name e spans/atributos finitos; não instalar agente/SDK global nem sanitizar arbitrariamente após instrumentação.
+7. Definir descarte em sobrecarga/falha e recuperação apenas de lotes novos, sem afetar transações/ACKs; registrar fechamento idempotente e limites por lote.
+8. Testar provider Spring + receptor HTTP real em cada módulo: default off, configuração inválida, recurso/parent/link protobuf, amostragem zero, saturação, 503/recuperação, timeout, fechamento e redirect.
+9. Executar seleção limpa (38 casos aprovados) e build completo; registrar a interrupção da primeira verificação para concluir a troca de transporte, sem contar execução parcial como aceite.
+10. Diagnosticar bloqueio de shutdown observado no verify: tick NIO retinha monitor do worker dentro de abort sem limite; reproduzir com RabbitMQ real e corrigir para abort(1000), preservando entrega sem ACK para outro worker.
+11. Reexecutar regressão e bootstrap Vault, depois build completo; distinguir essa correção da ressalva histórica IAM/Hikari e registrar falhas anteriores sem contá-las como aceite.
+12. Documentar ativação por variáveis/perfis existentes, consulta, reversão e limites. Próxima 10B4c comprovará a cadeia de negócio no Tempo e coleta conjunta sustentada.
+
+[ADR-065](adr/065-exportacao-otlp-local.md), [operação](runbooks/exportacao-otlp-local.md), [evidências](evidencias/etapa-10b4b.md). Trabalho local em feat/tracing-backend sobre 38dd1ae, junto à 10B4a no commit local desta branch, sem push/CI remota; nenhuma stack persistente alterada.
+
+## Etapa 10B4c — Validação integrada do tracing
+
+1. Reutilizar os contêineres descartáveis de PostgreSQL, Redis, RabbitMQ e Vault; acrescentar Tempo/Grafana provisionados com os arquivos reais do projeto.
+2. Ligar os perfis `http-tracing`/`consumer-tracing` e exportação OTLP somente nos processos de teste, com destino loopback e amostragem 1 para massa sintética.
+3. Criar e bloquear um usuário pela API real. Exigir projeção Redis e ler o `trace_parent` imutável do fato `user.locked` na outbox.
+4. Consultar o trace no Tempo e conferir os spans HTTP, produtor AMQP e consumidor enforcer nos dois recursos de serviço; pelo proxy Grafana, exigir 401 anônimo e resposta autenticada.
+5. Pausar o Tempo descartável e confirmar que um novo bloqueio ainda completa o efeito de negócio; reativar o receptor e aguardar readiness.
+6. Produzir dez bloqueios adicionais com intervalo de 2 s, conferindo projeção e cadeia consultável para cada evento; localizar `audit.consume.batch` e exigir link não vazio a produtor.
+7. Registrar tempo, resultado, limites da amostra e pendências. O patamar curto valida coleta funcional e recuperação, sem medir capacidade nem fechar a coleta conjunta de métricas/logs/traces e exporters do aceite global 10B.
+
+[Teste](../integration-tests/src/test/java/com/securegate/e2e/TracingJourneyIT.java), [evidência](evidencias/etapa-10b4c.md), [inventário](OBSERVABILIDADE.md). Entrega versionada em commit local nesta branch, sem push/CI remota; stack persistente preservada.
+
+## Etapa 10B5a — Coleta conjunta dos três sinais no núcleo
+
+1. Dividir o aceite global restante em 10B5a (IAM/enforcer) e 10B5b (exporters de dependências e fechamento), preservando 10C para capacidade.
+2. Reutilizar imagens/templates versionados de Tempo, Prometheus e Grafana numa rede descartável; gerar tokens diferentes para os dois scrapes e senha Grafana.
+3. Subir IAM/enforcer reais com logs JSON restritos, tracing e exportação OTLP; ativar endpoints Prometheus protegidos e coletar os dois jobs a cada 5 s.
+4. Exigir `up=1` para IAM/enforcer e acesso autenticado aos datasources Prometheus/Tempo; recusar acesso anônimo.
+5. Produzir 12 bloqueios reais com intervalo de 5 s e conferir efeito Redis, scrapes saudáveis ao longo do patamar, pelo menos oito amostras por serviço no último minuto e 12 ACKs no enforcer.
+6. Consultar o primeiro, sexto e último trace no Tempo e pelo proxy Grafana; exigir cadeia HTTP → outbox → consumidor. Conferir que novos logs de ambos os processos seguem exatamente os sete campos permitidos e não expõem os tokens de scrape.
+7. Registrar resultado, limites e próximo passo: logs locais ainda não têm agregador central; os quatro exporters são a 10B5b. Não inferir capacidade nem fechar o aceite global 10B com esta janela funcional.
+
+[Operação](runbooks/coleta-conjunta-nucleo-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/JointSignalsIT.java), [evidência](evidencias/etapa-10b5a.md). Entrega versionada em commit local nesta branch, sem push/CI remota; nenhuma stack persistente alterada.
+
+## Etapa 10B5b — Quatro dependências na coleta conjunta
+
+1. Reusar a fixture da 10B5a e habilitar, antes do startup descartável, o plugin Prometheus do RabbitMQ e o listener protegido de métricas do Vault. Usar configuração RabbitMQ de teste sem importação de definições para preservar o usuário temporário criado pelo Testcontainers.
+2. Criar no PostgreSQL descartável um login com `pg_monitor`, conexão ao banco de teste e transações somente leitura; criar ACL Redis limitada a comandos de observação, sem acesso a chaves.
+3. Gerar senhas e token Vault por execução, gravá-los apenas em arquivos temporários e iniciar exporters PostgreSQL/Redis com imagens fixadas por digest. Exigir 403 sem token e 200 com token mínimo na rota de métricas Vault.
+4. Acrescentar os quatro templates de scrape existentes ao Prometheus da 10B5a, montar o token Vault por arquivo e provisionar os dashboards de dependências no Grafana.
+5. Exigir `up=1` nos seis jobs, `pg_up=1`, `redis_up=1`, `vault_core_unsealed=1` e a série agregada de filas RabbitMQ. Durante 12 bloqueios espaçados em 5 s, manter os seis jobs saudáveis; conferir amostras na janela, ACKs, dashboards, traces e logs restritos.
+6. Registrar seleção, build completo, limites e decisão de aceite. A janela funcional de 1 min não mede capacidade, retenção nem agregação central dos logs; a 10C continua responsável pela medição. A stack persistente não é alterada.
+
+[Operação](runbooks/coleta-conjunta-dependencias-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/JointSignalsIT.java), [evidência](evidencias/etapa-10b5b.md). Entrega versionada em commit local; push/CI remota pendentes.
+
+## Etapa 10C1 — Linha de base curta de emissão de token
+
+1. Separar o cenário `client_credentials` válido do `invalid_client` esperado para que percentis e taxa representem somente emissão.
+2. Criar plano JMeter com duração configurável e três fases sequenciais: aquecimento, patamar e redução da concorrência. Manter massa sintética privada e validação do contrato OAuth existente.
+3. Calcular por fase amostras, falhas, taxa efetiva pela duração configurada e p50/p95/p99. Registrar referências de 200 ms e 300 req/s como comparação, sem transformar um ensaio curto em SLA.
+4. Registrar metadados do host/Docker e, quando o PID é fornecido, CPU e memória do IAM a cada segundo. Não gravar corpos, cabeçalhos, senhas, Basic ou JWT.
+5. Validar o runner contra IAM/dependências reais descartáveis em perfil 3/5/3 s e duas threads no patamar; verificar relatório, recursos e ausência de segredos nos artefatos. Documentar taxa abaixo da referência e limites da amostra.
+
+[Operação](runbooks/medicao-emissao-token-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java), [evidência](evidencias/etapa-10c1.md). Implementação versionada em commit local, com push e CI remota pendentes; a 10C2 fica com patamares longos e os demais fluxos.
+
+## Etapa 10C2a — Janelas de estabilidade da emissão de token
+
+1. Dividir o patamar em janelas completas configuráveis, ancoradas no primeiro timestamp JMeter, com taxa efetiva, falhas e p95 por janela. Descartar a janela final incompleta para não inflar ou reduzir artificialmente sua taxa.
+2. Manter o agregado do patamar e as amostras originais; conferir contagem, sequência e unidades das janelas no ensaio integrado descartável.
+3. Executar uma seleção mais longa em ambiente descartável e registrar a variação entre janelas. Concorrência de threads é apenas carga fechada; a taxa ofertada independente e a capacidade máxima continuam sem medição.
+4. Preservar massa privada e checagem de artefatos contra vazamento de credenciais e JWT.
+
+[Operação](runbooks/medicao-emissao-token-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java), [evidência](evidencias/etapa-10c2a.md). A 10C2b medirá os outros fluxos e recursos das dependências.
+
+## Etapa 10C2b1 — Introspecção autenticada de token ativo
+
+1. Separar `POST /oauth2/introspect` em um plano JMeter exclusivo, com resposta ativa do cliente proprietário; não misturar emissões, negativas esperadas ou revogação nos percentis.
+2. Preparar token sintético por cliente antes de cada fase, exigir validade além da duração da fase e remover o CSV temporário privado ao terminar. Restringir o diretório de saída às áreas locais ignoradas pelo Git.
+3. Reutilizar fases e janelas do runner de 10C2a; registrar taxa, falhas, p95 e variação temporal, mantendo preparação fora das amostras.
+4. Verificar o cenário em IAM/dependências descartáveis, incluindo contrato, recursos IAM, janelas e ausência de segredos/JWT nos artefatos.
+5. Registrar que introspecção HTTP não equivale à validação local com cache do recurso; a referência p95 < 20 ms não é aplicada automaticamente.
+
+[Operação](runbooks/medicao-introspeccao-token-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java), [evidência](evidencias/etapa-10c2b1.md). A 10C2b2 continua com validação no recurso, revogação, auditoria e recursos das dependências.
+
+## Etapa 10C2b2a — Recursos das dependências durante carga
+
+1. Receber IDs completos e distintos de até oito containers, sem selecionar containers por nome impreciso. Exigir Docker CLI antes de iniciar a carga.
+2. Amostrar CPU, memória e processos com `docker stats --no-stream` por fase; guardar somente timestamp, ID abreviado e métricas, sem nomes ou dados de configuração.
+3. Resumir pontos, pico de CPU e pico de memória por container no mesmo relatório de emissão/introspecção. Falhar se não houver amostra de qualquer container informado ou se a coleta falhar.
+4. Validar quatro dependências descartáveis junto ao JMeter, verificar séries temporais e ausência de segredos/JWT nos artefatos. Comparar com a linha de base sem alegar capacidade ou estabilidade prolongada.
+
+[Operação](runbooks/medicao-recursos-dependencias-carga-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java), [evidência](evidencias/etapa-10c2b2a.md). A 10C2b2b segue com validação no recurso, revogação e auditoria.
+
+## Etapa 10C2b2b1 — Validação no recurso protegido
+
+1. Reutilizar a massa humana e as políticas sintéticas da 10A2b2; executar login PKCE uma vez por thread em cada fase e manter token válido apenas em memória.
+2. Medir somente `GET /api/resources/account` com Bearer, sem cookies do navegador. Exigir HTTP 200, `sub` esperado e validade residual; tratar falha de preparação como falha do ensaio.
+3. Reutilizar as três fases, janelas, CSV de recursos e resumo da linha de base, registrando as amostras PKCE separadamente dos GETs. Restringir a fase ao TTL de 120 s do token sintético.
+4. Validar com IAM e dependências descartáveis, verificar ausência de credenciais/JWT nos artefatos e registrar que o tempo de GET inclui processamento e rede, sem isolar validação criptográfica/cache.
+
+[Operação](runbooks/medicao-validacao-recurso-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java), [evidência](evidencias/etapa-10c2b2b1.md). A 10C2b2b2 medirá revogação; a 10C2b2b3 medirá auditoria.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
-As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B4 explicita backend/exportação e coleta conjunta, já pendentes no aceite global 10B; não representa uma entrega realizada nem renumera as entregas anteriores.
+As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B5b conclui a integração funcional local dos quatro exporters na coleta conjunta; a 10C1 valida o método de medição de emissão em janela curta, a 10C2a observa variação por janela, a 10C2b1 mede introspecção HTTP, a 10C2b2a coleta recursos das dependências durante carga e a 10C2b2b1 mede GET protegido. O aceite global de observabilidade ainda deve explicitar os limites dos logs locais, sem renumerar entregas anteriores.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10B4 — Fechamento da observabilidade | Definir backend/exportação/retenção/acesso → integrar spans/links restritos → validar coleta conjunta e falha/recuperação → registrar aceite. | Observabilidade integrada verificável antes da medição 10C; proposta ainda não implementada. |
-| 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
+| 10C2b2b2 — Revogação | Separar criação do token, POST de revogação e recusa observável; medir cada unidade sem incluir preparação ou espera oculta nos percentis. | Relatório de revogação e limites de propagação explícitos. |
+| 10C2b2b3 — Auditoria | Separar produção, visibilidade e consulta paginada; medir as unidades e recursos, com janela de observação declarada. | Relatório de auditoria com falhas, taxa e limites explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
 | 11A — Imagens/stack | Criar imagens Java 21 sem root → perfil Compose full → probes e smoke em ambiente limpo. | Stack completa executável conforme guia. |
 | 11B — CI e release | Integrar scans/checks → versionar artefatos/imagens → definir publicação GHCR no fluxo de release. | Pipeline verificável, sem publicar imagens de PR como release. |

@@ -35,6 +35,24 @@ final class PropagationEnvironment implements AutoCloseable {
   static final HttpClient HTTP =
       HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
   private final String password = UUID.randomUUID().toString();
+  private final Map<String, String> tracingOverrides;
+  private final boolean tracingExport;
+  private final boolean structuredLogs;
+
+  PropagationEnvironment() {
+    this(Map.of());
+  }
+
+  PropagationEnvironment(Map<String, String> tracingOverrides) {
+    this(tracingOverrides, false);
+  }
+
+  PropagationEnvironment(Map<String, String> tracingOverrides, boolean structuredLogs) {
+    this.tracingOverrides = Map.copyOf(tracingOverrides);
+    this.tracingExport = !tracingOverrides.isEmpty();
+    this.structuredLogs = structuredLogs;
+  }
+
   private final org.testcontainers.containers.Network pamNetwork =
       org.testcontainers.containers.Network.newNetwork();
   final String admin = UUID.randomUUID().toString();
@@ -78,6 +96,50 @@ final class PropagationEnvironment implements AutoCloseable {
   JdbcTemplate ingestJdbc;
   private boolean pamConfigured;
   URI base;
+
+  long iamProcessId() {
+    return iam.pid();
+  }
+
+  void enableDependencyMetrics() {
+    var root = Path.of("../infra").toAbsolutePath().normalize();
+    rabbit
+        .withExposedPorts(5672, 15692)
+        .withFileSystemBind(
+            root.resolve("rabbitmq/rabbitmq.metrics-test.conf").toString(),
+            "/etc/rabbitmq/rabbitmq.conf",
+            org.testcontainers.containers.BindMode.READ_ONLY)
+        .withFileSystemBind(
+            root.resolve("rabbitmq/enabled_plugins.metrics").toString(),
+            "/etc/rabbitmq/enabled_plugins",
+            org.testcontainers.containers.BindMode.READ_ONLY);
+    vault
+        .withFileSystemBind(
+            root.resolve("vault/metrics-listener.hcl").toString(),
+            "/vault/config/metrics-listener.hcl",
+            org.testcontainers.containers.BindMode.READ_ONLY)
+        .withCommand("server", "-dev", "-dev-listen-address=127.0.0.1:18200");
+  }
+
+  String provisionVaultMetricsToken() throws Exception {
+    vault(
+        "sys/policies/acl/securegate-metrics",
+        Map.of("policy", Files.readString(Path.of("../infra/vault/metrics.hcl"))));
+    return vault(
+            "auth/token/create-orphan",
+            Map.of(
+                "policies",
+                List.of("securegate-metrics"),
+                "no_default_policy",
+                true,
+                "ttl",
+                "30m",
+                "renewable",
+                false))
+        .path("auth")
+        .path("client_token")
+        .asText();
+  }
 
   void start() throws Exception {
     database.start();
@@ -193,6 +255,19 @@ final class PropagationEnvironment implements AutoCloseable {
   }
 
   private void launch(String module, Map<String, String> environment) throws Exception {
+    var effectiveEnvironment = new java.util.HashMap<>(environment);
+    effectiveEnvironment.putAll(tracingOverrides);
+    if (tracingExport) {
+      effectiveEnvironment.put(
+          "SPRING_PROFILES_ACTIVE",
+          (structuredLogs ? "structured-logs," : "")
+              + (module.equals("iam-core") ? "http-tracing" : "consumer-tracing"));
+      effectiveEnvironment.put(
+          module.equals("iam-core")
+              ? "IAM_HTTP_TRACE_PROBABILITY"
+              : "ENFORCER_TRACING_SAMPLING_PROBABILITY",
+          "1.0");
+    }
     var jar =
         Path.of(
                 "..",
@@ -223,7 +298,7 @@ final class PropagationEnvironment implements AutoCloseable {
                     || key.equals("TRACE")
                     || key.equals("JAVA_TOOL_OPTIONS")
                     || key.equals("JDK_JAVA_OPTIONS"));
-    builder.environment().putAll(environment);
+    builder.environment().putAll(effectiveEnvironment);
     Files.createDirectories(Path.of("target/e2e"));
     builder
         .redirectErrorStream(true)
@@ -233,11 +308,11 @@ final class PropagationEnvironment implements AutoCloseable {
     processes.add(process);
     if (module.equals("policy-enforcer")) {
       enforcer = process;
-      enforcerEnvironment = Map.copyOf(environment);
+      enforcerEnvironment = Map.copyOf(effectiveEnvironment);
     }
     if (module.equals("iam-core")) {
       iam = process;
-      iamEnvironment = Map.copyOf(environment);
+      iamEnvironment = Map.copyOf(effectiveEnvironment);
     }
   }
 

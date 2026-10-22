@@ -13,6 +13,11 @@
   <name>SecureGate IAM Core</name>
   <dependencies>
     <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-tracing-bridge-otel</artifactId></dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId><artifactId>opentelemetry-exporter-otlp</artifactId>
+      <exclusions><exclusion><groupId>io.opentelemetry</groupId><artifactId>opentelemetry-exporter-sender-okhttp</artifactId></exclusion></exclusions>
+    </dependency>
+    <dependency><groupId>io.opentelemetry</groupId><artifactId>opentelemetry-exporter-sender-jdk</artifactId></dependency>
     <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-registry-prometheus</artifactId></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-redis</artifactId></dependency>
     <dependency>

@@ -171,7 +171,9 @@ public final class RabbitRevocationWorker implements AutoCloseable {
   private void disconnect() {
     try {
       if (connection != null) {
-        connection.abort();
+        // No-arg abort can wait forever after an interrupted NIO write. Force socket close
+        // after this bound so a failed tick cannot retain the worker monitor during shutdown.
+        connection.abort(1000);
       }
     } catch (RuntimeException ignored) {
       /* A broken connection must not disable later ticks. */

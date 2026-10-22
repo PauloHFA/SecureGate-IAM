@@ -54,3 +54,11 @@ AuditIngestionIT usa banco/broker reais e store restrito; teste novo mistura par
 Desativar tracing e reiniciar enforcer mantém comportamento de negócio e formato JSON de sete campos; não exige migração. Nenhum dado de negócio foi alterado nesta entrega fora de ambientes descartáveis de testes. A 10B3c3b instrumenta audit.persist em lote com links e preserva commit/isolamento/ACK. Não remover V23 para reverter; nenhum schema novo nesta etapa. **10B4** propõe fechar backend/exportação e coleta conjunta antes de 10C, mantendo aberto o aceite global 10B. Publicação, CI, exporter/backend, coleta sustentada e medição ainda têm aceite próprio.
 
 [ADR-062](../adr/062-tracing-consumo-enforcer.md), [evidências](../evidencias/etapa-10b3c3a.md), [publicação outbox](tracing-outbox-local.md).
+
+## Backend e próximos passos
+
+A [10B4a](backend-tracing-local.md) acrescenta Tempo/Grafana local opcional, validado com dados sintéticos. Ela não muda os perfis de instrumentação nem envia spans destes consumidores. A exportação OTLP dos serviços será 10B4b; a validação integrada/sustentada será 10B4c.
+
+## Continuação 10B4b
+
+Exportação OTLP opcional implementada no IAM/enforcer, sem alterar a stack persistente. Ativação, destino local, fila/timeouts, descarte em falha e reversão: [guia de exportação](../runbooks/exportacao-otlp-local.md). A validação integrada/sustentada continua na 10B4c; as limitações de entrega anteriores acima são históricas.

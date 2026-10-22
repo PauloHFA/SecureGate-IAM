@@ -68,6 +68,18 @@ O runner recusa diretório de execução existente e gera:
 
 O agregado mistura emissão e negativa: não o usar como latência de emissão. Ler token.success separadamente. Oito amostras não validam p95, 300 req/s, consumo estável, HA ou SLA. Threads são concorrência, não uma taxa de requisições. Warm-up, patamar/ramp-down, coleta de recursos e ensaios de capacidade ficam para as próximas entregas.
 
+## Linha de base de emissão — 10C1
+
+O [runner de emissão](Run-TokenIssuanceBaseline.ps1) usa um plano separado com apenas `token.success`. Executa aquecimento, patamar e redução em três processos JMeter sequenciais, calcula taxa e p50/p95/p99 por fase e pode amostrar o processo IAM com `-IamProcessId`. As referências de 200 ms e 300 req/s são indicadores separados no `summary.json`, sem aprovação automática por meta. O [teste opt-in](../../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java) valida o runner contra IAM e dependências descartáveis; consulte o [procedimento e limites](../../docs/runbooks/medicao-emissao-token-local.md). A 10C2b fará os patamares longos e demais fluxos.
+
+A 10C2a acrescenta janelas completas configuráveis com `-WindowSeconds` ao patamar, para enxergar variação de taxa, erros e p95 ao longo da execução. A cauda parcial não entra nas janelas, mas permanece no agregado. O [procedimento](../../docs/runbooks/medicao-emissao-token-local.md) mostra a seleção de 1 minuto; os demais fluxos e recursos das dependências ficam para 10C2b.
+
+A 10C2b1 adiciona `-Scenario introspection` ao runner e um [plano exclusivo](token-introspection-baseline.jmx) para introspecção HTTP de token ativo do cliente proprietário. Tokens sintéticos são emitidos antes de cada fase, mantidos em CSV temporário privado e removidos após o JMeter; apenas `introspection.active` entra nos percentis. Ver [procedimento e limites](../../docs/runbooks/medicao-introspeccao-token-local.md). Validação no recurso com cache, revogação, auditoria e recursos das dependências seguem na 10C2b2.
+
+A 10C2b2a permite `-DockerContainerIds` para amostrar CPU, memória e processos das dependências durante emissão ou introspecção. O runner registra somente IDs abreviados e métricas, com um resumo por fase; exige amostra de cada ID informado. Ver [procedimento de recursos](../../docs/runbooks/medicao-recursos-dependencias-carga-local.md). Validação no recurso, revogação e auditoria seguem na 10C2b2b.
+
+A 10C2b2b1 adiciona `-Scenario resource` e um [plano exclusivo](resource-validation-baseline.jmx). O login PKCE acontece uma vez por thread e fase, enquanto somente o GET protegido compõe as métricas. A duração da fase inclui a preparação inicial; `setupSamples` informa quantas jornadas ocorreram. Ver [procedimento e limites](../../docs/runbooks/medicao-validacao-recurso-local.md). Revogação e auditoria seguem nas próximas divisões.
+
 Ver [ADR-045](../../docs/adr/045-base-de-carga-jmeter.md), [evidências 10A1](../../docs/evidencias/etapa-10a1.md) e [guia passo a passo](../../docs/GUIA-DE-IMPLEMENTACAO.md).
 
 Referências técnicas: [execução CLI e relatório](https://jmeter.apache.org/usermanual/get-started.html), [persistência de amostras e propriedades](https://jmeter.apache.org/usermanual/listeners.html). Somente o comportamento efetivamente exercitado é declarado validado.

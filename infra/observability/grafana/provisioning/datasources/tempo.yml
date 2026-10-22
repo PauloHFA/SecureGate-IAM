@@ -1,0 +1,3 @@
+# Reserved mountpoint for the optional tracing overlay; base registers no Tempo datasource.
+apiVersion: 1
+datasources: []

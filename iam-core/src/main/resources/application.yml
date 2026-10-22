@@ -155,3 +155,10 @@ logging:
     com.zaxxer.hikari: INFO
   pattern:
     level: '%5p [correlationId=%X{correlationId:-}]'
+
+# Local OTLP export is a separate opt-in from tracing instrumentation.
+securegate:
+  tracing:
+    export:
+      enabled: false
+      endpoint: http://127.0.0.1:14318/v1/traces
