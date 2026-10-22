@@ -26,7 +26,7 @@ Sem perfil, a saída anterior é preservada. O perfil não habilita consumers, l
 
 Catálogo IAM: request.failure, audit.consumer.unavailable, login.history.unavailable, outbox.publisher.unavailable, outbox.maintenance.unavailable, audit.partitions.unavailable, policy.issuance.unavailable e policy.evaluation.unavailable. Enforcer: security.consumer.unavailable. Os códigos dependem de template exato; parâmetros e posição da exceção não são exportados. Outros logs, inclusive de bibliotecas e startup, usam log.record. Não derivar métricas de detalhes livres; o catálogo tem 9 valores possíveis no IAM e 2 no enforcer, contando o genérico.
 
-Desde a 10B3b1, o IAM acrescenta traceId/spanId validados (sete campos); o enforcer mantém os cinco campos acima. Fora de contexto, os IDs ficam vazios. Ver [tracing HTTP](tracing-http-local.md).
+Desde a 10B3b1, o IAM acrescenta traceId/spanId validados (sete campos); desde a 10B3c3a, o enforcer também tem sete campos, com traceId/spanId validados. Ver [tracing de consumidores](tracing-consumidores-local.md). Fora de contexto, os IDs ficam vazios. Ver [tracing HTTP](tracing-http-local.md).
 
 Um registro JSON é uma linha terminada por LF. Mensagem, argumento, exceção, stack trace, nome de logger/thread, marker, pares SLF4J e MDC livre ficam fora do schema. Isto sacrifica diagnóstico detalhado; usar métricas e códigos para localizar o componente. Não é auditoria persistida nem access log.
 

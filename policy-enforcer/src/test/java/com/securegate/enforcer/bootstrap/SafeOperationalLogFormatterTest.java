@@ -45,7 +45,7 @@ class SafeOperationalLogFormatterTest {
       String line = formatter.format(event);
       assertThat(line.lines().count()).isEqualTo(1);
       var tree = json.readTree(line);
-      assertThat(tree.size()).isEqualTo(5);
+      assertThat(tree.size()).isEqualTo(7);
       assertThat(tree.get("service").asText()).isEqualTo("policy-enforcer");
       assertThat(tree.get("event").asText()).isEqualTo("log.record");
       assertThat(tree.get("correlationHash").asText()).isEmpty();
@@ -79,6 +79,31 @@ class SafeOperationalLogFormatterTest {
       assertThat(formatter.format(event)).doesNotContain("synthetic-secret", "abc");
       mdc.put("correlationId", "x".repeat(65));
       assertThat(json.readTree(formatter.format(event)).get("correlationHash").asText()).isEmpty();
+    } finally {
+      context.stop();
+    }
+  }
+
+  @Test
+  void exportsOnlyBoundedTraceIdsAndRejectsMdcInjection() throws Exception {
+    var context = new LoggerContext();
+    try {
+      var event =
+          new LoggingEvent(
+              "synthetic", context.getLogger("worker"), Level.INFO, "ignored", null, null);
+      event.setMDCPropertyMap(Map.of("traceId", "1".repeat(32), "spanId", "2".repeat(16)));
+      var tree = json.readTree(formatter.format(event));
+      assertThat(tree.get("traceId").asText()).isEqualTo("1".repeat(32));
+      assertThat(tree.get("spanId").asText()).isEqualTo("2".repeat(16));
+      for (String value : new String[] {"0".repeat(32), "A".repeat(32), "synthetic\r\nsecret"}) {
+        event =
+            new LoggingEvent(
+                "synthetic", context.getLogger("worker"), Level.INFO, "ignored", null, null);
+        event.setMDCPropertyMap(Map.of("traceId", value, "spanId", value));
+        tree = json.readTree(formatter.format(event));
+        assertThat(tree.get("traceId").asText()).isEmpty();
+        assertThat(tree.get("spanId").asText()).isEmpty();
+      }
     } finally {
       context.stop();
     }

@@ -1,4 +1,11 @@
 spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.actuate.autoconfigure.logging.OpenTelemetryLoggingAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.opentelemetry.OpenTelemetryAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.tracing.OpenTelemetryTracingAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.tracing.MicrometerTracingAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.tracing.NoopTracerAutoConfiguration
   application:
     name: policy-enforcer
   main:
@@ -13,6 +20,8 @@ spring:
       repositories:
         enabled: false
 management:
+  tracing:
+    enabled: false
   metrics:
     tags:
       application: ${spring.application.name}

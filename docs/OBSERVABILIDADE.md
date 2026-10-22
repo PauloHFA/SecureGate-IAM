@@ -16,7 +16,8 @@
 | 10B3b2 | Implementada e validada localmente | Transporte dos clientes JDK runtime Vault, origem/path restritos, quatro atributos e contexto restaurado. |
 | 10B3c1 | Implementada e validada localmente | V23: parent opcional/imutável no outbox, capturado na transação e recuperado em claim/retry. |
 | 10B3c2 | Implementada e validada localmente | Span PRODUCER por tentativa, parent durável/raiz explícita e header traceparent restrito. |
-| 10B3c3 | Proposta, pendente | Restauração/limpeza no consumo IAM/enforcer. |
+| 10B3c3a | Implementada e validada localmente | Enforcer: contexto restrito, spans CONSUMER e restauração de escopo/MDC nas duas filas. |
+| 10B3c3b | Proposta, pendente | Auditoria IAM em lote com parents distintos, sem alterar atomicidade/retry/ACK. |
 
 A 10B1 não conclui observabilidade nem aceita desempenho. O enforcer continua com web-application-type=none; a 10B2b1 acrescenta listener JDK opcional em loopback, GET /metrics, sem MVC/Actuator. Default sem listener. A 10B2a acrescenta Compose Prometheus/Grafana validado com IAM real em stack descartável, sem coleta sustentada ou alteração dos serviços persistentes do usuário. A 10B2b2a acrescenta plugin opcional do RabbitMQ; a 10B2b2b acrescenta exporter PostgreSQL e login de monitoração; a 10B2b2c acrescenta ACL/exporter Redis; a 10B2b2d acrescenta listener/token Vault próprios. Execução conjunta sustentada ainda não foi validada.
 
@@ -126,7 +127,7 @@ A proteção vale apenas para os encoders deste perfil, não para stdout/err dir
 
 Perfil http-tracing: provider/bridge explícitos, somente handler servlet e três atributos finitos (método, classe de status, flag de falha). Sem URL/query/header/identidade/payload ou evento de exceção. Resource fixo service.name=iam-core. Nenhum exporter/processamento de exportação é instalado; spans concluídos não são armazenados em produção. Métricas mantêm convenções/labels regulares; exemplares automáticos OpenMetrics não foram verificados por scrape nesta entrega. Padrão sem tracer/provider; configurações genéricas de tracing/logging OTel excluídas.
 
-W3C traceparent versão 00 validado; duplicados/malformados criam nova raiz. Baggage/tracestate/B3 não são aceitos. Sampler local padrão 0,1, independente do sampled remoto; não é quota. JSON IAM agora tem sete campos (traceId/spanId adicionais, vazios fora do contexto); enforcer mantém cinco. IDs não são autoridade nem label de métrica. A seção seguinte registra a 10B3b2; 10B3c, backend/retensão e medição continuam pendentes. [Operação](runbooks/tracing-http-local.md), [ADR-058](adr/058-tracing-http-entrante-restrito.md), [evidências](evidencias/etapa-10b3b1.md).
+W3C traceparent versão 00 validado; duplicados/malformados criam nova raiz. Baggage/tracestate/B3 não são aceitos. Sampler local padrão 0,1, independente do sampled remoto; não é quota. JSON IAM agora tem sete campos (traceId/spanId adicionais, vazios fora do contexto); naquela entrega o enforcer mantinha cinco (sete desde a 10B3c3a). IDs não são autoridade nem label de métrica. A seção seguinte registra a 10B3b2; 10B3c, backend/retensão e medição continuam pendentes. [Operação](runbooks/tracing-http-local.md), [ADR-058](adr/058-tracing-http-entrante-restrito.md), [evidências](evidencias/etapa-10b3b1.md).
 
 ## Clientes HTTP Vault — 10B3b2
 
@@ -141,3 +142,9 @@ V23 armazena trace_parent opcional (55 caracteres W3C 00, flags 00/01, IDs não 
 Tracer opcional no RabbitEventTransport. Padrão sem spans/header de tracing; com http-tracing ativo, cada publish gera outbox.publish PRODUCER, filho do parent durável ou raiz explícita (sem herdar worker). Header traceparent do produtor e schemaVersion, sem alterar SecurityEvent v1, propriedades existentes ou confirm/retry/lease. Tentativas são filhos distintos do mesmo parent; ACK não significa consumo concluído. Sampler local independente do bit sampled persistido.
 
 Dois atributos finitos: messaging.system=rabbitmq e messaging.outcome em acked/unroutable/nack/confirm_timeout/broker_unavailable/invalid_event. Sem payload/erro livre/UUID/host/credenciais, baggage/tracestate/B3, métricas novas ou exporter. Escopo restaurado e span encerrado inclusive em falhas. Sem nova migração além da V23 já exigida. Consumo IAM/enforcer permanece na 10B3c3. [ADR-061](adr/061-tracing-publicacao-amqp.md), [operação](runbooks/tracing-outbox-local.md), [evidências](evidencias/etapa-10b3c2.md).
+
+## Consumo no enforcer — 10B3c3a
+
+Perfil consumer-tracing opcional e independente de enforcer.consumer.enabled. Provider explícito com service.name=policy-enforcer e sampler local padrão 0,1, sem exporter/autoinstrumentação Redis. Default sem provider/tracer. Ambas as filas usam span security.consume CONSUMER por entrega a partir de traceparent estrito String/LongString; ausente/inválido cria raiz explícita. Não propagar baggage/tracestate/B3 nem herdar evento anterior/worker. Contexto/MDC restaurados em finally, inclusive em falha de disposição.
+
+Atributos finitos: messaging.system=rabbitmq, messaging.consumer=revocation/block_policy, messaging.redelivered=true/false e messaging.outcome=ack/reject/retry/unavailable. Sem payload, erro livre ou identidade. JSON enforcer agora tem sete campos com IDs validados, vazios fora de contexto; IDs não autorizam nem são labels de métricas. ACK/retry/DLQ/efeitos Redis permanecem anteriores; redelivery gera filho novo do mesmo parent. Auditoria IAM em lote permanece na 10B3c3b; backend, coleta sustentada e medição pendentes. [ADR-062](adr/062-tracing-consumo-enforcer.md), [operação](runbooks/tracing-consumidores-local.md), [evidências](evidencias/etapa-10b3c3a.md).

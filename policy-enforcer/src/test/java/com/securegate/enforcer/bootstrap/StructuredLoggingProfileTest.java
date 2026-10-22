@@ -27,19 +27,30 @@ class StructuredLoggingProfileTest {
     Path logFile = directory.resolve("operations.jsonl");
     try {
       try (var context =
-          new SpringApplicationBuilder(EmptyApplication.class)
+          new SpringApplicationBuilder(EmptyApplication.class, ConsumerTracingConfiguration.class)
               .web(WebApplicationType.NONE)
-              .profiles("structured-logs")
+              .profiles("structured-logs", "consumer-tracing")
               .run(
                   "--logging.file.name=" + logFile.toAbsolutePath(),
                   "--spring.main.register-shutdown-hook=false")) {
         MDC.put("correlationId", "client-test");
         MDC.put("Authorization", "synthetic-mdc-credential");
-        LoggerFactory.getLogger(getClass())
-            .error(
-                "synthetic-free-message {}",
-                "synthetic-token",
-                new RuntimeException("synthetic-exception-credential"));
+        var tracer = context.getBean(io.micrometer.tracing.Tracer.class);
+        var consumer = new com.securegate.enforcer.infrastructure.ConsumerTrace(tracer);
+        consumer.consume(
+            null,
+            false,
+            false,
+            () -> {
+              LoggerFactory.getLogger(getClass())
+                  .error(
+                      "synthetic-free-message {}",
+                      "synthetic-token",
+                      new RuntimeException("synthetic-exception-credential"));
+              assertThat(MDC.get("traceId")).matches("[0-9a-f]{32}");
+              return com.securegate.enforcer.infrastructure.RevocationMessageHandler.Result.ACK;
+            });
+        assertThat(MDC.get("traceId")).isNull();
         assertThat(context.getEnvironment().getProperty("logging.structured.format.console"))
             .isEqualTo(SafeOperationalLogFormatter.class.getName());
       }
@@ -52,7 +63,7 @@ class StructuredLoggingProfileTest {
         for (String line : captured.lines().filter(l -> !l.isBlank()).toList()) {
           var tree = new ObjectMapper().readTree(line);
           assertThat(tree.get("service").asText()).isEqualTo("policy-enforcer");
-          assertThat(tree.size()).isEqualTo(5);
+          assertThat(tree.size()).isEqualTo(7);
         }
         assertThat(captured).contains("correlationHash");
       }

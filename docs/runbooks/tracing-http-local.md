@@ -29,7 +29,7 @@ Spans têm nome http.server, duração/IDs/kind SERVER, Resource service.name=ia
 
 Não são exportados URL, rota, query, headers, IP, usuário, SQL, body, Throwable ou eventos de exceção. O status SDK não carrega descrição de erro; usar http.failure. 4xx não equivale automaticamente a falha do servidor. Os rótulos existentes de métricas HTTP permanecem; não se adicionam IDs como labels regulares. O registry pode associar IDs como exemplares OpenMetrics via autoconfiguração Boot; essa saída não foi validada por scrape nesta entrega.
 
-Com structured-logs, o IAM acrescenta traceId/spanId ao schema anterior (sete campos no total). Valores inválidos/nulos viram string vazia. Enforcer mantém cinco campos. X-Correlation-ID/correlationHash continuam independentes. Os IDs não autenticam e não são secretos; não inserir senha/token/PII neles. Não há header de resposta novo. O teste tem endpoint de inspeção somente na fixture, ausente do executável de produção.
+Com structured-logs, o IAM acrescenta traceId/spanId ao schema anterior (sete campos no total). Valores inválidos/nulos viram string vazia. Desde a 10B3c3a o enforcer também tem sete campos; ativação e limites em [tracing de consumidores](tracing-consumidores-local.md). X-Correlation-ID/correlationHash continuam independentes. Os IDs não autenticam e não são secretos; não inserir senha/token/PII neles. Não há header de resposta novo. O teste tem endpoint de inspeção somente na fixture, ausente do executável de produção.
 
 ## Verificação
 
