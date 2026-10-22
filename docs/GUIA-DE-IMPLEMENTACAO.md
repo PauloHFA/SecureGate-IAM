@@ -1,23 +1,23 @@
 # Implementação passo a passo — SecureGate IAM
 
-Atualizado em 21/10/2026. Este guia consolida a sequência de construção, as razões das divisões e os caminhos para executar e validar cada entrega. Complementa o [plano com os critérios de aceite](PLANO-DE-IMPLEMENTACAO.md); os detalhes de operação ficam nos guias indicados em cada linha.
+Atualizado em 22/10/2026. Este guia consolida a sequência de construção, as razões das divisões e os caminhos para executar e validar cada entrega. Complementa o [plano com os critérios de aceite](PLANO-DE-IMPLEMENTACAO.md); os detalhes de operação ficam nos guias indicados em cada linha.
 
 ## Ponto atual
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10B4c — validação integrada do tracing real |
-| Base desta entrega | 81aeffa — backend Tempo e exportação OTLP, commit local |
+| Última entrega implementada | 10B5a — coleta conjunta de métricas, logs e traces IAM/enforcer |
+| Base desta entrega | cc95318 — validação integrada do tracing, commit local |
 | Trabalho local | Commit local desta entrega; push/CI remota pendentes |
 | Branch | feat/tracing-backend |
-| Validação da entrega | `verify` completo: BUILD SUCCESS às 23:34:45 UTC−03, 887 testes, dois gates de cobertura e arquitetura atendidos; ressalva histórica do fork IAM |
-| Próxima implementação | Aceite global 10B — coleta conjunta sustentada de métricas, logs e traces com exporters |
-| Pendências seguintes | Aceite global 10B; 10C–10D; publicação/CI |
+| Validação da entrega | `verify` completo: BUILD SUCCESS em 22/10/2026 às 00:07:30 UTC−03, 888 testes, dois gates de cobertura e arquitetura atendidos; ressalva histórica do fork IAM |
+| Próxima implementação | 10B5b — exporters PostgreSQL/Redis/RabbitMQ/Vault simultâneos e aceite global 10B |
+| Pendências seguintes | 10B5b e aceite global 10B; 10C–10D; publicação/CI |
 | Etapas posteriores | 10B–10D — observabilidade/medição/ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b e a 10B4c também estão implementadas abaixo. As demais divisões 10C–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c e a 10B5a também estão implementadas abaixo. As demais divisões 10B5b–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -622,13 +622,25 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 
 [Teste](../integration-tests/src/test/java/com/securegate/e2e/TracingJourneyIT.java), [evidência](evidencias/etapa-10b4c.md), [inventário](OBSERVABILIDADE.md). Entrega versionada em commit local nesta branch, sem push/CI remota; stack persistente preservada.
 
+## Etapa 10B5a — Coleta conjunta dos três sinais no núcleo
+
+1. Dividir o aceite global restante em 10B5a (IAM/enforcer) e 10B5b (exporters de dependências e fechamento), preservando 10C para capacidade.
+2. Reutilizar imagens/templates versionados de Tempo, Prometheus e Grafana numa rede descartável; gerar tokens diferentes para os dois scrapes e senha Grafana.
+3. Subir IAM/enforcer reais com logs JSON restritos, tracing e exportação OTLP; ativar endpoints Prometheus protegidos e coletar os dois jobs a cada 5 s.
+4. Exigir `up=1` para IAM/enforcer e acesso autenticado aos datasources Prometheus/Tempo; recusar acesso anônimo.
+5. Produzir 12 bloqueios reais com intervalo de 5 s e conferir efeito Redis, scrapes saudáveis ao longo do patamar, pelo menos oito amostras por serviço no último minuto e 12 ACKs no enforcer.
+6. Consultar o primeiro, sexto e último trace no Tempo e pelo proxy Grafana; exigir cadeia HTTP → outbox → consumidor. Conferir que novos logs de ambos os processos seguem exatamente os sete campos permitidos e não expõem os tokens de scrape.
+7. Registrar resultado, limites e próximo passo: logs locais ainda não têm agregador central; os quatro exporters são a 10B5b. Não inferir capacidade nem fechar o aceite global 10B com esta janela funcional.
+
+[Operação](runbooks/coleta-conjunta-nucleo-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/JointSignalsIT.java), [evidência](evidencias/etapa-10b5a.md). Entrega versionada em commit local nesta branch, sem push/CI remota; nenhuma stack persistente alterada.
+
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
-As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B4a entrega backend local, a 10B4b implementa exportação opcional e a 10B4c valida a cadeia de tracing real. O aceite global 10B ainda exige coleta conjunta de métricas, logs, traces e exporters, sem renumerar entregas anteriores.
+As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B4a entrega backend local, a 10B4b implementa exportação opcional, a 10B4c valida a cadeia de tracing real e a 10B5a coleta os três sinais do núcleo por um minuto. O aceite global 10B ainda exige os exporters de dependências em coleta conjunta, sem renumerar entregas anteriores.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| Aceite global 10B — sinais conjuntos | Coletar Prometheus, logs e traces com todos os exporters em patamar sustentado → consultar painéis e traces → registrar limites/aceite. | Evidência integrada dos três sinais antes de 10C. |
+| 10B5b — dependências e aceite global 10B | Integrar scrapes PostgreSQL, Redis, RabbitMQ e Vault ao patamar conjunto → consultar painéis, logs e traces → registrar limites/aceite. | Evidência integrada dos três sinais e quatro dependências antes de 10C. |
 | 10C — Medição | Medir token, validação, revogação e auditoria → registrar hardware, duração, percentis e consumo. | Relatórios reais comparáveis às metas; desvios explícitos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
 | 11A — Imagens/stack | Criar imagens Java 21 sem root → perfil Compose full → probes e smoke em ambiente limpo. | Stack completa executável conforme guia. |

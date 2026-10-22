@@ -1,4 +1,4 @@
-# Local, single-binary evaluation backend; applications do not export yet (10B4a).
+# Local, single-binary evaluation backend; application export is enabled separately.
 server:
   http_listen_port: 3200
   log_level: warn

@@ -37,14 +37,20 @@ final class PropagationEnvironment implements AutoCloseable {
   private final String password = UUID.randomUUID().toString();
   private final Map<String, String> tracingOverrides;
   private final boolean tracingExport;
+  private final boolean structuredLogs;
 
   PropagationEnvironment() {
     this(Map.of());
   }
 
   PropagationEnvironment(Map<String, String> tracingOverrides) {
+    this(tracingOverrides, false);
+  }
+
+  PropagationEnvironment(Map<String, String> tracingOverrides, boolean structuredLogs) {
     this.tracingOverrides = Map.copyOf(tracingOverrides);
     this.tracingExport = !tracingOverrides.isEmpty();
+    this.structuredLogs = structuredLogs;
   }
 
   private final org.testcontainers.containers.Network pamNetwork =
@@ -210,7 +216,8 @@ final class PropagationEnvironment implements AutoCloseable {
     if (tracingExport) {
       effectiveEnvironment.put(
           "SPRING_PROFILES_ACTIVE",
-          module.equals("iam-core") ? "http-tracing" : "consumer-tracing");
+          (structuredLogs ? "structured-logs," : "")
+              + (module.equals("iam-core") ? "http-tracing" : "consumer-tracing"));
       effectiveEnvironment.put(
           module.equals("iam-core")
               ? "IAM_HTTP_TRACE_PROBABILITY"

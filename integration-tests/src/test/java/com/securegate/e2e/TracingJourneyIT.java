@@ -156,7 +156,7 @@ class TracingJourneyIT {
     }
   }
 
-  private static String lockUser(PropagationEnvironment env) throws Exception {
+  static String lockUser(PropagationEnvironment env) throws Exception {
     String email = "trace-" + UUID.randomUUID() + "@example.test";
     var created =
         HTTP.send(
@@ -193,7 +193,7 @@ class TracingJourneyIT {
     return id;
   }
 
-  private static boolean projected(PropagationEnvironment env, String id) {
+  static boolean projected(PropagationEnvironment env, String id) {
     String value =
         env.redis
             .opsForValue()
@@ -201,7 +201,7 @@ class TracingJourneyIT {
     return value != null && value.endsWith("|LOCKED");
   }
 
-  private static String traceId(PropagationEnvironment env, String userId) {
+  static String traceId(PropagationEnvironment env, String userId) {
     var rows =
         env.jdbc.queryForList(
             "SELECT trace_parent FROM iam_audit.outbox_events WHERE event_type='user.locked' AND payload->'data'->>'userId'=?",
@@ -217,7 +217,7 @@ class TracingJourneyIT {
     return TracingBackendIT.awaitTrace(HTTP, backend.resolve("/api/traces/" + id), null);
   }
 
-  private static JsonNode awaitChain(URI backend, String id) throws Exception {
+  static JsonNode awaitChain(URI backend, String id) throws Exception {
     final JsonNode[] found = new JsonNode[1];
     PropagationEnvironment.await(
         "IAM/outbox/enforcer trace",
@@ -232,7 +232,7 @@ class TracingJourneyIT {
     return found[0];
   }
 
-  private static List<String> names(JsonNode trace) {
+  static List<String> names(JsonNode trace) {
     return trace.findValuesAsText("name");
   }
 }

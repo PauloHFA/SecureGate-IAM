@@ -56,5 +56,5 @@ if ($IncludeTracing) {
     Start-Sleep -Milliseconds 500
   }
   if (-not $ready) { throw 'Tempo nao ficou pronto; conferir a stack de observabilidade.' }
-  Write-Output 'Tempo local pronto e datasource Grafana provisionado. IAM/enforcer ainda nao exportam traces nesta etapa.'
+  Write-Output 'Tempo local pronto e datasource Grafana provisionado. Ative perfis e exportacao OTLP separadamente nos processos IAM/enforcer.'
 }

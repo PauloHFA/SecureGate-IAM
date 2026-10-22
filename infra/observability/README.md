@@ -8,8 +8,8 @@ A [coleta opcional do enforcer](../../docs/runbooks/metricas-enforcer-local.md) 
 
 ## Backend local opcional — 10B4a
 
-O overlay docker-compose.tracing.yml acrescenta Tempo 3.1.1 por digest e datasource Grafana com Start-Observability.ps1 -IncludeTracing. Preserva Prometheus padrão/credenciais, usa volume próprio e portas loopback. Tempo não autentica portas diretas; apenas o proxy Grafana usa o acesso existente. Sem exporter IAM/enforcer nesta entrega. [Operação e reversão](../../docs/runbooks/backend-tracing-local.md), [decisão](../../docs/adr/064-backend-local-de-tracing.md), [evidências](../../docs/evidencias/etapa-10b4a.md). Não executar limpeza de volumes reais para retirar o overlay.
+O overlay docker-compose.tracing.yml acrescenta Tempo 3.1.1 por digest e datasource Grafana com Start-Observability.ps1 -IncludeTracing. Preserva Prometheus padrão/credenciais, usa volume próprio e portas loopback. Tempo não autentica portas diretas; apenas o proxy Grafana usa o acesso existente. A ativação dos exporters IAM/enforcer é separada. [Operação e reversão](../../docs/runbooks/backend-tracing-local.md), [decisão](../../docs/adr/064-backend-local-de-tracing.md), [evidências](../../docs/evidencias/etapa-10b4a.md). Não executar limpeza de volumes reais para retirar o overlay.
 
 ## Continuação 10B4b
 
-Exportação OTLP opcional implementada no IAM/enforcer, sem alterar a stack persistente. Ativação, destino local, fila/timeouts, descarte em falha e reversão: [guia de exportação](../../docs/runbooks/exportacao-otlp-local.md). A validação integrada/sustentada continua na 10B4c; as limitações de entrega anteriores acima são históricas.
+Exportação OTLP opcional implementada no IAM/enforcer, sem alterar a stack persistente. Ativação, destino local, fila/timeouts, descarte em falha e reversão: [guia de exportação](../../docs/runbooks/exportacao-otlp-local.md). A 10B4c validou a cadeia real de tracing; a [10B5a](../../docs/runbooks/coleta-conjunta-nucleo-local.md) validou os três sinais do núcleo durante 1 min. A execução simultânea dos quatro exporters de dependências ainda cabe à 10B5b.
