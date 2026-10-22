@@ -19,6 +19,8 @@ class TokenBaselineSmoke {
     String home = System.getProperty("securegate.jmeter.home", "");
     int steadySeconds = Integer.getInteger("securegate.load.steady.seconds", 5);
     int windowSeconds = Integer.getInteger("securegate.load.window.seconds", 1);
+    String scenario = System.getProperty("securegate.load.scenario", "issuance");
+    assertTrue(List.of("issuance", "introspection").contains(scenario));
     assertTrue(steadySeconds >= windowSeconds && windowSeconds > 0);
     assertTrue(Files.isRegularFile(Path.of(home, "bin", "ApacheJMeter.jar")));
     Path output = Path.of("target/load-capacity", UUID.randomUUID().toString()).toAbsolutePath();
@@ -57,6 +59,8 @@ class TokenBaselineSmoke {
               mass.toString(),
               "-OutputDirectory",
               output.resolve("baseline").toString(),
+              "-Scenario",
+              scenario,
               "-Threads",
               "2",
               "-WarmupSeconds",
@@ -71,7 +75,11 @@ class TokenBaselineSmoke {
               Long.toString(environment.iamProcessId())));
       var report =
           PropagationEnvironment.JSON.readTree(output.resolve("baseline/summary.json").toFile());
-      assertEquals("client_credentials_token_issuance", report.path("scenario").asText());
+      assertEquals(
+          scenario.equals("issuance")
+              ? "client_credentials_token_issuance"
+              : "owned_active_token_introspection",
+          report.path("scenario").asText());
       var phases = report.path("phases");
       assertEquals(3, phases.size());
       for (int i = 0; i < 3; i++) {
@@ -109,6 +117,7 @@ class TokenBaselineSmoke {
       }
       assertTrue(countedRequests > 0);
       assertTrue(countedRequests <= phases.get(1).path("requests").asInt());
+      assertFalse(Files.exists(output.resolve("baseline/steady/private-token-mass.csv")));
       var secrets = new ArrayList<String>();
       secrets.add(environment.admin);
       for (String row : Files.readAllLines(mass).subList(1, 3)) {

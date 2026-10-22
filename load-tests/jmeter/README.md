@@ -74,6 +74,8 @@ O [runner de emissão](Run-TokenIssuanceBaseline.ps1) usa um plano separado com 
 
 A 10C2a acrescenta janelas completas configuráveis com `-WindowSeconds` ao patamar, para enxergar variação de taxa, erros e p95 ao longo da execução. A cauda parcial não entra nas janelas, mas permanece no agregado. O [procedimento](../../docs/runbooks/medicao-emissao-token-local.md) mostra a seleção de 1 minuto; os demais fluxos e recursos das dependências ficam para 10C2b.
 
+A 10C2b1 adiciona `-Scenario introspection` ao runner e um [plano exclusivo](token-introspection-baseline.jmx) para introspecção HTTP de token ativo do cliente proprietário. Tokens sintéticos são emitidos antes de cada fase, mantidos em CSV temporário privado e removidos após o JMeter; apenas `introspection.active` entra nos percentis. Ver [procedimento e limites](../../docs/runbooks/medicao-introspeccao-token-local.md). Validação no recurso com cache, revogação, auditoria e recursos das dependências seguem na 10C2b2.
+
 Ver [ADR-045](../../docs/adr/045-base-de-carga-jmeter.md), [evidências 10A1](../../docs/evidencias/etapa-10a1.md) e [guia passo a passo](../../docs/GUIA-DE-IMPLEMENTACAO.md).
 
 Referências técnicas: [execução CLI e relatório](https://jmeter.apache.org/usermanual/get-started.html), [persistência de amostras e propriedades](https://jmeter.apache.org/usermanual/listeners.html). Somente o comportamento efetivamente exercitado é declarado validado.
