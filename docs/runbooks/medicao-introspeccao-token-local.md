@@ -23,3 +23,5 @@ Preparar IAM de teste e CSV sintético privado conforme o [guia JMeter](../../lo
 ```
 
 Ler `summary.json` e as janelas do patamar separadamente. Taxa = introspecções concluídas/duração configurada; a concorrência fechada não controla taxa ofertada. `-IamProcessId` permite amostrar apenas o processo IAM. A ausência de falhas é condição para aceitar a execução funcional, mas as referências de desempenho requerem carga controlada, recursos de todas as dependências, patamares mais longos e repetição. Revogação, validação no recurso e auditoria ficam para as próximas divisões.
+
+A 10C2b2a permite `-DockerContainerIds` para coletar snapshots de PostgreSQL, Redis, RabbitMQ e Vault no mesmo ensaio; ver o [procedimento de recursos](medicao-recursos-dependencias-carga-local.md). Essa coleta não transforma a introspecção HTTP em validação local com cache.

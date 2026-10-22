@@ -10,7 +10,8 @@ param(
   [ValidateRange(5, 3600)][int]$SteadySeconds = 30,
   [ValidateRange(1, 300)][int]$WindowSeconds = 10,
   [ValidateRange(3, 900)][int]$CooldownSeconds = 10,
-  [ValidateRange(0, 2147483647)][int]$IamProcessId = 0
+  [ValidateRange(0, 2147483647)][int]$IamProcessId = 0,
+  [string]$DockerContainerIds = ''
 )
 $ErrorActionPreference = 'Stop'
 if ($BaseUri.Host -notin @('127.0.0.1', 'localhost') -or $BaseUri.Scheme -notin @('http', 'https') -or
@@ -29,6 +30,16 @@ foreach ($row in $rows) {
   }
 }
 $output = [IO.Path]::GetFullPath($OutputDirectory)
+$containerIds = @()
+if (-not [string]::IsNullOrWhiteSpace($DockerContainerIds)) {
+  $containerIds = @($DockerContainerIds.Split(',') | ForEach-Object { $_.Trim().ToLowerInvariant() })
+  if ($containerIds.Count -gt 8 -or @($containerIds | Where-Object { $_ -notmatch '^[a-f0-9]{64}$' }).Count -gt 0 -or
+      @($containerIds | Select-Object -Unique).Count -ne $containerIds.Count -or
+      @($containerIds | ForEach-Object { $_.Substring(0, 12) } | Select-Object -Unique).Count -ne $containerIds.Count) {
+    throw 'Provide 1-8 distinct full Docker container IDs.'
+  }
+  if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'Docker CLI is required for container sampling.' }
+}
 if ($Scenario -eq 'introspection') {
   $projectRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
   $privateRoots = @((Join-Path $projectRoot 'load-tests/.local'), (Join-Path $projectRoot 'integration-tests/target'))
@@ -117,32 +128,74 @@ function Get-SteadyWindows($samples, [int]$duration, [int]$width) {
   return $windows
 }
 
+function Convert-DockerMemoryMiB([string]$usage) {
+  $value = ($usage -split ' / ', 2)[0].Trim()
+  if ($value -notmatch '^([0-9]+(?:\.[0-9]+)?)(B|kB|MB|GB|TB|KiB|MiB|GiB|TiB)$') {
+    throw 'Unrecognized Docker memory unit in resource sample.'
+  }
+  $number = [double]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
+  $factor = switch ($Matches[2]) {
+    'B' { 1 }; 'kB' { 1000 }; 'MB' { 1000000 }; 'GB' { 1000000000 }; 'TB' { 1000000000000 }
+    'KiB' { 1024 }; 'MiB' { 1048576 }; 'GiB' { 1073741824 }; 'TiB' { 1099511627776 }
+  }
+  return [Math]::Round($number * $factor / 1MB, 2)
+}
+
 function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
   $folder = Join-Path $output $name
   [IO.Directory]::CreateDirectory($folder) | Out-Null
   $samplesFile = Join-Path $folder 'samples.csv'
   $resourceFile = Join-Path $folder 'iam-resources.csv'
+  $containerFile = Join-Path $folder 'container-resources.csv'
   $stopFile = Join-Path $folder 'stop-sampling'
   $sampler = $null
+  $dockerSampler = $null
   $phaseMass = $mass
   try {
     if ($Scenario -eq 'introspection') { $phaseMass = New-PhaseTokenMass $folder $duration }
     if ($IamProcessId -gt 0) {
-    $sampler = Start-Job -ArgumentList $IamProcessId, $resourceFile, $stopFile -ScriptBlock {
-      param($targetId, $path, $stop)
-      while (-not (Test-Path -LiteralPath $stop)) {
-        $process = Get-Process -Id $targetId -ErrorAction SilentlyContinue
-        if ($null -ne $process) {
-          [pscustomobject]@{
-            timestampUtc = [DateTime]::UtcNow.ToString('o')
-            cpuSeconds = $process.CPU
-            workingSetBytes = $process.WorkingSet64
-            privateBytes = $process.PrivateMemorySize64
-          } | Export-Csv -LiteralPath $path -Append -NoTypeInformation
+      $sampler = Start-Job -ArgumentList $IamProcessId, $resourceFile, $stopFile -ScriptBlock {
+        param($targetId, $path, $stop)
+        while (-not (Test-Path -LiteralPath $stop)) {
+          $process = Get-Process -Id $targetId -ErrorAction SilentlyContinue
+          if ($null -ne $process) {
+            [pscustomobject]@{
+              timestampUtc = [DateTime]::UtcNow.ToString('o')
+              cpuSeconds = $process.CPU
+              workingSetBytes = $process.WorkingSet64
+              privateBytes = $process.PrivateMemorySize64
+            } | Export-Csv -LiteralPath $path -Append -NoTypeInformation
+          }
+          Start-Sleep -Seconds 1
         }
-        Start-Sleep -Seconds 1
       }
     }
+    if ($containerIds.Count -gt 0) {
+      $dockerSampler = Start-Job -ArgumentList $DockerContainerIds, $containerFile, $stopFile -ScriptBlock {
+        param($idsCsv, $path, $stop)
+        $ids = @($idsCsv.Split(','))
+        $expected = @($ids | ForEach-Object { $_.Substring(0, 12).ToLowerInvariant() })
+        while (-not (Test-Path -LiteralPath $stop)) {
+          $lines = @(& docker stats --no-stream --format '{{json .}}' @ids 2>$null)
+          if ($LASTEXITCODE -ne 0 -or $lines.Count -ne $expected.Count) {
+            throw 'Docker resource sampling failed.'
+          }
+          $stamp = [DateTime]::UtcNow.ToString('o')
+          foreach ($line in $lines) {
+            $sample = $line | ConvertFrom-Json
+            $id = [string]$sample.ID
+            if ($id -notin $expected -or [string]$sample.CPUPerc -notmatch '^[0-9.]+%$' -or
+                [string]$sample.MemUsage -notmatch '^[0-9.]+[A-Za-z]+ / [0-9.]+[A-Za-z]+$') {
+              throw 'Unexpected Docker resource sample.'
+            }
+            [pscustomobject]@{
+              timestampUtc = $stamp; containerId = $id.ToLowerInvariant()
+              cpuPercent = $sample.CPUPerc; memoryUsage = $sample.MemUsage; pids = $sample.PIDs
+            } | Export-Csv -LiteralPath $path -Append -NoTypeInformation
+          }
+          Start-Sleep -Seconds 2
+        }
+      }
     }
     $arguments = @(
       '-Xmx256m', '-jar', $jar, '-n', '-t', (Join-Path $PSScriptRoot $plan),
@@ -156,15 +209,29 @@ function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
     & java @arguments *> (Join-Path $folder 'console.log')
     if ($LASTEXITCODE -ne 0) { throw "JMeter $name phase failed; inspect the local run log." }
   } finally {
-    if ($Scenario -eq 'introspection' -and $phaseMass -ne $mass) {
-      Remove-Item -LiteralPath $phaseMass -ErrorAction Stop
-    }
-    if ($null -ne $sampler) {
-      [IO.File]::WriteAllText($stopFile, '')
-      $null = Wait-Job -Job $sampler -Timeout 5
-      if ($sampler.State -ne 'Completed') { Stop-Job -Job $sampler }
-      Remove-Job -Job $sampler -Force
+    try {
+      if ($null -ne $sampler -or $null -ne $dockerSampler) {
+        [IO.File]::WriteAllText($stopFile, '')
+      }
+      if ($null -ne $sampler) {
+        $null = Wait-Job -Job $sampler -Timeout 5
+        if ($sampler.State -ne 'Completed') { Stop-Job -Job $sampler }
+        Remove-Job -Job $sampler -Force
+      }
+      if ($null -ne $dockerSampler) {
+        $null = Wait-Job -Job $dockerSampler -Timeout 10
+        if ($dockerSampler.State -eq 'Failed') {
+          Remove-Job -Job $dockerSampler -Force
+          throw 'Docker resource sampling failed; inspect the local environment.'
+        }
+        if ($dockerSampler.State -ne 'Completed') { Stop-Job -Job $dockerSampler }
+        Remove-Job -Job $dockerSampler -Force
+      }
       Remove-Item -LiteralPath $stopFile -ErrorAction SilentlyContinue
+    } finally {
+      if ($Scenario -eq 'introspection' -and $phaseMass -ne $mass) {
+        Remove-Item -LiteralPath $phaseMass -ErrorAction Stop
+      }
     }
   }
   $samples = @(Import-Csv -LiteralPath $samplesFile)
@@ -179,6 +246,7 @@ function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
     throw 'No complete steady window was observed; extend the phase or reduce WindowSeconds.'
   }
   $resource = $null
+  $containers = @()
   if ($IamProcessId -gt 0) {
     $points = @(Import-Csv -LiteralPath $resourceFile)
     if ($points.Count -lt 2) { throw "IAM resource samples missing in $name." }
@@ -194,6 +262,23 @@ function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
       averageCpuCorePercent = if ($wall -gt 0) { [Math]::Round(100 * $cpu / $wall, 2) } else { $null }
     }
   }
+  if ($containerIds.Count -gt 0) {
+    $allPoints = @(Import-Csv -LiteralPath $containerFile)
+    foreach ($id in $containerIds) {
+      $short = $id.Substring(0, 12)
+      $points = @($allPoints | Where-Object { $_.containerId -eq $short })
+      if ($points.Count -lt 1) { throw "Docker resource samples missing for $short in $name." }
+      $cpu = @($points | ForEach-Object {
+        [double]::Parse($_.cpuPercent.TrimEnd('%'), [Globalization.CultureInfo]::InvariantCulture)
+      })
+      $memory = @($points | ForEach-Object { Convert-DockerMemoryMiB $_.memoryUsage })
+      $containers += [ordered]@{
+        containerId = $short; points = $points.Count
+        maxCpuPercent = [Math]::Round(($cpu | Measure-Object -Maximum).Maximum, 2)
+        maxMemoryMiB = ($memory | Measure-Object -Maximum).Maximum
+      }
+    }
+  }
   return [ordered]@{
     phase = $name; threads = $phaseThreads; durationSeconds = $duration
     requests = $samples.Count; failures = $failures
@@ -204,6 +289,7 @@ function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
     p99Ms = Get-Percentile $elapsed 0.99
     windows = $windows
     iamProcess = $resource
+    containers = $containers
   }
 }
 

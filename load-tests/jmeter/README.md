@@ -76,6 +76,8 @@ A 10C2a acrescenta janelas completas configuráveis com `-WindowSeconds` ao pata
 
 A 10C2b1 adiciona `-Scenario introspection` ao runner e um [plano exclusivo](token-introspection-baseline.jmx) para introspecção HTTP de token ativo do cliente proprietário. Tokens sintéticos são emitidos antes de cada fase, mantidos em CSV temporário privado e removidos após o JMeter; apenas `introspection.active` entra nos percentis. Ver [procedimento e limites](../../docs/runbooks/medicao-introspeccao-token-local.md). Validação no recurso com cache, revogação, auditoria e recursos das dependências seguem na 10C2b2.
 
+A 10C2b2a permite `-DockerContainerIds` para amostrar CPU, memória e processos das dependências durante emissão ou introspecção. O runner registra somente IDs abreviados e métricas, com um resumo por fase; exige amostra de cada ID informado. Ver [procedimento de recursos](../../docs/runbooks/medicao-recursos-dependencias-carga-local.md). Validação no recurso, revogação e auditoria seguem na 10C2b2b.
+
 Ver [ADR-045](../../docs/adr/045-base-de-carga-jmeter.md), [evidências 10A1](../../docs/evidencias/etapa-10a1.md) e [guia passo a passo](../../docs/GUIA-DE-IMPLEMENTACAO.md).
 
 Referências técnicas: [execução CLI e relatório](https://jmeter.apache.org/usermanual/get-started.html), [persistência de amostras e propriedades](https://jmeter.apache.org/usermanual/listeners.html). Somente o comportamento efetivamente exercitado é declarado validado.

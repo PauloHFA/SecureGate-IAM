@@ -20,6 +20,7 @@ class TokenBaselineSmoke {
     int steadySeconds = Integer.getInteger("securegate.load.steady.seconds", 5);
     int windowSeconds = Integer.getInteger("securegate.load.window.seconds", 1);
     String scenario = System.getProperty("securegate.load.scenario", "issuance");
+    boolean omitIamPid = Boolean.getBoolean("securegate.load.omitIamPid");
     assertTrue(List.of("issuance", "introspection").contains(scenario));
     assertTrue(steadySeconds >= windowSeconds && windowSeconds > 0);
     assertTrue(Files.isRegularFile(Path.of(home, "bin", "ApacheJMeter.jar")));
@@ -72,7 +73,14 @@ class TokenBaselineSmoke {
               "-CooldownSeconds",
               "3",
               "-IamProcessId",
-              Long.toString(environment.iamProcessId())));
+              omitIamPid ? "0" : Long.toString(environment.iamProcessId()),
+              "-DockerContainerIds",
+              String.join(
+                  ",",
+                  environment.database.getContainerId(),
+                  environment.redisContainer.getContainerId(),
+                  environment.rabbit.getContainerId(),
+                  environment.vault.getContainerId())));
       var report =
           PropagationEnvironment.JSON.readTree(output.resolve("baseline/summary.json").toFile());
       assertEquals(
@@ -86,7 +94,19 @@ class TokenBaselineSmoke {
         assertEquals(0, phases.get(i).path("failures").asInt());
         assertTrue(phases.get(i).path("requests").asInt() > 0);
         assertTrue(phases.get(i).path("p95Ms").asDouble() > 0);
-        assertTrue(phases.get(i).path("iamProcess").path("points").asInt() >= 2);
+        if (omitIamPid) {
+          assertTrue(phases.get(i).path("iamProcess").isNull());
+        } else {
+          assertTrue(phases.get(i).path("iamProcess").path("points").asInt() >= 2);
+        }
+        var containers = phases.get(i).path("containers");
+        assertEquals(4, containers.size());
+        for (var container : containers) {
+          assertTrue(container.path("containerId").asText().matches("[a-f0-9]{12}"));
+          assertTrue(container.path("points").asInt() >= 1);
+          assertTrue(container.path("maxMemoryMiB").asDouble() > 0);
+          assertTrue(container.path("maxCpuPercent").asDouble() >= 0);
+        }
       }
       assertEquals("steady", phases.get(1).path("phase").asText());
       assertEquals(2, phases.get(1).path("threads").asInt());

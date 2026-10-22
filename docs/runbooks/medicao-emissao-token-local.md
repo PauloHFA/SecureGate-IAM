@@ -22,6 +22,8 @@ Preparar IAM de teste e CSV privado conforme [guia JMeter](../../load-tests/jmet
 
 `-IamProcessId` é opcional. Ao fornecê-lo, o runner amostra CPU cumulativa, working set e memória privada do processo IAM a cada segundo; não registra linha de comando nem ambiente. Para comparar perfis, registrar também limites de CPU/memória do Docker, número de threads, versões, máquina e interferência de outros processos. O runner registra capacidade do daemon Docker quando disponível.
 
+Na 10C2b2a, `-DockerContainerIds` acrescenta snapshots de CPU e memória dos containers das dependências por fase. Consultar o [procedimento de recursos](medicao-recursos-dependencias-carga-local.md) para a ordem dos IDs, formato do CSV e limites das amostras.
+
 `averageCpuCorePercent` usa segundos de CPU divididos pelo tempo decorrido: 100% equivale a um núcleo ocupado e o valor pode superar 100% em processos paralelos. O pico de memória é apenas o processo IAM, não o consumo total da stack.
 
 O arquivo `summary.json` guarda contagem, falhas, taxa efetiva (`requisições / duração configurada`), p50/p95/p99 por fase e indicadores separados para as referências de 200 ms e 300 req/s. `samples.csv`, `jmeter.log`, `console.log` e `iam-resources.csv` ficam por fase sob o diretório privado ignorado pelo Git. Nenhum token, corpo ou cabeçalho deve ser enviado a logs externos; revisar os artefatos antes de compartilhá-los.
