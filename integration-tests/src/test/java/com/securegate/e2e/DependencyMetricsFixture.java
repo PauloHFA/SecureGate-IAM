@@ -93,6 +93,7 @@ final class DependencyMetricsFixture implements AutoCloseable {
                 image(
                     "docker-compose.postgres-metrics.yml",
                     "quay.io/prometheuscommunity/postgres-exporter:"))
+            .withExtraHost("host.docker.internal", "host-gateway")
             .withExposedPorts(9187)
             .withEnv(
                 "DATA_SOURCE_URI",
@@ -130,6 +131,7 @@ final class DependencyMetricsFixture implements AutoCloseable {
     redisExporter =
         new GenericContainer<>(
                 image("docker-compose.redis-metrics.yml", "oliver006/redis_exporter:"))
+            .withExtraHost("host.docker.internal", "host-gateway")
             .withExposedPorts(9121)
             .withEnv("REDIS_ADDR", redisTarget)
             .withEnv("REDIS_USER", "securegate_metrics")

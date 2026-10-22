@@ -4,7 +4,7 @@ param(
   [Parameter(Mandatory)][uri]$BaseUri,
   [Parameter(Mandatory)][string]$MassFile,
   [Parameter(Mandatory)][string]$OutputDirectory,
-  [ValidateSet('issuance', 'introspection', 'resource')][string]$Scenario = 'issuance',
+  [ValidateSet('issuance', 'introspection', 'resource', 'revocation')][string]$Scenario = 'issuance',
   [ValidateRange(1, 20)][int]$Threads = 2,
   [ValidateRange(3, 900)][int]$WarmupSeconds = 10,
   [ValidateRange(5, 3600)][int]$SteadySeconds = 30,
@@ -23,12 +23,12 @@ if (-not (Test-Path -LiteralPath $jar)) { throw 'JMeter binary is missing.' }
 $mass = (Resolve-Path -LiteralPath $MassFile).Path
 $rows = @(Import-Csv -LiteralPath $mass)
 if ($WindowSeconds -gt $SteadySeconds) { throw 'WindowSeconds must not exceed SteadySeconds.' }
-if ($Scenario -eq 'resource' -and [Math]::Max($WarmupSeconds, [Math]::Max($SteadySeconds, $CooldownSeconds)) -gt 90) {
-  throw 'Resource phases are limited to 90 seconds by the synthetic human token lifetime.'
+if ($Scenario -in @('resource', 'revocation') -and [Math]::Max($WarmupSeconds, [Math]::Max($SteadySeconds, $CooldownSeconds)) -gt 90) {
+  throw "$Scenario phases are limited to 90 seconds by the synthetic human token lifetime."
 }
 if ($rows.Count -lt $Threads) { throw 'Provide at least one synthetic client per thread.' }
 foreach ($row in $rows) {
-  if ($Scenario -eq 'resource') {
+  if ($Scenario -in @('resource', 'revocation')) {
     $valid = $row.user_id -match '^[a-f0-9-]{36}$' -and $row.email -match '^[a-z0-9_-]+@example[.]test$' -and
       $row.password.Length -ge 12 -and $row.redirect_uri -eq 'http://127.0.0.1:18090/callback' -and
       $row.client_id -match '^[a-z][a-z0-9_-]{2,63}$' -and -not [string]::IsNullOrWhiteSpace($row.client_secret) -and $row.scope -eq 'api:read'
@@ -50,7 +50,7 @@ if (-not [string]::IsNullOrWhiteSpace($DockerContainerIds)) {
   }
   if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'Docker CLI is required for container sampling.' }
 }
-if ($Scenario -in @('introspection', 'resource')) {
+if ($Scenario -in @('introspection', 'resource', 'revocation')) {
   $projectRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
   $privateRoots = @((Join-Path $projectRoot 'load-tests/.local'), (Join-Path $projectRoot 'integration-tests/target'))
   $comparison = if ($env:OS -eq 'Windows_NT') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
@@ -67,11 +67,13 @@ $plan = switch ($Scenario) {
   'issuance' { 'token-issuance-baseline.jmx' }
   'introspection' { 'token-introspection-baseline.jmx' }
   'resource' { 'resource-validation-baseline.jmx' }
+  'revocation' { 'token-revocation-baseline.jmx' }
 }
 $label = switch ($Scenario) {
   'issuance' { 'token.success' }
   'introspection' { 'introspection.active' }
   'resource' { 'resource.validation.success' }
+  'revocation' { 'token.revoke.call' }
 }
 
 function New-PhaseTokenMass([string]$folder, [int]$duration) {
@@ -224,8 +226,11 @@ function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
       "-Jramp_up=$([Math]::Min($duration, [Math]::Max(1, $phaseThreads)))",
       '-Lorg.apache.http=WARN'
     )
-    if ($Scenario -eq 'resource') {
+    if ($Scenario -in @('resource', 'revocation')) {
       $arguments += @("-Jflow_script=$(Join-Path $PSScriptRoot 'human-pkce.groovy')", '-Jretain_resource_token=true')
+    }
+    if ($Scenario -eq 'revocation') {
+      $arguments += @("-Jpropagation_script=$(Join-Path $PSScriptRoot 'token-revocation-propagation.groovy')")
     }
     & java @arguments *> (Join-Path $folder 'console.log')
     if ($LASTEXITCODE -ne 0) { throw "JMeter $name phase failed; inspect the local run log." }
@@ -262,8 +267,33 @@ function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
       @($setup | Where-Object { $_.success -ne 'true' }).Count -gt 0)) {
     throw "Human token setup failed or was incomplete in $name."
   }
-  if (@($samples | Where-Object { $_.label -ne $label -and ($Scenario -ne 'resource' -or $_.label -ne 'pkce.journey.success') }).Count -ne 0) {
+  if ($Scenario -eq 'revocation' -and ($setup.Count -eq 0 -or
+      @($setup | Where-Object { $_.success -ne 'true' }).Count -gt 0)) {
+    throw "Human token setup failed or was absent in $name."
+  }
+  $allowedLabels = if ($Scenario -eq 'revocation') {
+    @('pkce.journey.success', 'token.revoke.call', 'revocation.observed_refusal')
+  } elseif ($Scenario -eq 'resource') {
+    @('pkce.journey.success', 'resource.validation.success')
+  } else {
+    @($label)
+  }
+  if (@($samples | Where-Object { $_.label -notin $allowedLabels }).Count -ne 0) {
     throw "Unexpected sample label in $name; do not mix flows in the baseline."
+  }
+  $propagation = $null
+  if ($Scenario -eq 'revocation') {
+    $propSamples = @($samples | Where-Object { $_.label -eq 'revocation.observed_refusal' })
+    if ($propSamples.Count -eq 0) { throw "No revocation propagation samples recorded in $name." }
+    $propFailures = @($propSamples | Where-Object { $_.success -ne 'true' }).Count
+    $propElapsed = @($propSamples | ForEach-Object { [double]::Parse($_.elapsed, [Globalization.CultureInfo]::InvariantCulture) })
+    $propagation = [ordered]@{
+      observations = $propSamples.Count
+      failures = $propFailures
+      p50Ms = Get-Percentile $propElapsed 0.50
+      p95Ms = Get-Percentile $propElapsed 0.95
+      p99Ms = Get-Percentile $propElapsed 0.99
+    }
   }
   $samples = @($samples | Where-Object { $_.label -eq $label })
   $failures = @($samples | Where-Object { $_.success -ne 'true' }).Count
@@ -315,6 +345,7 @@ function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
     p50Ms = Get-Percentile $elapsed 0.50
     p95Ms = Get-Percentile $elapsed 0.95
     p99Ms = Get-Percentile $elapsed 0.99
+    propagation = $propagation
     windows = $windows
     iamProcess = $resource
     containers = $containers
@@ -337,6 +368,7 @@ $summary = [ordered]@{
     'issuance' { 'client_credentials_token_issuance' }
     'introspection' { 'owned_active_token_introspection' }
     'resource' { 'protected_resource_validation' }
+    'revocation' { 'token_revocation_and_propagation' }
   }
   scope = 'local baseline; separate JMeter phase processes; no production SLA claim'
   jmeterValidatedBaseline = '5.6.3'
@@ -345,14 +377,20 @@ $summary = [ordered]@{
   dockerCapacity = $docker
   targetP95Ms = if ($Scenario -eq 'issuance') { 200 } else { $null }
   targetRequestsPerSecond = if ($Scenario -eq 'issuance') { 300 } else { $null }
+  targetPropagationMs = if ($Scenario -eq 'revocation') { 2000 } else { $null }
   windowSeconds = $WindowSeconds
   windowMethod = 'windows anchored at first steady sample timestamp; only windows ending before the last observed sample start are included'
   phases = $phases
   steadyMeetsReferenceP95 = if ($Scenario -eq 'issuance') { $phases[1].p95Ms -lt 200 } else { $null }
   steadyMeetsReferenceRate = if ($Scenario -eq 'issuance') { $phases[1].effectiveRequestsPerSecond -ge 300 } else { $null }
+  steadyPropagationMeetsTarget = if ($Scenario -eq 'revocation') { $phases[1].propagation.p95Ms -lt 2000 } else { $null }
 }
 $summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $output 'summary.json') -Encoding UTF8
-if (@($phases | Where-Object { $_.failures -gt 0 }).Count -gt 0) {
+if (@($phases | Where-Object { $_.failures -gt 0 -or ($null -ne $_.propagation -and $_.propagation.failures -gt 0) }).Count -gt 0) {
   throw 'Measured contract failed in at least one phase; inspect summary.json.'
 }
-Write-Output "Baseline recorded: steady $($phases[1].effectiveRequestsPerSecond) req/s, p95 $($phases[1].p95Ms) ms."
+if ($Scenario -eq 'revocation') {
+  Write-Output "Revocation baseline recorded: steady revoke p95 $($phases[1].p95Ms) ms, propagation p95 $($phases[1].propagation.p95Ms) ms (target < 2000 ms: $($summary.steadyPropagationMeetsTarget))."
+} else {
+  Write-Output "Baseline recorded: steady $($phases[1].effectiveRequestsPerSecond) req/s, p95 $($phases[1].p95Ms) ms."
+}
