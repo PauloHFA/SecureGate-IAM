@@ -94,6 +94,87 @@ services:
     entrypoint: [/bin/sh, /bootstrap/init.sh]
     restart: "no"
 
+  iam-core:
+    profiles: [full]
+    build:
+      context: ..
+      dockerfile: iam-core/Dockerfile
+    image: securegate/iam-core:0.1.0-snapshot
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
+    environment:
+      IAM_DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:?Execute Initialize-Local.ps1}
+      IAM_DATABASE_USERNAME: ${POSTGRES_USER:?Execute Initialize-Local.ps1}
+      IAM_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?Execute Initialize-Local.ps1}
+      IAM_AUTHORIZATION_ENABLED: "true"
+      IAM_BOOTSTRAP_ENABLED: "true"
+      IAM_BOOTSTRAP_TOKEN: ${IAM_BOOTSTRAP_TOKEN:-bootstrap-dev-token-minimum-32-chars-long!}
+      IAM_TRANSIT_ENABLED: "true"
+      IAM_VAULT_ADDRESS: http://vault:8200
+      IAM_VAULT_ROLE_ID_FILE: /etc/securegate/iam-core-role-id
+      IAM_VAULT_SECRET_ID_FILE: /etc/securegate/iam-core-secret-id
+      IAM_RABBITMQ_HOST: rabbitmq
+      IAM_RABBITMQ_PORT: 5672
+      IAM_RABBITMQ_VHOST: ${RABBITMQ_VHOST:-securegate}
+      IAM_RABBITMQ_USERNAME: ${RABBITMQ_USER:?Execute Initialize-Local.ps1}
+      IAM_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Execute Initialize-Local.ps1}
+      IAM_RESOURCE_ENFORCEMENT_ENABLED: "true"
+      IAM_ENFORCEMENT_REDIS_HOST: redis
+      IAM_ENFORCEMENT_REDIS_PORT: 6379
+      IAM_ENFORCEMENT_REDIS_PASSWORD: ${REDIS_PASSWORD:?Execute Initialize-Local.ps1}
+      IAM_BIND_ADDRESS: 0.0.0.0
+      IAM_PORT: 8080
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./.local/iam-core-role-id:/etc/securegate/iam-core-role-id:ro
+      - ./.local/iam-core-secret-id:/etc/securegate/iam-core-secret-id:ro
+    healthcheck:
+      test: [CMD-SHELL, 'curl -fsS http://127.0.0.1:8080/actuator/health/readiness | grep -q "\"status\":\"UP\""']
+      interval: 10s
+      timeout: 3s
+      retries: 8
+      start_period: 30s
+    restart: unless-stopped
+
+  policy-enforcer:
+    profiles: [full]
+    build:
+      context: ..
+      dockerfile: policy-enforcer/Dockerfile
+    image: securegate/policy-enforcer:0.1.0-snapshot
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
+      iam-core:
+        condition: service_healthy
+    environment:
+      ENFORCER_REDIS_HOST: redis
+      ENFORCER_REDIS_PORT: 6379
+      ENFORCER_REDIS_PASSWORD: ${REDIS_PASSWORD:?Execute Initialize-Local.ps1}
+      ENFORCER_CONSUMER_ENABLED: "true"
+      ENFORCER_RABBITMQ_HOST: rabbitmq
+      ENFORCER_RABBITMQ_PORT: 5672
+      ENFORCER_RABBITMQ_VHOST: ${RABBITMQ_VHOST:-securegate}
+      ENFORCER_RABBITMQ_USERNAME: ${RABBITMQ_USER:?Execute Initialize-Local.ps1}
+      ENFORCER_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Execute Initialize-Local.ps1}
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   redis-data:
