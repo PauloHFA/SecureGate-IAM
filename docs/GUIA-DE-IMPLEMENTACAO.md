@@ -7,17 +7,17 @@ Atualizado em 22/10/2026. Este guia consolida a sequência de construção, as r
 | Item | Situação registrada |
 | --- | --- |
 | Última entrega implementada | 10C3 — consolidação e runbook unificado de carga |
-| Base desta entrega | 85fae7a — merge PR #12 (10C2b2b3) |
-| Trabalho local | Alterações 10C3 validadas localmente na branch |
-| Branch | feat/load-comparative-baseline |
-| Validação da entrega | Seleção `ComparativeBaselineSmoke` com os 5 cenários aprovada com 0 falhas; BUILD SUCCESS em 3 min 02 s |
-| Próxima implementação | 10D — ajustes e capacidade |
-| Pendências seguintes | 10D; Etapa 11 — entrega/hardening; Etapa 12 — gateway opcional |
-| Etapas posteriores | 10D — ajustes; 11 — entrega/hardening; 12 — gateway opcional |
+| Base desta entrega | 2fb6253 — merge PR #13 (10C3) |
+| Trabalho local | Alterações 10D validadas localmente na branch |
+| Branch | feat/load-capacity-tuning |
+| Validação da entrega | Lei de Little, ajustes configuráveis (Hikari, Transit), relatórios HTML consolidados, dashboards JMeter e investigação de capacidade 10D |
+| Próxima implementação | 11A — imagens multi-stage Java 21 e perfil Compose full |
+| Pendências seguintes | Etapa 11 — entrega/hardening; Etapa 12 — gateway opcional |
+| Etapas posteriores | 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b, a 10C1, a 10C2a, a 10C2b1, a 10C2b2a, a 10C2b2b1, a 10C2b2b2, a 10C2b2b3 e a 10C3 também estão implementadas abaixo. As divisões 10D–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b, a 10C1, a 10C2a, a 10C2b1, a 10C2b2a, a 10C2b2b1, a 10C2b2b2, a 10C2b2b3, a 10C3 e a 10D também estão implementadas abaixo. As divisões da Etapa 11–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -721,15 +721,25 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 4. Implementar teste de integração automatizado opt-in [`ComparativeBaselineSmoke.java`](../integration-tests/src/test/java/com/securegate/e2e/ComparativeBaselineSmoke.java) executando ponta a ponta os cinco cenários sob Testcontainers e auditando ausência total de vazamento de segredos.
 5. Consolidar instruções no runbook unificado [`medicao-linha-base-unificada-local.md`](runbooks/medicao-linha-base-unificada-local.md).
 
-[Operação](runbooks/medicao-linha-base-unificada-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/ComparativeBaselineSmoke.java), [evidência](evidencias/etapa-10c3.md). A 10D abordará investigação de capacidade e gargalos.
+[Operação](runbooks/medicao-linha-base-unificada-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/ComparativeBaselineSmoke.java), [evidência](evidencias/etapa-10c3.md).
 
-## Próximas divisões 10–12 — propostas, ainda pendentes
+## Etapa 10D — Ajustes e investigação de capacidade / gargalos
 
-As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B5b conclui a integração funcional local dos quatro exporters na coleta conjunta; a 10C1 valida o método de medição de emissão em janela curta, a 10C2a observa variação por janela, a 10C2b1 mede introspecção HTTP, a 10C2b2a coleta recursos das dependências durante carga, a 10C2b2b1 mede GET protegido, a 10C2b2b2 mede revogação e propagação, a 10C2b2b3 mede auditoria centralizada e a 10C3 consolida os cinco fluxos sob runner unificado. O aceite global de observabilidade ainda deve explicitar os limites dos logs locais, sem renumerar entregas anteriores.
+1. Formalizar a relação entre concorrência, vazão e tempo de resposta via Lei de Little ($N = X \cdot (R + Z)$), demonstrando matematicamente e na prática por que 300 usuários virtuais não equivalem a 300 req/s.
+2. Tornar o semáforo de assinatura criptográfica Vault Transit configurável em tempo de execução via `IAM_TRANSIT_MAX_CONCURRENT_REQUESTS` (default 8 preservado) e timeout via `IAM_TRANSIT_TIMEOUT` (default 2s).
+3. Tornar o pool de conexões com banco de dados configurável via `IAM_DATABASE_HIKARI_MAX_POOL_SIZE` (default 10 preservado) e `IAM_DATABASE_HIKARI_CONNECTION_TIMEOUT` (default 5000 preservado).
+4. Adicionar geração automatizada de Dashboard HTML nativo do JMeter (`dashboard/index.html`) via switch `-GenerateDashboard` nos runners `Run-TokenIssuanceBaseline.ps1` e `Run-ComparativeBaseline.ps1`.
+5. Gerar relatórios executivos visuais consolidados: `comparative-report.html` (para o runner comparativo) e `capacity-investigation-report.html` (para a investigação de concorrência escalonada).
+6. Implementar runner de investigação de capacidade [`Run-CapacityInvestigation.ps1`](../load-tests/jmeter/Run-CapacityInvestigation.ps1) e teste opt-in [`CapacityInvestigationSmoke.java`](../integration-tests/src/test/java/com/securegate/e2e/CapacityInvestigationSmoke.java) verificando speedup, eficiência de escalonamento, estabilidade de memória e ausência total de vazamento de credenciais.
+
+[Operação](runbooks/investigacao-capacidade-e-ajustes.md), [ADR](adr/066-investigacao-capacidade-e-ajustes.md), [evidência](evidencias/etapa-10d.md). Conclui a Etapa 10; a Etapa 11 abordará imagens Docker, hardening e release v1.
+
+## Próximas divisões 11–12 — propostas, ainda pendentes
+
+As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. As etapas 10A–10D concluem a medição de carga, observabilidade, conformidade de contratos e investigação de capacidade. A Etapa 11 consolida empacotamento em containers e hardening.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
 | 11A — Imagens/stack | Criar imagens Java 21 sem root → perfil Compose full → probes e smoke em ambiente limpo. | Stack completa executável conforme guia. |
 | 11B — CI e release | Integrar scans/checks → versionar artefatos/imagens → definir publicação GHCR no fluxo de release. | Pipeline verificável, sem publicar imagens de PR como release. |
 | 11C — Hardening | Revisar TLS/CORS/cabeçalhos/limites/segredos → threat model/ASVS → revisar permissões e proteção de main. | Controles e riscos residuais documentados e verificados. |

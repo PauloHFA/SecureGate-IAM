@@ -12,7 +12,8 @@ param(
   [ValidateRange(1, 300)][int]$WindowSeconds = 10,
   [ValidateRange(3, 900)][int]$CooldownSeconds = 10,
   [ValidateRange(0, 2147483647)][int]$IamProcessId = 0,
-  [string]$DockerContainerIds = ''
+  [string]$DockerContainerIds = '',
+  [switch]$GenerateDashboard
 )
 $ErrorActionPreference = 'Stop'
 if ($BaseUri.Host -notin @('127.0.0.1', 'localhost') -or $BaseUri.Scheme -notin @('http', 'https') -or
@@ -239,6 +240,9 @@ function Invoke-Phase([string]$name, [int]$phaseThreads, [int]$duration) {
       "-Jramp_up=$([Math]::Min($duration, [Math]::Max(1, $phaseThreads)))",
       '-Lorg.apache.http=WARN'
     )
+    if ($GenerateDashboard) {
+      $arguments += @('-e', '-o', (Join-Path $folder 'dashboard'))
+    }
     if ($Scenario -in @('resource', 'revocation')) {
       $arguments += @("-Jflow_script=$(Join-Path $PSScriptRoot 'human-pkce.groovy')", '-Jretain_resource_token=true')
     }
@@ -438,6 +442,12 @@ $summary = [ordered]@{
     $phases[1].propagation.p95Ms -lt 2000
   } elseif ($Scenario -eq 'audit') {
     $phases[1].visibility.p95Ms -lt 5000
+  } else {
+    $null
+  }
+  dashboardGenerated = $GenerateDashboard.IsPresent
+  dashboard = if ($GenerateDashboard -and (Test-Path -LiteralPath (Join-Path $output 'steady/dashboard/index.html'))) {
+    'steady/dashboard/index.html'
   } else {
     $null
   }
