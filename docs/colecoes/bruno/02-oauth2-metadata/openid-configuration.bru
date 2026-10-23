@@ -1,0 +1,16 @@
+meta {
+  name: OpenID Configuration
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrlGateway}}/.well-known/openid-configuration
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.issuer: isDefined
+}

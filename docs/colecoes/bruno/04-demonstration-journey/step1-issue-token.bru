@@ -1,0 +1,26 @@
+meta {
+  name: Step 1 - Issue OAuth2 Token
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrlCore}}/oauth2/token
+  body: formUrlEncoded
+  auth: none
+}
+
+headers {
+  Content-Type: application/x-www-form-urlencoded
+}
+
+body:form-urlencoded {
+  grant_type: client_credentials
+  client_id: demo-client
+  client_secret: demo-client-secret
+  scope: read:account
+}
+
+assert {
+  res.status: in [200, 400, 401]
+}

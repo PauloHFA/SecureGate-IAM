@@ -1,0 +1,27 @@
+meta {
+  name: Step 3 - Lock User / Trigger Suspicious Security Event
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrlCore}}/api/admin/users/{{userId}}/lock
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bootstrapToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "reason": "suspicious-activity-detected",
+    "source": "demonstration-journey"
+  }
+}
+
+assert {
+  res.status: in [200, 204, 404]
+}

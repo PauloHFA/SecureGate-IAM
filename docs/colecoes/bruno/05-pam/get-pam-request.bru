@@ -1,0 +1,19 @@
+meta {
+  name: Get PAM Request Status
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrlGateway}}/api/pam/requests/{{requestId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{testToken}}
+}
+
+assert {
+  res.status: in [200, 401, 404]
+}

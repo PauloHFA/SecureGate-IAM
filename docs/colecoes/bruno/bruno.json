@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "SecureGate IAM",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

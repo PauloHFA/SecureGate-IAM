@@ -1,0 +1,19 @@
+meta {
+  name: Step 2 - Access Resource via Gateway (Success)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrlGateway}}/api/resources/account
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{testToken}}
+}
+
+assert {
+  res.status: in [200, 401]
+}

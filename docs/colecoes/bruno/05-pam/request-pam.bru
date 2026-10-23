@@ -1,0 +1,28 @@
+meta {
+  name: Request PAM Access
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrlGateway}}/api/pam/requests
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{testToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "targetSystem": "production-database",
+    "justification": "Incident response verification #IR-4091",
+    "requestedDurationMinutes": 30
+  }
+}
+
+assert {
+  res.status: in [200, 201, 401, 403]
+}

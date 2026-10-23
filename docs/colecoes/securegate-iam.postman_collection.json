@@ -1,0 +1,310 @@
+{
+  "info": {
+    "_postman_id": "a93c780b-9df0-4b21-93a8-e9f02c63f822",
+    "name": "SecureGate IAM - API Collection",
+    "description": "API collection covering health checks, OIDC metadata, identity administration, PAM endpoints, and the Stage 12 demonstration journey with edge revocation filtering.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 - Health Checks",
+      "item": [
+        {
+          "name": "Core Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrlCore}}/actuator/health",
+              "host": ["{{baseUrlCore}}"],
+              "path": ["actuator", "health"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Gateway Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrlGateway}}/actuator/health",
+              "host": ["{{baseUrlGateway}}"],
+              "path": ["actuator", "health"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02 - OAuth2 and Metadata",
+      "item": [
+        {
+          "name": "OpenID Configuration",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrlGateway}}/.well-known/openid-configuration",
+              "host": ["{{baseUrlGateway}}"],
+              "path": [".well-known", "openid-configuration"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "JWKS Key Set",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrlGateway}}/.well-known/jwks.json",
+              "host": ["{{baseUrlGateway}}"],
+              "path": [".well-known", "jwks.json"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03 - Identity Admin",
+      "item": [
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bootstrapToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"demonstration-user\",\n  \"email\": \"demo@securegate.local\",\n  \"roles\": [\"OPERATOR\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrlCore}}/api/admin/users",
+              "host": ["{{baseUrlCore}}"],
+              "path": ["api", "admin", "users"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get User Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bootstrapToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlCore}}/api/admin/users/{{userId}}",
+              "host": ["{{baseUrlCore}}"],
+              "path": ["api", "admin", "users", "{{userId}}"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 - Demonstration Journey",
+      "item": [
+        {
+          "name": "Step 1 - Issue OAuth2 Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials",
+                  "type": "text"
+                },
+                {
+                  "key": "client_id",
+                  "value": "demo-client",
+                  "type": "text"
+                },
+                {
+                  "key": "client_secret",
+                  "value": "demo-client-secret",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "read:account",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrlCore}}/oauth2/token",
+              "host": ["{{baseUrlCore}}"],
+              "path": ["oauth2", "token"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Step 2 - Access Resource via Gateway (Success)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{testToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlGateway}}/api/resources/account",
+              "host": ["{{baseUrlGateway}}"],
+              "path": ["api", "resources", "account"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Step 3 - Lock User / Trigger Suspicious Security Event",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bootstrapToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"suspicious-activity-detected\",\n  \"source\": \"demonstration-journey\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrlCore}}/api/admin/users/{{userId}}/lock",
+              "host": ["{{baseUrlCore}}"],
+              "path": ["api", "admin", "users", "{{userId}}", "lock"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Step 4 - Access Resource via Gateway (Denied at Edge)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{testToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlGateway}}/api/resources/account",
+              "host": ["{{baseUrlGateway}}"],
+              "path": ["api", "resources", "account"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "05 - Privileged Access Management (PAM)",
+      "item": [
+        {
+          "name": "Request PAM Access",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{testToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"targetSystem\": \"production-database\",\n  \"justification\": \"Incident response verification #IR-4091\",\n  \"requestedDurationMinutes\": 30\n}"
+            },
+            "url": {
+              "raw": "{{baseUrlGateway}}/api/pam/requests",
+              "host": ["{{baseUrlGateway}}"],
+              "path": ["api", "pam", "requests"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get PAM Request Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{testToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlGateway}}/api/pam/requests/{{requestId}}",
+              "host": ["{{baseUrlGateway}}"],
+              "path": ["api", "pam", "requests", "{{requestId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Issue PAM Ephemeral Credentials",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{testToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlGateway}}/api/pam/requests/{{requestId}}/credentials",
+              "host": ["{{baseUrlGateway}}"],
+              "path": ["api", "pam", "requests", "{{requestId}}", "credentials"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

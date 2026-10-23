@@ -784,14 +784,23 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 5. Criar o Dockerfile multi-stage Java 21 non-root ([`api-gateway/Dockerfile`](../api-gateway/Dockerfile)) e integrá-lo ao `infra/docker-compose.yml` sob os perfis `gateway` e `full`.
 6. Validar com testes unitários ([`TokenRevocationGatewayFilterTest.java`](../api-gateway/src/test/java/com/securegate/gateway/TokenRevocationGatewayFilterTest.java)) e testes de integração de governança ([`ApiGatewayIT.java`](../integration-tests/src/test/java/com/securegate/e2e/ApiGatewayIT.java)).
 
-[Operação](runbooks/api-gateway-local.md), [ADR](adr/071-api-gateway-e-politicas-por-rota.md), [evidência](evidencias/etapa-12a.md). A 12B abordará a jornada demonstrável ponta a ponta e coleção de APIs.
+[Operação](runbooks/api-gateway-local.md), [ADR](adr/071-api-gateway-e-politicas-por-rota.md), [evidência](evidencias/etapa-12a.md). Conclui a Etapa 12A.
 
-## Próximas divisões — Etapa 12: Jornada demonstrável e materiais finais
+## Etapa 12B — Jornada demonstrável ponta a ponta e coleções de API
+
+1. Estruturar a jornada demonstrável de segurança em 5 passos determinísticos: (1) verificação de saúde e prontidão, (2) roteamento público anônimo, (3) acesso legítimo autorizado com token e injeção de `X-Gateway-Verified: true`, (4) disparo de evento suspeito/revogação com projeção no Redis (`SecurityProjectionKeys`) e bloqueio imediato na borda com `HTTP 401 Unauthorized` (RFC 7807), e (5) resiliência *Fail-Closed* emitindo `HTTP 503` sob indisponibilidade de Redis.
+2. Criar a coleção declarativa de APIs em texto puro no formato **Bruno** ([`docs/colecoes/bruno/`](colecoes/bruno/)) com ambiente versionável (`environments/Local.bru`) e cinco pastas operacionais: `01-health-checks`, `02-oauth2-metadata`, `03-identity-admin`, `04-demonstration-journey` e `05-pam`.
+3. Disponibilizar a coleção e ambiente no padrão **Postman Schema v2.1.0** ([`docs/colecoes/securegate-iam.postman_collection.json`](colecoes/securegate-iam.postman_collection.json) e [`docs/colecoes/securegate-iam.postman_environment.json`](colecoes/securegate-iam.postman_environment.json)) para interoperabilidade imediata com ferramentas de QA e CI.
+4. Desenvolver scripts executáveis multiplataforma para automação e validação da demonstração: PowerShell ([`infra/scripts/Test-DemonstrationJourney.ps1`](../infra/scripts/Test-DemonstrationJourney.ps1)) e Bash ([`infra/scripts/demonstrate-journey.sh`](../infra/scripts/demonstrate-journey.sh)).
+5. Implementar suíte de testes automatizados de governança e validação de contratos [`DemoJourneyIT.java`](../integration-tests/src/test/java/com/securegate/e2e/DemoJourneyIT.java), validando coleções, variáveis, scripts e integridade das chaves de projeção.
+
+[Operação](runbooks/jornada-demonstracao-local.md), [ADR](adr/072-jornada-demonstracao-e-colecao-de-apis.md), [evidência](evidencias/etapa-12b.md). A 12C abordará os materiais finais, diagramas atualizados e encerramento.
+
+## Próximas divisões — Etapa 12: Materiais finais e encerramento
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 12B — Jornada demonstrável | Reproduzir login/acesso/evento suspeito/bloqueio/negação → preparar coleção de API. | Demonstração repetível com dados sintéticos. |
-| 12C — Materiais finais | Atualizar diagramas/ADRs → registrar demonstração → consolidar instruções. | Materiais coerentes com o comportamento implementado. |
+| 12C — Materiais finais | Atualizar diagramas de arquitetura/ADRs → registrar demonstração → consolidar instruções e encerramento do roadmap. | Materiais coerentes com o comportamento implementado e fechamento oficial. |
 
 ## Mapa das migrações atuais
 
