@@ -77,8 +77,13 @@ class ComparativeBaselineSmoke {
 
       Path comparativeSummaryJson = output.resolve("comparative/comparative-summary.json");
       Path comparativeSummaryCsv = output.resolve("comparative/comparative-summary.csv");
+      Path comparativeReportHtml = output.resolve("comparative/comparative-report.html");
       assertTrue(Files.isRegularFile(comparativeSummaryJson));
       assertTrue(Files.isRegularFile(comparativeSummaryCsv));
+      assertTrue(Files.isRegularFile(comparativeReportHtml));
+      String htmlContent = Files.readString(comparativeReportHtml);
+      assertTrue(htmlContent.contains("SecureGate IAM"));
+      assertTrue(htmlContent.contains("Lei de Little"));
 
       var report = PropagationEnvironment.JSON.readTree(comparativeSummaryJson.toFile());
       var results = report.path("results");
