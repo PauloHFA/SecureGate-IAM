@@ -155,9 +155,9 @@ A **10B4a** acrescenta backend local Tempo opcional, com imagem fixada, armazena
 
 A **10B4b** implementa exportação OTLP opcional no IAM/enforcer: destino local validado, transporte JDK sem redirects, fila limitada e timeouts curtos, sem retry. Amostragem e dados finitos da instrumentação anterior são preservados; backend indisponível causa perda de telemetria sem bloquear negócio. [Operação](docs/runbooks/exportacao-otlp-local.md), [ADR-065](docs/adr/065-exportacao-otlp-local.md), [evidências](docs/evidencias/etapa-10b4b.md).
 
-Próxima: **10B4c — validação conjunta**, antes de **10C — medição**. Aceite global 10B continua aberto. Trabalho local em `feat/tracing-backend`, sobre `38dd1ae`, com commit local nesta branch; push/CI pendentes. Build final 10B4b: **886 testes aprovados**, dois gates de cobertura e arquitetura atendidos. Corrigido também bloqueio de disconnect NIO do enforcer, com regressão real e recuperação de entrega sem ACK; permanece a ressalva histórica de shutdown do fork IAM. A 10B4a anterior teve 847 testes aprovados. Stack persistente preservada; publicação/CI e desempenho pendentes.
+As entregas **10C** e **10D** completaram os ensaios de carga e investigação de gargalos arquiteturais sob a Lei de Little ($N = X \cdot (R + Z)$), calibrando semáforos e pools de conexão. A **11A** empacotou a stack com imagens multi-stage Java 21 non-root e orquestração Docker Compose via perfil `full`. A **11B** estabeleceu a esteira de integridade e release com CodeQL SAST, varredura de vulnerabilidades de containers Trivy no CI, workflow oficial de publicação GHCR por tag e governança via testes de contrato automatizados.
 
-A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
+Próxima: **11C — Hardening e postura de segurança**. A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
 ## Build local
 
