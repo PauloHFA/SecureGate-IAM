@@ -102,3 +102,4 @@ docker compose -f infra/docker-compose.yml --profile full up -d
    ```bash
    curl -s -H "Authorization: Bearer $VALID_TOKEN" http://localhost:8082/api/resources/account
    ```
+
