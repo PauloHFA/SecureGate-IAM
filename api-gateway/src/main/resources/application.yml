@@ -1,0 +1,43 @@
+server:
+  port: ${PORT:8082}
+
+spring:
+  application:
+    name: api-gateway
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
+      timeout: 2000ms
+  cloud:
+    gateway:
+      routes:
+        - id: public-auth-and-metadata
+          uri: ${IAM_CORE_URI:http://localhost:8080}
+          predicates:
+            - Path=/.well-known/**, /oauth2/**, /login/**, /mfa/**, /favicon.ico
+        - id: admin-api
+          uri: ${IAM_CORE_URI:http://localhost:8080}
+          predicates:
+            - Path=/api/admin/**
+        - id: protected-resources
+          uri: ${IAM_CORE_URI:http://localhost:8080}
+          predicates:
+            - Path=/api/resources/**, /api/pam/**
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+
+securegate:
+  gateway:
+    iam-core-uri: ${IAM_CORE_URI:http://localhost:8080}
+    fail-closed: true

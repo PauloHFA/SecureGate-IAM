@@ -25,6 +25,7 @@ class CiReleasePipelineIT {
     assertTrue(ci.contains("CRITICAL,HIGH"), "Must scan for HIGH and CRITICAL vulnerabilities");
     assertTrue(ci.contains("iam-core/Dockerfile"), "Must build iam-core in CI");
     assertTrue(ci.contains("policy-enforcer/Dockerfile"), "Must build policy-enforcer in CI");
+    assertTrue(ci.contains("api-gateway/Dockerfile"), "Must build api-gateway in CI");
   }
 
   @Test
@@ -58,6 +59,7 @@ class CiReleasePipelineIT {
     assertTrue(release.contains("ghcr.io"), "Must publish to GitHub Container Registry");
     assertTrue(release.contains("securegate-iam-core"), "Must name iam-core GHCR package");
     assertTrue(release.contains("securegate-policy-enforcer"), "Must name enforcer GHCR package");
+    assertTrue(release.contains("securegate-api-gateway"), "Must name gateway GHCR package");
     assertTrue(release.contains("docker/build-push-action"), "Must use build-push-action");
   }
 
