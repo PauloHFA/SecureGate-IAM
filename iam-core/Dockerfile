@@ -9,6 +9,7 @@ COPY mvnw pom.xml ./
 COPY libs/security-events/pom.xml libs/security-events/pom.xml
 COPY iam-core/pom.xml iam-core/pom.xml
 COPY policy-enforcer/pom.xml policy-enforcer/pom.xml
+COPY api-gateway/pom.xml api-gateway/pom.xml
 COPY integration-tests/pom.xml integration-tests/pom.xml
 
 # Pre-fetch dependencies

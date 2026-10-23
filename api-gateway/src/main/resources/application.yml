@@ -41,3 +41,4 @@ securegate:
   gateway:
     iam-core-uri: ${IAM_CORE_URI:http://localhost:8080}
     fail-closed: true
+

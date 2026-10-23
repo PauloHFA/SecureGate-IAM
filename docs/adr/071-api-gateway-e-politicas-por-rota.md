@@ -55,3 +55,4 @@ Decidiu-se pela criação do módulo dedicado **`api-gateway`** baseado em **Spr
 ### Neutras:
 - Adição de um serviço satélite na orquestração Docker Compose, consumindo aproximadamente 128 MB a 256 MB adicionais de memória JVM.
 - Requer conectividade de rede direta entre o Gateway e o cluster Redis.
+

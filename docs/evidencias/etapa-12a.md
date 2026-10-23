@@ -67,3 +67,4 @@ Resultado observado:
 ## 3. Próximos Passos
 
 A entrega **12A** estabelece o API Gateway operacional com roteamento e filtragem de revogação. A próxima subdivisão é a **12B (Jornada Demonstrável Ponta a Ponta)**, reproduzindo o fluxo interativo completo de emissão de token, acesso a recurso protegido via Gateway, disparo de evento suspeito, bloqueio em tempo real pelo Policy Enforcer e recusa imediata na borda.
+
