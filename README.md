@@ -155,9 +155,9 @@ A **10B4a** acrescenta backend local Tempo opcional, com imagem fixada, armazena
 
 A **10B4b** implementa exportação OTLP opcional no IAM/enforcer: destino local validado, transporte JDK sem redirects, fila limitada e timeouts curtos, sem retry. Amostragem e dados finitos da instrumentação anterior são preservados; backend indisponível causa perda de telemetria sem bloquear negócio. [Operação](docs/runbooks/exportacao-otlp-local.md), [ADR-065](docs/adr/065-exportacao-otlp-local.md), [evidências](docs/evidencias/etapa-10b4b.md).
 
-As entregas **10C** e **10D** completaram os ensaios de carga e investigação de gargalos arquiteturais sob a Lei de Little ($N = X \cdot (R + Z)$), calibrando semáforos e pools de conexão. A **11A** empacotou a stack com imagens multi-stage Java 21 non-root e orquestração Docker Compose via perfil `full`. A **11B** estabeleceu a esteira de integridade e release com CodeQL SAST, varredura de vulnerabilidades de containers Trivy no CI, workflow oficial de publicação GHCR por tag e governança via testes de contrato automatizados.
+As entregas **10C** e **10D** completaram os ensaios de carga e investigação de gargalos arquiteturais sob a Lei de Little ($N = X \cdot (R + Z)$), calibrando semáforos e pools de conexão. A **11A** empacotou a stack com imagens multi-stage Java 21 non-root e orquestração Docker Compose via perfil `full`. A **11B** estabeleceu a esteira de integridade e release com CodeQL SAST, varredura de vulnerabilidades Trivy no CI, workflow oficial de publicação GHCR por tag e governança via testes de contrato automatizados. A **11C** consolidou o hardening com Threat Model STRIDE, matriz de conformidade OWASP ASVS v4.0.3 Nível 2, catálogo de cabeçalhos de segurança HTTP e diretrizes de proteção da branch `main`.
 
-Próxima: **11C — Hardening e postura de segurança**. A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
+Próxima: **11D — Fechamento e Release v1.0.0**. A v1 tem foco em API REST. Gateway é opcional; federação externa, WebAuthn e painel administrativo completo ficam para evoluções posteriores.
 
 ## Build local
 

@@ -6,18 +6,18 @@ Atualizado em 22/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 11B — CI e release: CodeQL, scans e publicação GHCR |
-| Base desta entrega | be5a4c5 — merge PR #15 (11A) |
-| Trabalho local | Alterações 11B validadas localmente na branch |
-| Branch | feat/ci-codeql-ghcr-release |
-| Validação da entrega | Workflows CodeQL SAST, scan de vulnerabilidades Trivy no CI, workflow de release GHCR por tag e governança via `CiReleasePipelineIT` |
-| Próxima implementação | 11C — Hardening e postura de segurança (TLS, CORS, headers, rate limit, Threat Model, ASVS) |
-| Pendências seguintes | 11C; 11D; Etapa 12 — gateway opcional |
-| Etapas posteriores | 11C–11D; 12 — gateway opcional |
+| Última entrega implementada | 11C — Hardening e postura de segurança |
+| Base desta entrega | 9d80fcc — merge PR #16 (11B) |
+| Trabalho local | Alterações 11C validadas localmente na branch |
+| Branch | feat/security-hardening-asvs |
+| Validação da entrega | Threat Model STRIDE, matriz de conformidade OWASP ASVS v4.0.3 Nível 2, runbooks de hardening/proteção de branch e testes automatizados em `SecurityHardeningIT` |
+| Próxima implementação | 11D — Fechamento e Release v1.0.0 (instalação limpa, revisão final e tag v1.0.0) |
+| Pendências seguintes | 11D; Etapa 12 — gateway opcional |
+| Etapas posteriores | 11D; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b, a 10C1, a 10C2a, a 10C2b1, a 10C2b2a, a 10C2b2b1, a 10C2b2b2, a 10C2b2b3, a 10C3, a 10D, a 11A e a 11B também estão implementadas abaixo. As divisões restantes da Etapa 11C–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b, a 10C1, a 10C2a, a 10C2b1, a 10C2b2a, a 10C2b2b1, a 10C2b2b2, a 10C2b2b3, a 10C3, a 10D, a 11A, a 11B e a 11C também estão implementadas abaixo. As divisões restantes da Etapa 11D–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -753,15 +753,24 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 4. Aplicar práticas de segurança de supply chain com fixação de GitHub Actions por hash SHA de commit.
 5. Criar suíte automatizada de governança e validação de contratos de CI/CD [`CiReleasePipelineIT.java`](../integration-tests/src/test/java/com/securegate/e2e/CiReleasePipelineIT.java).
 
-[Operação](runbooks/ci-cd-e-publicacao-ghcr.md), [ADR](adr/068-ci-codeql-e-publicacao-ghcr.md), [evidência](evidencias/etapa-11b.md). A 11C abordará hardening (TLS, CORS, headers de segurança, rate limit, Threat Model e OWASP ASVS).
+[Operação](runbooks/ci-cd-e-publicacao-ghcr.md), [ADR](adr/068-ci-codeql-e-publicacao-ghcr.md), [evidência](evidencias/etapa-11b.md). Conclui a Etapa 11B.
+
+## Etapa 11C — Hardening e postura de segurança: Threat Model, OWASP ASVS e governança
+
+1. Elaborar e formalizar o Modelo de Ameaças STRIDE ([`docs/seguranca/threat-model.md`](../seguranca/threat-model.md)) identificando as 5 fronteiras de confiança, inventário de ativos críticos, vetores de ataque e mitigações em código.
+2. Mapear e auditar a conformidade técnica frente ao padrão **OWASP ASVS v4.0.3 Nível 2** ([`docs/seguranca/owasp-asvs-revisao.md`](../seguranca/owasp-asvs-revisao.md)) cobrindo os 14 capítulos com controles implementados.
+3. Consolidar o runbook operacional de hardening ([`docs/runbooks/hardening-e-postura-de-seguranca.md`](../runbooks/hardening-e-postura-de-seguranca.md)) cobrindo terminação TLS 1.2/1.3, HSTS, CORS, catálogo mandatório de cabeçalhos de segurança HTTP (`nosniff`, `DENY`, `no-referrer`, CSP, `no-store`) e mitigação de DoS no Tomcat e Vault.
+4. Formalizar a política de proteção da branch `main` ([`docs/runbooks/protecao-branch-main.md`](../runbooks/protecao-branch-main.md)) com 4 status checks obrigatórios (`Maven verify`, `CodeQL`, `Trivy scan`, `GitGuardian`), linearidade de histórico e proibição de force push.
+5. Implementar suíte de testes automatizados de conformidade estrutural e segurança [`SecurityHardeningIT.java`](../integration-tests/src/test/java/com/securegate/e2e/SecurityHardeningIT.java).
+
+[Operação](runbooks/hardening-e-postura-de-seguranca.md), [ADR](adr/069-hardening-postura-de-seguranca-e-asvs.md), [evidência](evidencias/etapa-11c.md). A 11D abordará o fechamento da v1.0.0 (instalação limpa, revisão documental e tag de release).
 
 ## Próximas divisões 11–12 — propostas, ainda pendentes
 
-As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. As etapas 10A–10D concluem a medição de carga, a 11A conclui o empacotamento em containers e a 11B estabelece CI com CodeQL, scans e release GHCR.
+As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. As etapas 10A–10D concluem a medição de carga, a 11A–11C concluem o empacotamento em containers, esteira de integridade e hardening de segurança.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 11C — Hardening | Revisar TLS/CORS/cabeçalhos/limites/segredos → threat model/ASVS → revisar permissões e proteção de main. | Controles e riscos residuais documentados e verificados. |
 | 11D — Fechamento v1 | Reproduzir instalação limpa → revisar documentação/evidências → preparar release após aceite. | Critérios da v1 atendidos e revisão/publicação registradas quando ocorrerem. |
 | 12A — Gateway opcional | Mapear rotas → validar JWT → aplicar revogação/políticas → definir falhas de dependências. | Gateway testado sem reduzir controles dos recursos. |
 | 12B — Jornada demonstrável | Reproduzir login/acesso/evento suspeito/bloqueio/negação → preparar coleção de API. | Demonstração repetível com dados sintéticos. |
