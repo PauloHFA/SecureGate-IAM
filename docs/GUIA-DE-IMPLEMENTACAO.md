@@ -6,18 +6,18 @@ Atualizado em 22/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 10C2b2b2 — medição da revogação e propagação |
-| Base desta entrega | feat/load-revocation-baseline |
-| Trabalho local | Alterações 10C2b2b3 validadas localmente na branch |
-| Branch | feat/load-audit-baseline |
-| Validação da entrega | Seleção `TokenBaselineSmoke` com cenário audit aprovada com 0 falhas; BUILD SUCCESS em 1 min 24 s |
-| Próxima implementação | 10C3 — consolidação e runbook unificado de carga |
-| Pendências seguintes | 10C3–10D; Etapa 11 — entrega/hardening; Etapa 12 — gateway opcional |
+| Última entrega implementada | 10C3 — consolidação e runbook unificado de carga |
+| Base desta entrega | 85fae7a — merge PR #12 (10C2b2b3) |
+| Trabalho local | Alterações 10C3 validadas localmente na branch |
+| Branch | feat/load-comparative-baseline |
+| Validação da entrega | Seleção `ComparativeBaselineSmoke` com os 5 cenários aprovada com 0 falhas; BUILD SUCCESS em 3 min 02 s |
+| Próxima implementação | 10D — ajustes e capacidade |
+| Pendências seguintes | 10D; Etapa 11 — entrega/hardening; Etapa 12 — gateway opcional |
 | Etapas posteriores | 10D — ajustes; 11 — entrega/hardening; 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b, a 10C1, a 10C2a, a 10C2b1, a 10C2b2a, a 10C2b2b1, a 10C2b2b2 e a 10C2b2b3 também estão implementadas abaixo. As divisões 10C3–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b, a 10C1, a 10C2a, a 10C2b1, a 10C2b2a, a 10C2b2b1, a 10C2b2b2, a 10C2b2b3 e a 10C3 também estão implementadas abaixo. As divisões 10D–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -711,15 +711,24 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 5. Implementar encaminhamento e exposição de portas via `Testcontainers.exposeHostPorts(...)` e `.withAccessToHost(true)` em `JointSignalsIT` e `DependencyMetricsFixture`, resolvendo a conectividade dos scrape jobs do Prometheus com serviços locais em containers Linux (CI).
 6. Consolidar os blocos `visibility` e `cursorQuery` no `summary.json`, comparando a visibilidade contra o limite máximo de 5000 ms (`targetPropagationMs = 5000`).
 
-[Operação](runbooks/medicao-auditoria-centralizada-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java), [evidência](evidencias/etapa-10c2b2b3.md). A 10C3 consolidará os cenários em runbook unificado.
+[Operação](runbooks/medicao-auditoria-centralizada-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/TokenBaselineSmoke.java), [evidência](evidencias/etapa-10c2b2b3.md). A 10C3 consolida os cenários em runbook unificado.
+
+## Etapa 10C3 — Consolidação e runbook unificado de carga
+
+1. Desenvolver o runner unificado [`Run-ComparativeBaseline.ps1`](../load-tests/jmeter/Run-ComparativeBaseline.ps1) que orquestra a execução comparativa sequencial dos cinco fluxos de carga (`issuance`, `introspection`, `resource`, `revocation` e `audit`).
+2. Padronizar parâmetros de concorrência (`Threads`), janelas móveis (`WindowSeconds`), durações de fase (`WarmupSeconds`, `SteadySeconds`, `CooldownSeconds`) e coleta de telemetria de processo IAM e containers Docker.
+3. Gerar relatórios consolidados unificados: matriz detalhada em `comparative-summary.json` e tabela sumarizada em `comparative-summary.csv`, além de preservar os subdiretórios individuais de cada fluxo.
+4. Implementar teste de integração automatizado opt-in [`ComparativeBaselineSmoke.java`](../integration-tests/src/test/java/com/securegate/e2e/ComparativeBaselineSmoke.java) executando ponta a ponta os cinco cenários sob Testcontainers e auditando ausência total de vazamento de segredos.
+5. Consolidar instruções no runbook unificado [`medicao-linha-base-unificada-local.md`](runbooks/medicao-linha-base-unificada-local.md).
+
+[Operação](runbooks/medicao-linha-base-unificada-local.md), [teste](../integration-tests/src/test/java/com/securegate/e2e/ComparativeBaselineSmoke.java), [evidência](evidencias/etapa-10c3.md). A 10D abordará investigação de capacidade e gargalos.
 
 ## Próximas divisões 10–12 — propostas, ainda pendentes
 
-As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B5b conclui a integração funcional local dos quatro exporters na coleta conjunta; a 10C1 valida o método de medição de emissão em janela curta, a 10C2a observa variação por janela, a 10C2b1 mede introspecção HTTP, a 10C2b2a coleta recursos das dependências durante carga, a 10C2b2b1 mede GET protegido, a 10C2b2b2 mede revogação e propagação e a 10C2b2b3 mede auditoria centralizada. O aceite global de observabilidade ainda deve explicitar os limites dos logs locais, sem renumerar entregas anteriores.
+As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. A 10B5b conclui a integração funcional local dos quatro exporters na coleta conjunta; a 10C1 valida o método de medição de emissão em janela curta, a 10C2a observa variação por janela, a 10C2b1 mede introspecção HTTP, a 10C2b2a coleta recursos das dependências durante carga, a 10C2b2b1 mede GET protegido, a 10C2b2b2 mede revogação e propagação, a 10C2b2b3 mede auditoria centralizada e a 10C3 consolida os cinco fluxos sob runner unificado. O aceite global de observabilidade ainda deve explicitar os limites dos logs locais, sem renumerar entregas anteriores.
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 10C3 — Consolidação | Consolidar os cinco fluxos de carga em runbook unificado e script de automação comparativa. | Runbook único com parâmetros e relatórios comparativos. |
 | 10D — Ajustes | Investigar gargalos → alterar configuração/código com evidência → repetir os cenários afetados. | Resultado antes/depois e limites de capacidade registrados. |
 | 11A — Imagens/stack | Criar imagens Java 21 sem root → perfil Compose full → probes e smoke em ambiente limpo. | Stack completa executável conforme guia. |
 | 11B — CI e release | Integrar scans/checks → versionar artefatos/imagens → definir publicação GHCR no fluxo de release. | Pipeline verificável, sem publicar imagens de PR como release. |

@@ -84,6 +84,8 @@ A 10C2b2b2 adiciona `-Scenario revocation` e um [plano dedicado](token-revocatio
 
 A 10C2b2b3 adiciona `-Scenario audit` e um [plano dedicado](audit-baseline.jmx) e [script sampler](audit-baseline.groovy). O cenário separa três unidades: produção (`audit.produce.call`), visibilidade assíncrona (`audit.visibility.observed`) e consulta paginada (`audit.cursor.query`). O relatório compara explicitamente o p95 de visibilidade com a meta de 5000 ms. Ver [procedimento e limites](../../docs/runbooks/medicao-auditoria-centralizada-local.md).
 
+A 10C3 consolida todos os cinco fluxos de carga no script unificado [Run-ComparativeBaseline.ps1](Run-ComparativeBaseline.ps1), permitindo execução sequencial com parâmetros consistentes e gerando `comparative-summary.json` e `comparative-summary.csv`. O teste [ComparativeBaselineSmoke](../../integration-tests/src/test/java/com/securegate/e2e/ComparativeBaselineSmoke.java) valida a suíte comparativa completa de forma automatizada. Ver [runbook unificado](../../docs/runbooks/medicao-linha-base-unificada-local.md) e [evidências 10C3](../../docs/evidencias/etapa-10c3.md).
+
 Ver [ADR-045](../../docs/adr/045-base-de-carga-jmeter.md), [evidências 10A1](../../docs/evidencias/etapa-10a1.md) e [guia passo a passo](../../docs/GUIA-DE-IMPLEMENTACAO.md).
 
 Referências técnicas: [execução CLI e relatório](https://jmeter.apache.org/usermanual/get-started.html), [persistência de amostras e propriedades](https://jmeter.apache.org/usermanual/listeners.html). Somente o comportamento efetivamente exercitado é declarado validado.
