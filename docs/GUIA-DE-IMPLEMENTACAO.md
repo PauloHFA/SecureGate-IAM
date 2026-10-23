@@ -6,18 +6,18 @@ Atualizado em 22/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 11C — Hardening e postura de segurança |
-| Base desta entrega | 9d80fcc — merge PR #16 (11B) |
-| Trabalho local | Alterações 11C validadas localmente na branch |
-| Branch | feat/security-hardening-asvs |
-| Validação da entrega | Threat Model STRIDE, matriz de conformidade OWASP ASVS v4.0.3 Nível 2, runbooks de hardening/proteção de branch e testes automatizados em `SecurityHardeningIT` |
-| Próxima implementação | 11D — Fechamento e Release v1.0.0 (instalação limpa, revisão final e tag v1.0.0) |
-| Pendências seguintes | 11D; Etapa 12 — gateway opcional |
-| Etapas posteriores | 11D; 12 — gateway opcional |
+| Última entrega implementada | 11D — Fechamento, aceite final e release v1.0.0 |
+| Base desta entrega | 7d9cf44 — merge PR #17 (11C) |
+| Trabalho local | Alterações 11D validadas localmente na branch |
+| Branch | feat/release-v1.0.0-closure |
+| Validação da entrega | Runbook de instalação limpa, relatório de aceite técnico final para v1.0.0, ADR-070 e validação via `CleanInstallReleaseIT` |
+| Próxima implementação | Etapa 12 — Gateway e Demonstração Opcional (12A, 12B, 12C) |
+| Pendências seguintes | Etapa 12 — gateway opcional |
+| Etapas posteriores | 12 — gateway opcional |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b, a 10C1, a 10C2a, a 10C2b1, a 10C2b2a, a 10C2b2b1, a 10C2b2b2, a 10C2b2b3, a 10C3, a 10D, a 11A, a 11B e a 11C também estão implementadas abaixo. As divisões restantes da Etapa 11D–12 são **propostas para organizar trabalho ainda pendente**; não representam funcionalidades implementadas. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b, a 10C1, a 10C2a, a 10C2b1, a 10C2b2a, a 10C2b2b1, a 10C2b2b2, a 10C2b2b3, a 10C3, a 10D, a 11A, a 11B, a 11C e a 11D também estão implementadas abaixo. A Etapa 12 é **proposta para organizar trabalho opcional posterior**; não bloqueia o núcleo v1.0.0. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -763,15 +763,24 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 4. Formalizar a política de proteção da branch `main` ([`docs/runbooks/protecao-branch-main.md`](../runbooks/protecao-branch-main.md)) com 4 status checks obrigatórios (`Maven verify`, `CodeQL`, `Trivy scan`, `GitGuardian`), linearidade de histórico e proibição de force push.
 5. Implementar suíte de testes automatizados de conformidade estrutural e segurança [`SecurityHardeningIT.java`](../integration-tests/src/test/java/com/securegate/e2e/SecurityHardeningIT.java).
 
-[Operação](runbooks/hardening-e-postura-de-seguranca.md), [ADR](adr/069-hardening-postura-de-seguranca-e-asvs.md), [evidência](evidencias/etapa-11c.md). A 11D abordará o fechamento da v1.0.0 (instalação limpa, revisão documental e tag de release).
+[Operação](runbooks/hardening-e-postura-de-seguranca.md), [ADR](adr/069-hardening-postura-de-seguranca-e-asvs.md), [evidência](evidencias/etapa-11c.md). Conclui a Etapa 11C.
 
-## Próximas divisões 11–12 — propostas, ainda pendentes
+## Etapa 11D — Fechamento e release v1.0.0: Instalação limpa, aceite técnico e tag de release
 
-As metas e o escopo principal continuam no plano. As divisões abaixo são uma proposta de sequência, sujeita a ajuste documentado conforme os resultados. As etapas 10A–10D concluem a medição de carga, a 11A–11C concluem o empacotamento em containers, esteira de integridade e hardening de segurança.
+1. Elaborar o runbook operacional de instalação limpa (*cold start*) e procedimento de release ([`docs/runbooks/instalacao-limpa-e-release-v1.md`](../runbooks/instalacao-limpa-e-release-v1.md)), padronizando os comandos Docker Compose sob o perfil `full` e execução do smoke test da stack completa.
+2. Emitir o relatório formal de aceite técnico final para a versão estável **`v1.0.0`** ([`docs/relatorios/aceite-final-v1.0.0.md`](../relatorios/aceite-final-v1.0.0.md)), consolidando 100% de conformidade dos requisitos mandatórios das Etapas 0 a 11.
+3. Formalizar a decisão de homologação e encerramento da versão estável na [ADR-070](adr/070-fechamento-aceite-final-e-release-v1.md).
+4. Implementar testes automatizados de governança e validação de contratos de release e instalação limpa [`CleanInstallReleaseIT.java`](../integration-tests/src/test/java/com/securegate/e2e/CleanInstallReleaseIT.java).
+5. Estabelecer o procedimento de tagueamento com a tag oficial `v1.0.0` para acionar a publicação no GitHub Container Registry (`ghcr.io`).
+
+[Operação](runbooks/instalacao-limpa-e-release-v1.md), [Relatório](relatorios/aceite-final-v1.0.0.md), [ADR](adr/070-fechamento-aceite-final-e-release-v1.md), [evidência](evidencias/etapa-11d.md). Conclui a Etapa 11 e o núcleo da versão `v1.0.0`. A Etapa 12 abordará o Gateway opcional e a demonstração ponta a ponta.
+
+## Próximas divisões — Etapa 12: Gateway e demonstração opcional
+
+As metas e o escopo principal continuam no plano. As etapas 0 a 11 concluem formalmente a versão estável `v1.0.0`. As divisões abaixo são uma proposta de sequência opcional para extensões e materiais demonstrativos:
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 11D — Fechamento v1 | Reproduzir instalação limpa → revisar documentação/evidências → preparar release após aceite. | Critérios da v1 atendidos e revisão/publicação registradas quando ocorrerem. |
 | 12A — Gateway opcional | Mapear rotas → validar JWT → aplicar revogação/políticas → definir falhas de dependências. | Gateway testado sem reduzir controles dos recursos. |
 | 12B — Jornada demonstrável | Reproduzir login/acesso/evento suspeito/bloqueio/negação → preparar coleção de API. | Demonstração repetível com dados sintéticos. |
 | 12C — Materiais finais | Atualizar diagramas/ADRs → registrar demonstração → consolidar instruções. | Materiais coerentes com o comportamento implementado. |
