@@ -175,6 +175,35 @@ services:
       ENFORCER_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Execute Initialize-Local.ps1}
     restart: unless-stopped
 
+  api-gateway:
+    container_name: securegate-gateway
+    profiles: [full, gateway]
+    build:
+      context: ..
+      dockerfile: api-gateway/Dockerfile
+    image: securegate/api-gateway:0.1.0-snapshot
+    ports:
+      - "8082:8082"
+    depends_on:
+      redis:
+        condition: service_healthy
+      iam-core:
+        condition: service_healthy
+    environment:
+      PORT: 8082
+      IAM_CORE_URI: http://iam-core:8080
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?Execute Initialize-Local.ps1}
+      SECUREGATE_GATEWAY_FAIL_CLOSED: "true"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health/readiness"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   redis-data:

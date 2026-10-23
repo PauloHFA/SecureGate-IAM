@@ -6,18 +6,18 @@ Atualizado em 22/10/2026. Este guia consolida a sequência de construção, as r
 
 | Item | Situação registrada |
 | --- | --- |
-| Última entrega implementada | 11D — Fechamento, aceite final e release v1.0.0 |
-| Base desta entrega | 7d9cf44 — merge PR #17 (11C) |
-| Trabalho local | Alterações 11D validadas localmente na branch |
-| Branch | feat/release-v1.0.0-closure |
-| Validação da entrega | Runbook de instalação limpa, relatório de aceite técnico final para v1.0.0, ADR-070 e validação via `CleanInstallReleaseIT` |
-| Próxima implementação | Etapa 12 — Gateway e Demonstração Opcional (12A, 12B, 12C) |
-| Pendências seguintes | Etapa 12 — gateway opcional |
-| Etapas posteriores | 12 — gateway opcional |
+| Última entrega implementada | 12A — Gateway opcional e roteamento de borda com validação Redis |
+| Base desta entrega | 1fbe8dc — merge PR #18 (11D) |
+| Trabalho local | Alterações 12A validadas localmente na branch |
+| Branch | feat/api-gateway-route-policies |
+| Validação da entrega | Módulo `api-gateway` reativo com Spring Cloud Gateway, filtro de revogação de borda `TokenRevocationGatewayFilter`, postura fail-closed e testes em `TokenRevocationGatewayFilterTest` e `ApiGatewayIT` |
+| Próxima implementação | 12B — Jornada demonstrável ponta a ponta e coleção de APIs |
+| Pendências seguintes | 12B; 12C — materiais finais |
+| Etapas posteriores | 12B–12C |
 
 Os estados de publicação/CI estão no plano e nas evidências históricas; não houve consulta ao GitHub nesta revisão. Implementação local, commit, push, CI aprovada e merge são marcos distintos. Um teste local aprovado não comprova publicação, merge, implantação ou configuração da stack persistente.
 
-As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b, a 10C1, a 10C2a, a 10C2b1, a 10C2b2a, a 10C2b2b1, a 10C2b2b2, a 10C2b2b3, a 10C3, a 10D, a 11A, a 11B, a 11C e a 11D também estão implementadas abaixo. A Etapa 12 é **proposta para organizar trabalho opcional posterior**; não bloqueia o núcleo v1.0.0. Não renumerar entregas históricas quando surgir uma nova divisão.
+As seções 0–9, incluindo 9A3, 9C3 e a revisão 9D, abaixo descrevem entregas executadas. A 10A1, a 10A2a, a 10A2b1–3, a 10B1, a 10B2a, a 10B2b1, a 10B2b2a, a 10B2b2b, a 10B2b2c, a 10B2b2d, a 10B3a, a 10B3b1, a 10B3b2, a 10B3c1, a 10B3c2, a 10B3c3a, a 10B3c3b, a 10B4a, a 10B4b, a 10B4c, a 10B5a, a 10B5b, a 10C1, a 10C2a, a 10C2b1, a 10C2b2a, a 10C2b2b1, a 10C2b2b2, a 10C2b2b3, a 10C3, a 10D, a 11A, a 11B, a 11C, a 11D e a 12A também estão implementadas abaixo. As subdivisões 12B e 12C organizam o encerramento demonstrativo final. Não renumerar entregas históricas quando surgir uma nova divisão.
 
 ## Como usar e manter este registro
 
@@ -773,15 +773,23 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 4. Implementar testes automatizados de governança e validação de contratos de release e instalação limpa [`CleanInstallReleaseIT.java`](../integration-tests/src/test/java/com/securegate/e2e/CleanInstallReleaseIT.java).
 5. Estabelecer o procedimento de tagueamento com a tag oficial `v1.0.0` para acionar a publicação no GitHub Container Registry (`ghcr.io`).
 
-[Operação](runbooks/instalacao-limpa-e-release-v1.md), [Relatório](relatorios/aceite-final-v1.0.0.md), [ADR](adr/070-fechamento-aceite-final-e-release-v1.md), [evidência](evidencias/etapa-11d.md). Conclui a Etapa 11 e o núcleo da versão `v1.0.0`. A Etapa 12 abordará o Gateway opcional e a demonstração ponta a ponta.
+[Operação](runbooks/instalacao-limpa-e-release-v1.md), [Relatório](relatorios/aceite-final-v1.0.0.md), [ADR](adr/070-fechamento-aceite-final-e-release-v1.md), [evidência](evidencias/etapa-11d.md). Conclui a Etapa 11 e o núcleo da versão `v1.0.0`.
 
-## Próximas divisões — Etapa 12: Gateway e demonstração opcional
+## Etapa 12A — Gateway opcional: Mapeamento de rotas, validação de revogação e postura fail-closed
 
-As metas e o escopo principal continuam no plano. As etapas 0 a 11 concluem formalmente a versão estável `v1.0.0`. As divisões abaixo são uma proposta de sequência opcional para extensões e materiais demonstrativos:
+1. Implementar o microsserviço reativo **`api-gateway`** ([`api-gateway/pom.xml`](../api-gateway/pom.xml)) baseado em Spring Cloud Gateway com suporte a I/O não bloqueante e Project Reactor.
+2. Configurar o catálogo de rotas de borda ([`application.yml`](../api-gateway/src/main/resources/application.yml)) separando tráfego de autenticação/metadados (`/.well-known/**`, `/oauth2/**`, `/login/**`), rotas administrativas (`/api/admin/**`) e rotas de recursos protegidos (`/api/resources/**`, `/api/pam/**`).
+3. Desenvolver o filtro global de borda [`TokenRevocationGatewayFilter.java`](../api-gateway/src/main/java/com/securegate/gateway/TokenRevocationGatewayFilter.java), extraindo claims (`jti`, `sid`, `sub`) e consultando em tempo real as projeções Redis de revogação (`SecurityProjectionKeys`).
+4. Implementar a política segura *Fail-Closed*: em caso de timeout ou indisponibilidade de rede com o Redis, o Gateway recusa requisições para rotas protegidas emitindo `HTTP 503 Service Unavailable` em conformidade com RFC 7807 (Problem Details).
+5. Criar o Dockerfile multi-stage Java 21 non-root ([`api-gateway/Dockerfile`](../api-gateway/Dockerfile)) e integrá-lo ao `infra/docker-compose.yml` sob os perfis `gateway` e `full`.
+6. Validar com testes unitários ([`TokenRevocationGatewayFilterTest.java`](../api-gateway/src/test/java/com/securegate/gateway/TokenRevocationGatewayFilterTest.java)) e testes de integração de governança ([`ApiGatewayIT.java`](../integration-tests/src/test/java/com/securegate/e2e/ApiGatewayIT.java)).
+
+[Operação](runbooks/api-gateway-local.md), [ADR](adr/071-api-gateway-e-politicas-por-rota.md), [evidência](evidencias/etapa-12a.md). A 12B abordará a jornada demonstrável ponta a ponta e coleção de APIs.
+
+## Próximas divisões — Etapa 12: Jornada demonstrável e materiais finais
 
 | Proposta | Passos previstos | Saída verificável |
 | --- | --- | --- |
-| 12A — Gateway opcional | Mapear rotas → validar JWT → aplicar revogação/políticas → definir falhas de dependências. | Gateway testado sem reduzir controles dos recursos. |
 | 12B — Jornada demonstrável | Reproduzir login/acesso/evento suspeito/bloqueio/negação → preparar coleção de API. | Demonstração repetível com dados sintéticos. |
 | 12C — Materiais finais | Atualizar diagramas/ADRs → registrar demonstração → consolidar instruções. | Materiais coerentes com o comportamento implementado. |
 
