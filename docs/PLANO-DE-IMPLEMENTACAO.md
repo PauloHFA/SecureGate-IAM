@@ -318,9 +318,9 @@ A **10B2b2d** implementa overlay que restringe o listener dev anônimo ao contai
 
 ## Etapa 11 — Entrega e hardening
 
-- [ ] Criar imagens multi-stage Java 21 com usuário sem privilégios e versões fixadas.
-- [ ] Adicionar perfil Compose `full`, probes e dependências saudáveis.
-- [ ] Criar smoke test da stack com saúde, discovery e JWKS.
+- [x] Criar imagens multi-stage Java 21 com usuário sem privilégios e versões fixadas.
+- [x] Adicionar perfil Compose `full`, probes e dependências saudáveis.
+- [x] Criar smoke test da stack com saúde, discovery e JWKS.
 - [ ] Completar CI com dependências, CodeQL, cobertura e scan de imagens.
 - [ ] Publicar imagens versionadas no GHCR no fluxo de release, sem publicação de PR.
 - [ ] Documentar TLS, CORS, cabeçalhos, limites, mascaramento de logs e segredos.
@@ -410,3 +410,5 @@ A **10C2b2b3** separa a medição de auditoria centralizada: mede a produção e
 A **10C3** consolida as medições de carga em uma automação comparativa unificada via `Run-ComparativeBaseline.ps1`, integrando os cinco cenários operacionais (`issuance`, `introspection`, `resource`, `revocation` e `audit`) sob parâmetros consistentes de duração, concorrência, janelas móveis e telemetria de processo e containers. A automação gera os relatórios consolidados `comparative-summary.json` e `comparative-summary.csv`, além dos dashboards individuais de cada fluxo. O teste opt-in `ComparativeBaselineSmoke` valida a execução ponta a ponta dos cinco fluxos com zero falhas e ausência de vazamento de credenciais. [Operação](runbooks/medicao-linha-base-unificada-local.md), [evidência](evidencias/etapa-10c3.md).
 
 A **10D** conclui a Etapa 10 com a investigação matemática e empírica de capacidade baseada na Lei de Little ($N = X \cdot (R + Z)$), demonstrando formalmente a distinção entre concorrência de usuários virtuais e taxa efetiva de requisições por segundo. Identifica e sintoniza os gargalos arquiteturais: torna configuráveis em tempo de execução o semáforo de assinatura criptográfica Vault Transit (`IAM_TRANSIT_MAX_CONCURRENT_REQUESTS`) e o pool de conexões com banco de dados (`IAM_DATABASE_HIKARI_MAX_POOL_SIZE` e `IAM_DATABASE_HIKARI_CONNECTION_TIMEOUT`), preservando estritamente os padrões anteriores. Acrescenta suporte à geração de Dashboards HTML nativos do JMeter via `-GenerateDashboard`, relatórios executivos visuais consolidados (`comparative-report.html` e `capacity-investigation-report.html`), runner de concorrência escalonada `Run-CapacityInvestigation.ps1` e validação descartável `CapacityInvestigationSmoke`. [Operação](runbooks/investigacao-capacidade-e-ajustes.md), [ADR](adr/066-investigacao-capacidade-e-ajustes.md), [evidência](evidencias/etapa-10d.md). Etapa 10 finalizada; próxima fase é a **Etapa 11 (Entrega e hardening)**.
+
+A **11A** inicia a Etapa 11 entregando os Dockerfiles *multi-stage* oficiais em Java 21 para `iam-core` e `policy-enforcer` (`eclipse-temurin:21-jdk-alpine` builder e `eclipse-temurin:21-jre-alpine` runtime), executando com usuário sem privilégios (`securegate`, UID/GID 10001), limites de memória cgroup da JVM (`-XX:+UseContainerSupport`, `-XX:MaxRAMPercentage=75.0`), healthchecks declarados de readiness e `.dockerignore` sanitizado. Adiciona o perfil `full` ao `infra/docker-compose.yml` para orquestração da stack completa com ordem de prontidão gerenciada via healthchecks e montagem segura de credenciais. Fornece o runner de smoke da stack completa `Test-FullStack.ps1` e a verificação automatizada de contratos e especificações de container `FullStackSmokeIT`. [Operação](runbooks/stack-completa-local.md), [ADR](adr/067-imagens-multi-stage-e-perfil-full.md), [evidência](evidencias/etapa-11a.md). A próxima subdivisão é a **11B (CI, CodeQL, scans e release GHCR)**.

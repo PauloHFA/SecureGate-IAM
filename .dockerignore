@@ -1,0 +1,9 @@
+.git
+.github
+.vscode
+.firecrawl
+target/
+**/target/
+load-tests/.local/
+infra/.local/
+*.log
