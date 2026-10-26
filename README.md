@@ -1,5 +1,8 @@
 # SecureGate IAM
 
+> **Status do Projeto: 100% Concluído e Homologado (Versão 1.0.0 + Gateway de Borda)**  
+> Todas as 13 etapas do Roadmap (Etapas 0 a 12C), 73 ADRs, relatórios técnicos, matriz OWASP ASVS v4.0.3 Nível 2 e suíte completa de testes de governança e CI/CD aprovados no GitHub.
+
 Plataforma de identidade e acesso baseada em Zero Trust, com provisionamento, OAuth/OIDC, políticas contextuais, eventos de segurança e auditoria.
 
 Documentação: [índice](docs/README.md), [implementação passo a passo e subdivisões](docs/GUIA-DE-IMPLEMENTACAO.md) e [plano com critérios de aceite](docs/PLANO-DE-IMPLEMENTACAO.md).
