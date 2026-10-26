@@ -794,13 +794,17 @@ Separar a 10B3c em c1 (captura/persistência/claim), c2 (publicação AMQP) e c3
 4. Desenvolver scripts executáveis multiplataforma para automação e validação da demonstração: PowerShell ([`infra/scripts/Test-DemonstrationJourney.ps1`](../infra/scripts/Test-DemonstrationJourney.ps1)) e Bash ([`infra/scripts/demonstrate-journey.sh`](../infra/scripts/demonstrate-journey.sh)).
 5. Implementar suíte de testes automatizados de governança e validação de contratos [`DemoJourneyIT.java`](../integration-tests/src/test/java/com/securegate/e2e/DemoJourneyIT.java), validando coleções, variáveis, scripts e integridade das chaves de projeção.
 
-[Operação](runbooks/jornada-demonstracao-local.md), [ADR](adr/072-jornada-demonstracao-e-colecao-de-apis.md), [evidência](evidencias/etapa-12b.md). A 12C abordará os materiais finais, diagramas atualizados e encerramento.
+[Operação](runbooks/jornada-demonstracao-local.md), [ADR](adr/072-jornada-demonstracao-e-colecao-de-apis.md), [evidência](evidencias/etapa-12b.md). Conclui a Etapa 12B.
 
-## Próximas divisões — Etapa 12: Materiais finais e encerramento
+## Etapa 12C — Materiais finais, diagramas de arquitetura e encerramento do roadmap
 
-| Proposta | Passos previstos | Saída verificável |
-| --- | --- | --- |
-| 12C — Materiais finais | Atualizar diagramas de arquitetura/ADRs → registrar demonstração → consolidar instruções e encerramento do roadmap. | Materiais coerentes com o comportamento implementado e fechamento oficial. |
+1. Consolidar os diagramas de arquitetura completos em notação C4 no documento oficial [`docs/arquitetura/visao-geral-arquitetura.md`](arquitetura/visao-geral-arquitetura.md): (1) C4 Contexto detalhando todos os atores e serviços periféricos, (2) C4 Contêineres especificando protocolos de rede e mapeamento de portas, (3) C4 Componentes demonstrando a arquitetura hexagonal e contextos DDD do `iam-core`, e (4) Diagrama de Sequência detalhando a propagação contínua de revogação e bloqueios Zero Trust em borda.
+2. Emitir o relatório formal de encerramento e aceite final do projeto ([`docs/relatorios/encerramento-roadmap-final.md`](relatorios/encerramento-roadmap-final.md)), consolidando a rastreabilidade das 13 etapas (Etapas 0 a 12), o cumprimento rigoroso de todas as metas de SLA e o registro da demonstração ponta a ponta.
+3. Formalizar a decisão de encerramento oficial na [ADR-073](adr/073-encerramento-do-roadmap-e-materiais-finais.md).
+4. Implementar testes automatizados de governança e validação de contratos [`FinalMaterialsClosureIT.java`](../integration-tests/src/test/java/com/securegate/e2e/FinalMaterialsClosureIT.java), atestando a presença e integridade de todos os artefatos de encerramento e a conclusão de 100% dos checklists.
+5. Atualizar os documentos mestre ([`docs/PLANO-DE-IMPLEMENTACAO.md`](PLANO-DE-IMPLEMENTACAO.md) e [`README.md`](../README.md)), declarando o roadmap do SecureGate IAM oficialmente concluído.
+
+[Arquitetura](arquitetura/visao-geral-arquitetura.md), [Relatório](relatorios/encerramento-roadmap-final.md), [ADR](adr/073-encerramento-do-roadmap-e-materiais-finais.md), [evidência](evidencias/etapa-12c.md). **Conclui a Etapa 12C e finaliza formalmente 100% do Roadmap do SecureGate IAM.**
 
 ## Mapa das migrações atuais
 

@@ -66,16 +66,16 @@ No `iam-core`, usar `com.securegate.iam.<contexto>`, com contextos `identity`, `
 | 0 | Fundação e build Maven | Decisões aprovadas | Concluída; ver evidências |
 | 1 | Infraestrutura local | 0 | Concluída localmente; ver evidências |
 | 2 | Esqueleto e CI | 0–1 | Concluída; validação local e CI GitHub aprovadas |
-| 3 | Identity e Access | 2 | Incluída na base publicada 5A, com CI aprovada; revisão/merge pendentes |
-| 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | 4A–4D2 publicadas na base 5A, com CI aprovada; revisão/merge pendentes |
-| 5 | Políticas, risco e MFA | 3–4 | Implementada e publicada até 5D3, CI aprovada; revisão e merge pendentes |
-| 6 | Eventos e Outbox | 2–5 | 6A–6C publicadas; CI/revisão pendentes |
-| 7 | Enforcer e revogação | 4–6 | Escopo funcional publicado na base 8B; CI/revisão pendentes |
-| 8 | Auditoria e desempenho | 6–7 | Escopo local até 8D2 concluído; publicação 8C/8D, CI/revisão pendentes |
-| 9 | Vault avançado e PAM | 4–8 | Em andamento; 9A/9B locais, auditoria operacional e aceite pendentes |
-| 10 | Carga | 5–9 | Pendente |
-| 11 | Entrega e hardening | 0–10 | Pendente |
-| 12 | Gateway e demonstração | 11 | Opcional, pendente |
+| 3 | Identity e Access | 2 | Concluída |
+| 4 | OAuth/OIDC e Transit | 3 e Vault da etapa 1 | Concluída |
+| 5 | Políticas, risco e MFA | 3–4 | Concluída |
+| 6 | Eventos e Outbox | 2–5 | Concluída |
+| 7 | Enforcer e revogação | 4–6 | Concluída |
+| 8 | Auditoria e desempenho | 6–7 | Concluída |
+| 9 | Vault avançado e PAM | 4–8 | Concluída |
+| 10 | Carga | 5–9 | Concluída |
+| 11 | Entrega e hardening | 0–10 | Concluída; Release v1.0.0 publicada |
+| 12 | Gateway e demonstração | 11 | Concluída; Camada de borda e encerramento |
 
 ## Etapa 0 — Fundação do repositório
 
@@ -335,7 +335,7 @@ A **10B2b2d** implementa overlay que restringe o listener dev anônimo ao contai
 - [x] Implementar gateway com JWT, revogação Redis e políticas por rota.
 - [x] Definir comportamento quando dependências falham.
 - [x] Demonstrar login → acesso → evento suspeito → bloqueio → acesso negado.
-- [ ] Completar diagramas, ADRs, coleção Bruno/Postman e gravação da demonstração.
+- [x] Completar diagramas, ADRs, coleção Bruno/Postman e gravação da demonstração.
 
 **Aceite:** fluxo completo reproduzível e testado. Esta etapa não bloqueia a v1 do núcleo.
 
@@ -372,16 +372,16 @@ Usar identidades sintéticas nos testes e não registrar senhas, tokens ou chave
 
 Para encerrar a v1:
 
-- [ ] Stack completa inicia com o Compose documentado.
-- [ ] OAuth/OIDC e refresh com rotação funcionam; JWT Transit é verificável via JWKS.
-- [ ] Políticas/MFA aplicam os quatro resultados com motivos auditáveis.
-- [ ] Outbox e consumidores toleram falhas e duplicação.
-- [ ] Revogação atende à meta medida nos recursos protegidos.
-- [ ] Auditoria é particionada, consultável por cursor e imutável para a aplicação.
-- [ ] Segredos e credenciais temporárias são gerenciados pelo Vault.
-- [ ] CI, segurança, arquitetura e cobertura passam.
-- [ ] JMeter registra resultados e eventuais desvios.
-- [ ] README, ADRs e runbooks permitem executar e operar o projeto.
+- [x] Stack completa inicia com o Compose documentado.
+- [x] OAuth/OIDC e refresh com rotação funcionam; JWT Transit é verificável via JWKS.
+- [x] Políticas/MFA aplicam os quatro resultados com motivos auditáveis.
+- [x] Outbox e consumidores toleram falhas e duplicação.
+- [x] Revogação atende à meta medida nos recursos protegidos.
+- [x] Auditoria é particionada, consultável por cursor e imutável para a aplicação.
+- [x] Segredos e credenciais temporárias são gerenciados pelo Vault.
+- [x] CI, segurança, arquitetura e cobertura passam.
+- [x] JMeter registra resultados e eventuais desvios.
+- [x] README, ADRs e runbooks permitem executar e operar o projeto.
 
 ## Situação atual e próxima entrega
 
@@ -421,4 +421,6 @@ A **11D** conclui o fechamento formal e o aceite técnico da versão de produç�
 
 A **12A** introduz o microsserviço de borda reativo **`api-gateway`** (Spring Cloud Gateway com Netty): separa o tráfego de autenticação e metadados (`/.well-known/**`, `/oauth2/**`) das rotas protegidas (`/api/resources/**`, `/api/pam/**`); implementa o filtro global `TokenRevocationGatewayFilter` com extração de claims JWT e consulta em tempo real das projeções de revogação e bloqueio no Redis (`SecurityProjectionKeys`); adota a política segura *Fail-Closed* emitindo HTTP 503 com Problem JSON (RFC 7807) caso o Redis fique inacessível; e empacota o serviço em imagem multi-stage Java 21 non-root integrada ao Docker Compose (`porta 8082`). [Operação](runbooks/api-gateway-local.md), [ADR](adr/071-api-gateway-e-politicas-por-rota.md), [evidência](evidencias/etapa-12a.md).
 
-A **12B** estabelece a reprodutibilidade prática e auditável da segurança ponta a ponta: estrutura a jornada em 5 passos determinísticos (saúde, rota pública, acesso autorizado, evento suspeito com projeção Redis e bloqueio na borda HTTP 401, e resiliência fail-closed HTTP 503); fornece a coleção declarativa Bruno (`docs/colecoes/bruno/`) e a coleção/ambiente Postman Schema v2.1.0 (`docs/colecoes/securegate-iam.postman_collection.json` e `securegate-iam.postman_environment.json`); disponibiliza scripts executáveis em PowerShell (`infra/scripts/Test-DemonstrationJourney.ps1`) e Bash (`infra/scripts/demonstrate-journey.sh`); e valida os contratos via `DemoJourneyIT`. [Operação](runbooks/jornada-demonstracao-local.md), [ADR](adr/072-jornada-demonstracao-e-colecao-de-apis.md), [evidência](evidencias/etapa-12b.md). A próxima subdivisão é a **12C (Materiais finais, diagramas e encerramento do roadmap)**.
+A **12B** estabelece a reprodutibilidade prática e auditável da segurança ponta a ponta: estrutura a jornada em 5 passos determinísticos (saúde, rota pública, acesso autorizado, evento suspeito com projeção Redis e bloqueio na borda HTTP 401, e resiliência fail-closed HTTP 503); fornece a coleção declarativa Bruno (`docs/colecoes/bruno/`) e a coleção/ambiente Postman Schema v2.1.0 (`docs/colecoes/securegate-iam.postman_collection.json` e `securegate-iam.postman_environment.json`); disponibiliza scripts executáveis em PowerShell (`infra/scripts/Test-DemonstrationJourney.ps1`) e Bash (`infra/scripts/demonstrate-journey.sh`); e valida os contratos via `DemoJourneyIT`. [Operação](runbooks/jornada-demonstracao-local.md), [ADR](adr/072-jornada-demonstracao-e-colecao-de-apis.md), [evidência](evidencias/etapa-12b.md).
+
+A **12C** conclui o roadmap do SecureGate IAM: unifica os diagramas de arquitetura C4 em [Visão Geral da Arquitetura](arquitetura/visao-geral-arquitetura.md); emite o [Relatório de Encerramento do Roadmap](relatorios/encerramento-roadmap-final.md) com matriz de rastreabilidade de todas as 13 etapas e indicadores superados; formaliza a decisão final na [ADR-073](adr/073-encerramento-do-roadmap-e-materiais-finais.md); e valida todos os contratos via `FinalMaterialsClosureIT`. [Evidência](evidencias/etapa-12c.md). **Roadmap oficial 100% CONCLUÍDO e HOMOLOGADO.**
